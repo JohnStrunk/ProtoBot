@@ -2,6 +2,16 @@
 
 > Design document — draft, July 2026
 
+**Contents:**
+
+- [Interactive phase](#interactive-phase)
+- [Specification storage](#specification-storage)
+- [Building phase](#building-phase)
+- [Inspecting phase](#inspecting-phase)
+- [Compliance](#compliance)
+- [Interface specifications](#interface-specifications)
+- [Related Documents](#related-documents)
+
 Questions that are not yet resolved. Updated as decisions are made.
 
 ---
@@ -29,14 +39,22 @@ Questions that are not yet resolved. Updated as decisions are made.
 4. **IdeaBot handoff format** — The handoff mechanism is decided
    (manual: IdeaBot artifacts seed the initial Sketching session;
    automated integration later). Remaining question: how much of the
-   Vision/Architecture can be pre-populated from IdeaBot's output?
+    Vision/Architecture can be pre-populated from IdeaBot's output?
+
+5. **Kit package and future capabilities** — Kits are versioned imports;
+   their currently understood contents are proposed EARS/interfaces and
+   Inspector definitions. Exact package/signature/dependency format and
+   whether experience justifies skills, build/test conventions, projection
+   defaults, mutation operators, or internal test controls remain open.
+   See [Kits](components.md#kits).
 
 ### Specification storage
 
 7. **Requirements storage format** — JSONL is tentatively chosen for
    git-friendliness, but only works if requirements are independent
-   records. Need to evaluate whether cross-references or hierarchy
-   make a different format necessary. `ears-manager` abstracts the
+   records. Need to evaluate whether cross-references and immutable
+   change-set history make a different format necessary.
+   `ears-manager` abstracts the
    format, so this can be deferred. See the detailed note in
    [Phase 2](user-interaction-flow.md#phase-2-dimensioning).
 
@@ -46,25 +64,27 @@ Questions that are not yet resolved. Updated as decisions are made.
    runnable artifact (container, listening API, executable CLI) before
    Worker A's tests can run. The merge step needs build/start
    orchestration, not just file concatenation. See
-   [Phase 3](user-interaction-flow.md#phase-3-building-autonomous).
+    [Phase 3](user-interaction-flow.md#phase-3-building-autonomous).
 
 9. **Isolated vs. implementation-aware tests** — A three-category
-   taxonomy is established: (1) isolated interface tests (default,
-   dual-model isolation holds), (2) implementation-aware tests (DI /
-   mock time, isolation breaks), (3) mutation testing (hidden audit).
-   Remaining questions: what fraction of requirements fall into
-   category 2? How do we decide which category a requirement falls
-   into? How do we mitigate oracle gaming for category 2? See
+    taxonomy is established: (1) isolated interface tests (default,
+    dual-model isolation holds), (2) implementation-aware tests generated
+    by a separate read-only-code/test-only Worker, and (3) mutation
+    testing (hidden audit). Requirement metadata records the mode and
+    rationale; implementation-aware tests require isolated coverage where
+    possible plus independent Test Completeness, Spec Conformance, and
+    mutation gates. Remaining questions: what fraction of requirements
+    require category 2, and which project types need standard internal
+    test-control interfaces? See
    [Phase 3](user-interaction-flow.md#phase-3-building-autonomous).
 
-10. **Mutation testing triage oracle** — A surviving mutant tells us
-    "a test didn't catch this change" but not *why* (equivalent
-    mutant, weak tests, or unspecified behavior). Distinguishing the
-    three cases requires knowing whether the mutated program still
-    conforms to the spec — the very oracle we lack. Mutation testing
-    is still valuable as a coverage signal in aggregate, but how do
-    we triage individual mutants at scale? Inspector agent heuristics?
-    Human review? Accept that some mutants are noise? See
+10. **Mutation scale and operator policy** — Inspector-only disposition
+    is decided: `test-gap` must be killed, `spec-gap` blocks for
+    Dimensioning, and `equivalent`/`tooling-invalid` require independent
+    confirmation; no score or accepted-risk bypass exists. Remaining
+    questions: which operators run per language, how are expensive
+    mutants sampled or scheduled, what are Inspector retry budgets, and
+    when is an operator version globally quarantined? See
     [Phase 3](user-interaction-flow.md#phase-3-building-autonomous).
 
 15. **Phase 3 triage mechanism** — When tests fail after merging
@@ -73,27 +93,39 @@ Questions that are not yet resolved. Updated as decisions are made.
     identified: another agent, a heuristic, or a hybrid. Forge's
     pattern (self-review 2 passes → CI fix loop 5 retries → AI
     review → human gate) is a concrete reference. The triage
-    mechanism has access to both Workers' outputs, which is a tension
-    with the isolation model. See
+    mechanism has access to both Workers' outputs inside the private
+    integration environment, but a decided sanitizer restricts Worker
+    feedback to status, fault class, requirement-level reasons, and
+    recipient-owned diagnostics. The remaining question is how the
+    triage decision itself is made. See
     [Phase 3](user-interaction-flow.md#phase-3-building-autonomous)
     and [Forge](related-work.md#forge-red-hat-israel--openstackshift-on-stack).
 
-19. **Worker discovery of applicable existing requirements** —
-    Workers must consider not just the requirements on the current
-    work item but also existing requirements whose scope covers the
-    work being done (ongoing obligations — e.g., "All CLI
-    subcommands shall provide `--help`"). `ears-manager list` supports
-    filtering by EARS pattern type (`--pattern ubiquitous`) and by
-    interface (`--interface cli`), which gives Workers a concrete
-    mechanism: pull all ubiquitous and state-driven requirements for
-    the interfaces the work item touches as likely candidates for
-    follow-up. Remaining question: is this filter-based approach
-    sufficient, or does the Worker also need to evaluate
-    event-driven and optional-feature requirements for applicability?
-    How much of this discovery should be mechanical (in the
-    Specification Toolkit or `ears-manager`) vs. left to the Worker
-    agent's judgment? See
+19. **Applicability metadata and semantic impact coverage** — Change
+    sets now distinguish changed requirements from applicable unchanged
+    requirements. Every requirement has at least one machine-queryable
+    applicability selector. Most name interfaces; project-wide and
+    environmental requirements use an explicit project selector.
+    Optional narrower scope selectors and explicit relationships improve
+    precision.
+    `ears-manager impact` mechanically generates conservative
+    candidates, the Dimensioning agent supplements them semantically,
+    and the user records reviewed applicable/not-applicable dispositions
+    with the changed set. The minimum relationship vocabulary is decided:
+    `depends-on`, `conflicts-with`, `supersedes`, and `related-to`.
+    Remaining questions: what controlled vocabulary or selector model
+    expresses capability/resource scope, which additional domain-specific
+    relationships prove necessary, and how do evals measure obligations
+    missed by semantic impact analysis?
+    See
     [ongoing obligations](user-interaction-flow.md#ongoing-obligations).
+
+20. **Latest-conformance derived view** — Evidence fields and storage
+    boundaries are decided: repo-resident artifacts bind requirement,
+    specification, tested candidate, and supporting evidence; the WMS
+    completion envelope adds the resulting merge commit. How should a
+    convenient "latest known conformance" index be derived, cached, and
+    invalidated without turning it back into mutable requirement state?
 
 ### Inspecting phase
 
@@ -107,18 +139,19 @@ Questions that are not yet resolved. Updated as decisions are made.
 12. **Inspector roster per project type** — Not every Inspector is
     relevant for every prototype. A CLI tool doesn't need an
     Accessibility Inspector; a library doesn't need a Security
-    Inspector scanning for OWASP web vulnerabilities. Two approaches
-    identified: derived from the interface types in the Architecture,
-    or config-driven user selection (Swarm Forge's model). See
+    Inspector scanning for OWASP web vulnerabilities. Architecture-
+    derived defaults, Kit-proposed Inspectors, and explicit reviewed
+    project policy are established inputs. The remaining question is
+    precedence/conflict handling when those inputs disagree. See
     [Phase 4](user-interaction-flow.md#phase-4-inspecting-autonomous)
     and [Swarm Forge](related-work.md#swarm-forge-robert-c-martin).
 
-14. **Inspection report format** — The report is currently described
-    as free-form. Should it have a structured schema (defect type,
-    severity, location, remediation suggestion) to make it
-    machine-actionable for the Phase 3 Workers? Or is free-form
-    sufficient since the Workers are LLM agents that can parse
-    natural language? See
+14. **Finding Ledger backend and retention** — The required finding
+    schema, append-only event model, atomic idempotent writes, stable IDs,
+    JSONL snapshot, rendered report view, and sanitized routing are
+    decided. Remaining questions: which WMS backends can map this natively,
+    when is an external coordinator required, and how long are raw
+    content-addressed evidence blobs retained? See
     [Phase 4](user-interaction-flow.md#phase-4-inspecting-autonomous).
 
 ### Compliance

@@ -2,6 +2,18 @@
 
 > Design document — draft, July 2026
 
+**Contents:**
+
+- [What is ProtoBot?](#what-is-protobot)
+- [Who is it for?](#who-is-it-for)
+- [Guiding principles](#guiding-principles)
+- [EARS requirements](#ears-the-requirements-format)
+- [Single-player and multi-player modes](#single-player-and-multi-player-modes)
+- [Workflow and terminology](#workflow-and-terminology)
+- [Platform](#platform)
+- [Bootstrapping strategy](#bootstrapping-strategy)
+- [Detailed design documents](#detailed-design-documents)
+
 ## What is ProtoBot?
 
 ProtoBot takes requirement specifications and generates working
@@ -54,8 +66,10 @@ The human's involvement is defining *what* the system should do —
 precisely, unambiguously, in structured EARS requirements. Everything
 after that (test generation, code generation, review, merge) is
 fully autonomous. If the prototype is wrong, we fix the
-specification, not the code. If we need to start over, we discard
-everything except the specification and regenerate.
+authoritative side of the mismatch: desired behavior changes go through
+the specification, while code that contradicts an approved requirement
+is regenerated or fixed against that requirement. If we need to start
+over, we discard everything except the specification and regenerate.
 
 This is the "spec-as-source" principle: the specification is
 sufficient to define the system, and everything else is a
@@ -134,8 +148,9 @@ not an afterthought:
 
 A single developer runs ProtoBot locally or against their own repo.
 They have write access and can push specs directly to main (or
-merge their own PRs). The Job Site picks up pending requirements
-the same way it does in multi-player mode. Minimal ceremony.
+merge their own PRs). Approval atomically materializes a build work
+item in the WMS, and the Job Site claims that work item the same way it
+does in multi-player mode. Minimal ceremony.
 
 This is the on-ramp. Individual developer adoption is the pathway
 to broader enterprise deployment. ProtoBot must work without
@@ -145,9 +160,11 @@ requiring an OpenShift/Kubernetes cluster.
 
 Multiple contributors work through a standard PR workflow. A
 contributor writes specs via the Drafting Table, opens a PR against
-main, and a reviewer merges it. The approved requirements land on
-main with status `pending`. The Job Site picks up pending
-requirements, groups them into work items, and builds autonomously.
+main, and a reviewer merges it. The approved change set lands on main
+and idempotently materializes a complete build work item. It enters
+`waiting` when dependencies remain, `ready-for-building` otherwise, or
+is omitted when the approved change set declares no implementation
+effect. The Job Site claims and builds ready items autonomously.
 
 This mode uses GitHub's native permission model: PR merge is the
 approval gate, governed by branch protection rules, CODEOWNERS,
@@ -189,8 +206,16 @@ ProtoBot follows a construction metaphor with four phases:
 | **Inspecting** | Independent Inspector agents review the work. Defects go back to Building for rework. |
 | **Sketch** | The artifact from Sketching: a Vision statement + Architecture. |
 | **Schematic** | The artifact from Dimensioning: the complete set of approved EARS requirements. This is the human review boundary. |
+| **Project** | One prototype and its canonical Git repository, specification history, WMS configuration, and policy. A ProtoBot deployment may serve many projects; project does not mean one ProtoBot installation. |
+| **Request** | A backlog record for user intent, rationale, business priority, ownership, and relationships before or alongside specification refinement. |
+| **Change set** | A reviewed specification transaction that records requirements added, revised, or retired and unchanged requirements that remain applicable. It is immutable after approval and does not own the requirements it mentions. |
+| **Changed requirement** | A requirement added, revised, or retired by a change set. |
+| **Applicable requirement** | An unchanged requirement that constrains implementation of a change set and must be verified by the resulting build work. |
 | **Drafting Table** | The environment where the human and agent collaborate (Sketching + Dimensioning). Can be a web UI or a TUI (e.g., OpenCode). |
 | **Job Site** | The autonomous execution engine that runs Building + Inspecting. |
+| **Build work item** | The WMS coordination and Job Site execution unit. It freezes changed and applicable requirements at an immutable specification commit and owns all mutable workflow state. |
+| **Conformance evidence** | Immutable verification artifacts for a requirement at a specification and tested-candidate commit, paired by WMS completion metadata with the resulting merge commit. It is not mutable requirement status. |
+| **Kit** | A reusable, versioned import. Current known contents are proposed EARS/interfaces and Inspector definitions; exact packaging and additional capabilities remain open. |
 | **Worker** | An agent that generates tests (Worker A) or code (Worker B) during Building. |
 | **Inspector** | An agent that reviews work during Inspecting (Security, Test Completeness, Code Quality, etc.). |
 
@@ -204,26 +229,50 @@ than the last:
 2. **Architecture** (once-ish) — What are the external interfaces?
    What types? (API, CLI, GUI, etc.) Persistent state counts as an
    interface.
-3. **Interface / Feature** (infrequent) — Specifications per
-   interface, per feature.
+3. **Interface** (infrequent) — A stable external contract boundary,
+   specified using an approach appropriate to its type.
 4. **Requirement** (often) — Individual EARS requirements.
 
 The top two levels are set once at project start. Interface and
 Requirement are where ongoing interactive work happens.
 
+A **change set** is not another hierarchy level and is not a durable
+feature grouping. It is the review and audit unit for a specification
+delta. A requirement can be introduced by one change set, revised by
+another, and retired by a third while retaining the same stable identity.
+The current Schematic is the result of applying all approved change sets.
+
+Requirements do not carry `pending`, `in-progress`, or `implemented`
+workflow markers. Those markers conflate coordination with conformance
+and become unreliable whenever later work affects an existing
+requirement. The WMS tracks build work-item lifecycle instead, while
+completion records immutable, commit-scoped conformance evidence.
+
 ---
 
 ## Platform
 
-ProtoBot runs on **OpenShell** (sandbox) + **OpenCode** (agent
-harness). The Specification Toolkit is a set of skills loaded into
-OpenCode. Workers and Inspectors also run on OpenCode within
-OpenShell sandboxes.
+The interactive Drafting Table uses **OpenCode** as its first agent
+harness, with the Specification Toolkit loaded as skills. The autonomous
+Job Site targets **Fullsend** as its first execution backend. Fullsend's
+OpenShell-based sandbox runs Workers and Inspectors through a ProtoBot
+backend adapter; a direct **OpenShell** adapter is the fallback and the
+starting point if ProtoBot implements a custom Job Site. A portable
+rootless-OCI/microVM containment profile with external network and
+credential brokers is the independent sandbox fallback when OpenShell
+itself is unavailable or incompatible with the target platform.
 
-Because OpenCode supports the full range of model providers,
-ProtoBot is not locked to a single LLM vendor. Starting with Vertex
-AI, extending to custom providers for internally hosted models, and
-enabling the use of Praxis (Red Hat's AI Gateway).
+ProtoBot depends on a backend-neutral execution and sandbox contract,
+not on Fullsend or OpenShell APIs. Fullsend does not replace ProtoBot's
+change-set/WMS control plane, role-projected repositories, dual-worker
+integration, Triage sanitizer, or conformance evidence. A backend that
+cannot pass the contract's isolation, network, and credential acceptance
+tests cannot run autonomous work.
+
+OpenCode's model-provider flexibility applies directly to the Drafting
+Table. Job Site harnesses are backend-pluggable and need not use OpenCode;
+provider support is validated per backend, including Vertex AI, internal
+providers, and Praxis (Red Hat's AI Gateway).
 
 Prototype outputs are built on UBI + Hummingbird images for
 lightweight, fast-turnaround demo builds — but not every prototype
@@ -236,12 +285,12 @@ time (see Bootstrapping Strategy below).
 
 ProtoBot will be used to build ProtoBot.
 
-The initial work is entirely local: OpenShell + OpenCode with draft
-Specification Toolkit skills. The Job Site is driven locally, and
-the first work packages will likely be single PRs. From there, we
-build out the various components and develop alternate
-implementations for them, working toward an OpenShift-hosted Job
-Site with auto-dispatch.
+The interactive work starts locally in OpenCode with draft Specification
+Toolkit skills. The first Job Site implementation is a Fullsend
+integration spike; the direct OpenShell adapter preserves a local/custom
+path and tests the backend abstraction. The first work packages will
+likely be single PRs. From there, we build alternate implementations and
+work toward an OpenShift-hosted Job Site with auto-dispatch.
 
 The initial prototype output types should be chosen to support this
 bootstrapping. Like the interface-type taxonomy, we start with a

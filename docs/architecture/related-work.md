@@ -2,6 +2,25 @@
 
 > Design document — draft, July 2026
 
+**Contents:**
+
+- [Red Hat Internal Projects](#red-hat-internal-projects)
+- [IdeaBot](#ideabot-hermes-pipeline)
+- [Forge](#forge-red-hat-israel--openstackshift-on-stack)
+- [Fullsend](#fullsend-pnt-devops)
+- [Alcove](#alcove-rhel--core-platforms)
+- [Rehor / Dev Bot](#rehor--dev-bot-hybrid-platforms)
+- [OpenShell](#openshell-nvidia-with-red-hat-as-contributormaintainer)
+- [Eval infrastructure](#eval-hub-and-agent-eval-harness)
+- [External Factory Projects](#external-factory-projects)
+- [StrongDM Attractor](#strongdm-attractor)
+- [Gas Town / Beads](#gas-town--beads-steve-yegge)
+- [SqueakyClean AI](#squeakyclean-ai)
+- [Swarm Forge](#swarm-forge-robert-c-martin)
+- [Unbound Force](#unbound-force-jay-flowers)
+- [Reimplementation analysis](#agentic-reimplementation-projects-cross-cutting-analysis)
+- [Related Documents](#related-documents)
+
 This document surveys projects — both internal to Red Hat and
 external — that are relevant to ProtoBot's design. For each, we
 describe what it is, what makes it interesting, and what concepts
@@ -166,6 +185,19 @@ peer to ProtoBot in the GE Agentic SDLC Working Group's portfolio.
 It runs on OpenShell for sandboxing and is GitHub-native, matching
 ProtoBot's own requirements. Scored 33/35 on HAERCVM.
 
+**ProtoBot status:** Fullsend is the first implementation target for the
+autonomous Job Site. ProtoBot remains the control plane for change sets,
+WMS materialization, role-projected Worker repositories, dual-worker
+integration/Triage, and conformance evidence. Fullsend supplies execution
+and may host Inspector fan-out, but adoption depends on its effective
+OpenShell boundary passing ProtoBot's sandbox contract. A direct
+OpenShell adapter remains the fallback/custom Job Site path. This is an
+integration experiment, not a decision to make Fullsend's GitHub-native
+work-item model or current agent runtimes part of ProtoBot's architecture.
+A portable rootless-OCI/microVM profile with external egress and
+credential brokers is the independent sandbox fallback if OpenShell
+cannot satisfy a target platform.
+
 **What ProtoBot should consider adopting:**
 
 - **The pre/sandbox/post execution model.** Separating privilege
@@ -241,19 +273,21 @@ interception). Credentials are never stored inside the sandbox; an
 inference routing proxy injects them at the network boundary.
 Supports Docker, Podman, MicroVM, and Kubernetes backends.
 
-**What makes it interesting for ProtoBot:** OpenShell is confirmed
-as ProtoBot's primary sandbox architecture. Its per-binary,
-per-destination L7 policy model allows whitelisting package
-registries and documentation sites while blocking exfiltration — a
-requirement for ProtoBot, which must install dependencies from
-registries and look up documentation when scaffolding projects from
-zero. Blanket network isolation (as Forge uses) would be a
-non-starter.
+**What makes it interesting for ProtoBot:** OpenShell underlies the first
+Fullsend Job Site backend and is the direct fallback for a custom Job
+Site. Its per-binary, per-destination L7 policy model allows whitelisting
+package registries and documentation sites while blocking exfiltration,
+a requirement for ProtoBot when scaffolding projects from zero. The
+architecture nevertheless depends on a backend-neutral sandbox contract;
+OpenShell guarantees are accepted only after end-to-end validation.
+The independent sandbox fallback is a portable rootless-OCI/microVM
+profile with external policy and credential brokers, not merely a second
+way to invoke OpenShell.
 
 **What ProtoBot should consider adopting:**
 
-- **OpenShell as the execution environment** for Workers and
-  Inspectors (already decided).
+- **OpenShell through Fullsend first, direct OpenShell second** behind one
+  execution/sandbox contract.
 - **Policy-as-code.** OpenShell's declarative YAML policies with
   three enforcement tiers (YAML authoring, OPA/Rego runtime, Z3/SMT
   formal verification) are the mechanism for ProtoBot's "enforce
