@@ -185,7 +185,7 @@ to the WMS via MCP or API.
   work items.
 - **From IdeaBot:** Receives IdeaBot output as input to Sketching
   (handoff format is an
-  [open question](open-questions.md)).
+  [open question Q4](open-questions.md#q4-ideabot-handoff-format)).
 
 ### Open design questions
 
@@ -193,15 +193,15 @@ to the WMS via MCP or API.
   pulls on session start. Is pull-on-start sufficient, or do some
   escalations need faster turnaround? If so, what external channel
   (email, Slack, webhook) should be used? See
-  [open question #2](open-questions.md).
+  [open question Q2][q2].
 - **Spec gap surfacing pattern.** During Dimensioning, the agent
   must aggressively surface unspecified behaviors. What's the UX
   for this? Inline suggestions? A separate gap report? See
-  [open question #1](open-questions.md).
+  [open question Q1](open-questions.md#q1-spec-gap-surfacing-ux).
 - **Multi-interface orchestration.** When a project has many
   interfaces, does the user dimension them one at a time, or jump
   between them? See
-  [open question #3](open-questions.md).
+  [open question Q3](open-questions.md#q3-multi-interface-orchestration).
 - **Session continuity across implementations.** A user might start
   Dimensioning in the TUI and continue in the web UI (or vice
   versa). The proposed change set and specification state are committed
@@ -348,7 +348,7 @@ It is used by three callers:
   commit via `ears-manager list` / `ears-manager show`. Workers also
   receive the full approved Schematic for context. See
   [ongoing obligations](user-interaction-flow.md#ongoing-obligations)
-  and [open question #19](open-questions.md).
+  and [open question Q19][q19].
 - **CI** — `ears-manager check` runs on every branch push to
   validate that spec files are well-formed, all EARS statements
   match required templates, and referential integrity holds.
@@ -496,7 +496,7 @@ idempotency input.
 - **Storage format.** JSONL is tentatively chosen for
   git-friendliness, but `ears-manager` abstracts this. The choice
   can be deferred and changed later without affecting callers. See
-  [open question #7](open-questions.md).
+  [open question Q7](open-questions.md#q7-requirements-storage-format).
 - **Spec directory layout.** One file per interface? One file per
   requirement? A hierarchy mirroring the specification levels
   (Vision → Architecture → Interface → Requirement)? The layout
@@ -908,7 +908,7 @@ and a new Inspection Run. A path-disjoint result never waives these gates.
   structured files at known paths. JSONL (one requirement per line)
   is tentatively chosen for git-friendliness, but cross-references
   and hierarchy may require a different format. See
-  [open question #7](open-questions.md).
+  [open question Q7](open-questions.md#q7-requirements-storage-format).
 - **Spec directory layout.** What does the spec directory look like?
   One file per interface? One file per requirement? A hierarchy
   mirroring the specification levels (Vision → Architecture →
@@ -1271,7 +1271,7 @@ The Job Site includes these sub-components:
   decide fault. This could be another agent, a heuristic, or a
   hybrid. It runs only in the private integration environment and passes
   every Worker-directed decision through the Feedback Sanitizer. See
-  [open question #15](open-questions.md).
+  [open question Q15](open-questions.md#q15-phase-3-triage-mechanism).
 - **Finding Ledger/Router:** Accepts idempotent append-only events from
   parallel Inspectors, derives current status and report views, and emits
   recipient-specific tasks through the feedback sanitizer.
@@ -1281,12 +1281,12 @@ The Job Site includes these sub-components:
   or explicitly selected by the user in project policy. Spec Conformance
   is mandatory whenever any delivery obligation uses
   implementation-aware verification. See
-  [open question #12](open-questions.md).
+  [open question Q12](open-questions.md#q12-inspector-roster-per-project-type).
 - **Build/merge infrastructure:** The merge step is not just "put
   files together" — it must build Worker B's code into a runnable
   artifact (container, listening API, CLI binary) and start it so
   Worker A's tests can execute against it. See
-  [open question #8](open-questions.md).
+  [open question Q8](open-questions.md#q8-building-merge-infrastructure).
 - **Mutation Inspector:** Receives hidden survivor details in the private
   integration environment and proposes explicit `test-gap`, `spec-gap`,
   `equivalent`, or `tooling-invalid` dispositions. Dismissal outcomes
@@ -1482,14 +1482,14 @@ disposition.
   are decided; what fraction of requirements need this path, which
   standard internal-control interfaces should projects/backends define,
   and should a future Kit capability package any of them? See
-  [open question #9](open-questions.md).
+  [open question Q9][q9].
 - **HU-02 compliance gate.** Does merging code to main count as a
   "write action" under Red Hat's AIA/HU-02? The
   [multi-player workflow](#multi-player-workflow) places the human
   checkpoint at PR merge (specs landing on main). Everything after
   is autonomous execution of approved intent. This may satisfy
   HU-02, but needs confirmation. See
-  [open question #13](open-questions.md).
+  [open question Q13](open-questions.md#q13-hu-02-compliance).
 
 ---
 
@@ -1829,6 +1829,10 @@ confirmation.
 ---
 
 ## Related Documents
+
+[q2]: open-questions.md#q2-async-requirement-suggestion-delivery
+[q9]: open-questions.md#q9-isolated-vs-implementation-aware-tests
+[q19]: open-questions.md#q19-applicability-metadata-and-semantic-impact-coverage
 
 - [Overview](overview.md) — What ProtoBot is, guiding principles,
   and workflow summary

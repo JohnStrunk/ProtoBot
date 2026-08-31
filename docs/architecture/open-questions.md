@@ -1,7 +1,5 @@
 # ProtoBot: Open Design Questions
 
-<!-- markdownlint-disable MD029 -->
-
 > Design document — draft, July 2026
 
 **Contents:**
@@ -20,12 +18,16 @@ Questions that are not yet resolved. Updated as decisions are made.
 
 ## Interactive phase
 
-1. **Spec gap surfacing UX** — How does the agent present unspecified
+### Q1: Spec gap surfacing UX
+
+How does the agent present unspecified
    behaviors during Dimensioning? Inline suggestions? Separate "gap
    report"? What's the interaction pattern for the user to say "out of
    scope" vs. "add a requirement for that"?
 
-2. **Async requirement suggestion delivery** — When the autonomous
+### Q2: Async requirement suggestion delivery
+
+When the autonomous
    phase discovers unspecified behavior, it blocks the work item and
    escalates to the user (decided). The remaining questions: what
    notification channel delivers the escalation (email, Slack,
@@ -33,17 +35,23 @@ Questions that are not yet resolved. Updated as decisions are made.
    escalation types, or do some need the web UI's push model? See
    [Drafting Table](components.md#drafting-table).
 
-3. **Multi-interface orchestration** — When a project has many
+### Q3: Multi-interface orchestration
+
+When a project has many
    interfaces (API + CLI + web GUI), does the user dimension them
    sequentially or can they jump between interfaces? Is there a
    dependency graph?
 
-4. **IdeaBot handoff format** — The handoff mechanism is decided
+### Q4: IdeaBot handoff format
+
+The handoff mechanism is decided
    (manual: IdeaBot artifacts seed the initial Sketching session;
    automated integration later). Remaining question: how much of the
     Vision/Architecture can be pre-populated from IdeaBot's output?
 
-5. **Kit package and future capabilities** — Kits are versioned imports;
+### Q5: Kit package and future capabilities
+
+Kits are versioned imports;
    their currently understood contents are proposed EARS/interfaces and
    Inspector definitions. Exact package/signature/dependency format and
    whether experience justifies skills, build/test conventions, projection
@@ -52,7 +60,9 @@ Questions that are not yet resolved. Updated as decisions are made.
 
 ## Specification storage
 
-7. **Requirements storage format** — JSONL is tentatively chosen for
+### Q7: Requirements storage format
+
+JSONL is tentatively chosen for
    git-friendliness, but only works if requirements are independent
    records. Need to evaluate whether cross-references and immutable
    change-set history make a different format necessary.
@@ -62,13 +72,17 @@ Questions that are not yet resolved. Updated as decisions are made.
 
 ## Building phase
 
-8. **Building merge infrastructure** — Worker B must produce a
+### Q8: Building merge infrastructure
+
+Worker B must produce a
    runnable artifact (container, listening API, executable CLI) before
    Worker A's tests can run. The merge step needs build/start
    orchestration, not just file concatenation. See
     [Phase 3](user-interaction-flow.md#phase-3-building-autonomous).
 
-9. **Isolated vs. implementation-aware tests** — A three-category
+### Q9: Isolated vs. implementation-aware tests
+
+A three-category
     taxonomy is established: (1) isolated interface tests (default,
     dual-model isolation holds), (2) implementation-aware tests generated
     by a separate read-only-code/test-only Worker, and (3) mutation
@@ -80,7 +94,9 @@ Questions that are not yet resolved. Updated as decisions are made.
     test-control interfaces? See
    [Phase 3](user-interaction-flow.md#phase-3-building-autonomous).
 
-10. **Mutation scale and operator policy** — Inspector-only disposition
+### Q10: Mutation scale and operator policy
+
+Inspector-only disposition
     is decided: `test-gap` must be killed, `spec-gap` blocks for
     Dimensioning, and `equivalent`/`tooling-invalid` require independent
     confirmation; no score or accepted-risk bypass exists. Remaining
@@ -89,7 +105,9 @@ Questions that are not yet resolved. Updated as decisions are made.
     when is an operator version globally quarantined? See
     [Phase 3](user-interaction-flow.md#phase-3-building-autonomous).
 
-15. **Phase 3 triage mechanism** — When tests fail after merging
+### Q15: Phase 3 triage mechanism
+
+When tests fail after merging
     Worker A's tests with Worker B's code, who or what decides
     whether the fault is in the tests, the code, or both? Options
     identified: another agent, a heuristic, or a hybrid. Forge's
@@ -103,7 +121,9 @@ Questions that are not yet resolved. Updated as decisions are made.
     [Phase 3](user-interaction-flow.md#phase-3-building-autonomous)
     and [Forge](related-work.md#forge-red-hat-israel--openstackshift-on-stack).
 
-19. **Applicability metadata and semantic impact coverage** — Change
+### Q19: Applicability metadata and semantic impact coverage
+
+Change
     sets now distinguish changed requirements from applicable unchanged
     requirements. Every requirement has at least one machine-queryable
     applicability selector. Most name interfaces; project-wide and
@@ -122,7 +142,9 @@ Questions that are not yet resolved. Updated as decisions are made.
     See
     [ongoing obligations](user-interaction-flow.md#ongoing-obligations).
 
-20. **Latest-conformance derived view** — Evidence fields and storage
+### Q20: Latest-conformance derived view
+
+Evidence fields and storage
     boundaries are decided: repo-resident artifacts bind requirement,
     specification, tested candidate, and supporting evidence; the WMS
     completion envelope adds the resulting merge commit. How should a
@@ -131,14 +153,18 @@ Questions that are not yet resolved. Updated as decisions are made.
 
 ## Inspecting phase
 
-11. **Test Completeness Inspector placement** — Should test
+### Q11: Test Completeness Inspector placement
+
+Should test
     completeness checking happen in Phase 3 (Building, so gaps are
     caught and filled earlier in the loop) or Phase 4 (Inspecting,
     as an independent review)? Placing it in Phase 3 means faster
     feedback but the checker is no longer independent of the Workers.
     See [Phase 4](user-interaction-flow.md#phase-4-inspecting-autonomous).
 
-12. **Inspector roster per project type** — Not every Inspector is
+### Q12: Inspector roster per project type
+
+Not every Inspector is
     relevant for every prototype. A CLI tool doesn't need an
     Accessibility Inspector; a library doesn't need a Security
     Inspector scanning for OWASP web vulnerabilities. Architecture-
@@ -148,7 +174,9 @@ Questions that are not yet resolved. Updated as decisions are made.
     [Phase 4](user-interaction-flow.md#phase-4-inspecting-autonomous)
     and [Swarm Forge](related-work.md#swarm-forge-robert-c-martin).
 
-14. **Finding Ledger backend and retention** — The required finding
+### Q14: Finding Ledger backend and retention
+
+The required finding
     schema, append-only event model, atomic idempotent writes, stable IDs,
     JSONL snapshot, rendered report view, and sanitized routing are
     decided. Remaining questions: which WMS backends can map this natively,
@@ -158,7 +186,9 @@ Questions that are not yet resolved. Updated as decisions are made.
 
 ## Compliance
 
-13. **HU-02 compliance** — The multi-player workflow places the
+### Q13: HU-02 compliance
+
+The multi-player workflow places the
     human checkpoint at PR merge time (when specs land on main).
     Everything after is autonomous execution of approved intent.
     This may satisfy HU-02, since the human explicitly approved the
@@ -169,7 +199,9 @@ Questions that are not yet resolved. Updated as decisions are made.
 
 ## Interface specifications
 
-18. **CLI interface spec evaluation** — `usage` (jdx.dev), docopt,
+### Q18: CLI interface spec evaluation
+
+`usage` (jdx.dev), docopt,
     and `wasi:cli` are listed as candidates for CLI interface
     specification. Need to evaluate which (if any) is suitable for
     ProtoBot's needs. See the interface-type taxonomy in

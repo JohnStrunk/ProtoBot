@@ -465,8 +465,8 @@ work item adding a CLI subcommand without `--help` therefore fails its
 own test run rather than invalidating or resetting a global marker on
 the requirement.
 
-See [open question #19](open-questions.md) for the remaining
-applicability-selector and semantic-impact questions.
+See [open question Q19][q19] for the remaining applicability-selector and
+semantic-impact questions.
 
 > **Open concern: Bootstrapping and merge viability.** Isolation
 > between Worker A and B is viable _only_ if tests exercise external
@@ -1113,12 +1113,14 @@ approved EARS requirements that define what the system should do.
 Everything after that (test generation, code generation, inspection,
 merge) is fully autonomous. The specification is sufficient to define
 the system; everything else is regenerable. See
-[open question #13](open-questions.md) (HU-02 compliance) for
+[open question Q13](open-questions.md#q13-hu-02-compliance) for
 whether this is achievable given Red Hat's AIA requirements.
 
 ---
 
 ## Related Documents
+
+[q19]: open-questions.md#q19-applicability-metadata-and-semantic-impact-coverage
 
 - [Overview](overview.md) — What ProtoBot is, guiding principles,
   and workflow summary
