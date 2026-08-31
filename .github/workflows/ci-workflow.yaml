@@ -54,3 +54,23 @@ jobs:
 
       - name: Run pre-commit gc
         run: pre-commit gc
+
+  # This job provides a single status check for merge gates.
+  ci-success:
+    name: CI Workflow - Success
+    if: always()
+    needs:
+      - pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all jobs
+        env:
+          RESULTS: "${{ join(needs.*.result, ' ') }}"
+        run: |
+          for result in $RESULTS; do
+            if [[ "$result" != "success" ]]; then
+              echo "::error::One or more required jobs failed, were cancelled, or were skipped"
+              exit 1
+            fi
+          done
+          echo "All required jobs succeeded"
