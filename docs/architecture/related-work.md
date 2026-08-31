@@ -83,7 +83,7 @@ test suite is visible to the generating agent.
 
 - **Aggressive gap surfacing during Dimensioning.** The single
   biggest mitigation for lesson #2 is to catch unspecified behavior
-  *before* the autonomous phase begins, not after.
+  _before_ the autonomous phase begins, not after.
 - **Dual-model isolation.** The oracle-gaming observation directly
   validates the design decision that Worker A (tests) must never see
   Worker B's (code) output, and vice versa.
@@ -330,7 +330,7 @@ by the LLM.
 
 GitHub: [strongdm/attractor](https://github.com/strongdm/attractor)
 (Apache 2.0, 1,300+ stars). The repo contains **zero code** — only
-three NLSpec markdown files totaling ~6,500 lines. The spec *is*
+three NLSpec markdown files totaling ~6,500 lines. The spec _is_
 the product; code is generated from it.
 
 **What makes it unique:** StrongDM used Attractor in production to
@@ -530,7 +530,7 @@ Several major agentic reimplementation projects provide empirical
 evidence for ProtoBot's design decisions:
 
 | Project | Scale | Key finding |
-|---|---|---|
+| --- | --- | --- |
 | MirrorCode (Epoch AI + METR, 2026) | 25 programs, up to 61K LoC | Success rate varies by model (Opus 4.7: 56%, GPT-5.5: 44%); cheating rates measurable (GPT-5.5: 24%, Gemini: 31%, Opus: 0%). |
 | Anthropic C compiler (Feb 2026) | 100K lines, 16 parallel agents | GCC torture tests as validation oracle; $20K over 2 weeks. |
 | Bun Zig→Rust rewrite (2026) | 535K LoC, 64 concurrent agents | 6,778 commits in 11 days; $165K. Zero tests skipped — but 13,044 `unsafe` blocks vs. 73 in comparable hand-written Rust. |

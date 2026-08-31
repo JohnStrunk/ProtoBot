@@ -75,7 +75,7 @@ which blocks the work item and escalates to the user (see
 
 ## Specification Hierarchy
 
-Before diving into the phase details, it's important to understand *what*
+Before diving into the phase details, it's important to understand _what_
 the user is building during the interactive phase. Specifications are
 produced at four levels, each answering progressively more specific
 questions:
@@ -97,13 +97,13 @@ ongoing interactive work happens.
 **Interface-type taxonomy** (determines how each interface is spec'd):
 
 | Interface Type | Spec Approach | Example |
-|---|---|---|
+| --- | --- | --- |
 | Network service | Smithy / OpenAPI | REST API, gRPC service |
-| CLI | `usage` (jdx.dev) / docopt / `wasi:cli` *(needs evaluation)* | `protobot generate` |
-| REPL | *(open gap — no real IDL exists)* | Interactive notebook |
+| CLI | `usage` (jdx.dev) / docopt / `wasi:cli` _(needs evaluation)_ | `protobot generate` |
+| REPL | _(open gap — no real IDL exists)_ | Interactive notebook |
 | Linkable library | WIT (Wasm Interface Types) | Shared SDK module |
-| Web GUI (html/css) | *(open gap — not yet solved)* | Dashboard UI |
-| Native GUI | *(open gap — not yet solved)* | Desktop app |
+| Web GUI (html/css) | _(open gap — not yet solved)_ | Dashboard UI |
+| Native GUI | _(open gap — not yet solved)_ | Desktop app |
 
 ### Change sets and applicability
 
@@ -160,7 +160,7 @@ disposition.
 
 ### Phase 1: Sketching
 
-> *"High-level free-form description of what to build"* — produces a
+> _"High-level free-form description of what to build"_ — produces a
 > **Sketch**.
 
 ```mermaid
@@ -197,8 +197,8 @@ that enumerates all external interfaces and their types.
 The Architecture should describe the system's **external interfaces** —
 its boundary with the outside world. Internal decomposition (services,
 modules, components) is an implementation detail and should generally be
-left to the Building phase. The user specifies *what the system looks
-like from the outside*, not how it's structured internally.
+left to the Building phase. The user specifies _what the system looks
+like from the outside_, not how it's structured internally.
 
 **"External" means contractually stable, not just user-facing.** An
 external interface is any boundary where you'd expect an independent
@@ -237,7 +237,7 @@ make incompatible choices.
 In summary:
 
 | Belongs in Architecture | Does NOT belong (leave to Building) |
-|---|---|
+| --- | --- |
 | External APIs (REST, gRPC, CLI, etc.) | Internal service decomposition |
 | Pluggable component interfaces (WMS, auth provider, model backend) | Class/module structure |
 | Persistent state (DB schema, files, CRDs) | Internal data flow between components |
@@ -248,7 +248,7 @@ In summary:
 
 ### Phase 2: Dimensioning
 
-> *"Turning the sketch into EARS requirements"* — produces a
+> _"Turning the sketch into EARS requirements"_ — produces a
 > **Schematic**.
 
 This is the most time-consuming interactive phase and the **primary human
@@ -281,7 +281,7 @@ sequenceDiagram
 ```
 
 **Critical UX design point:** The agent must aggressively surface spec gaps
-*during* this phase, because once the autonomous phase begins, the agent
+_during_ this phase, because once the autonomous phase begins, the agent
 will silently fill unspecified behaviors with its own assumptions — and
 those assumptions become invisible de facto contracts (the Hyrum's Law
 problem observed in IdeaBot).
@@ -344,19 +344,19 @@ defined below.
 verified in the autonomous phase):
 
 | EARS Pattern | Example | Test Approach |
-|---|---|---|
-| Ubiquitous (*"shall X"*) | "The API shall use TLS" | PBT: global invariant over arbitrary inputs |
-| Event-driven (*"When..."*) | "When user logs in, shall issue token" | Example-based: specific input → expected output |
-| State-driven (*"While..."*) | "While in maintenance mode, shall reject writes" | PBT: state invariant over arbitrary sequences |
-| Unwanted behavior (*"If...then"*) | "If token expired, shall return 401" | Example-based: construct trigger, assert response |
-| Optional feature (*"Where..."*) | "Where SSO is configured, shall use SAML" | Example-based: set config flag, check behavior |
+| --- | --- | --- |
+| Ubiquitous (_"shall X"_) | "The API shall use TLS" | PBT: global invariant over arbitrary inputs |
+| Event-driven (_"When..."_) | "When user logs in, shall issue token" | Example-based: specific input → expected output |
+| State-driven (_"While..."_) | "While in maintenance mode, shall reject writes" | PBT: state invariant over arbitrary sequences |
+| Unwanted behavior (_"If...then"_) | "If token expired, shall return 401" | Example-based: construct trigger, assert response |
+| Optional feature (_"Where..."_) | "Where SSO is configured, shall use SAML" | Example-based: set config flag, check behavior |
 | Complex (combined keywords) | "While in-flight, if reverse thrust commanded, shall inhibit reverser" | Combination of above approaches, matching the combined pattern |
 
 ---
 
 ### Phase 3: Building (Autonomous)
 
-> *"Creating the implementation and its verification"* — produces
+> _"Creating the implementation and its verification"_ — produces
 > **Code** and a test suite concurrently.
 
 Both test generation and code generation are driven directly from the
@@ -416,7 +416,7 @@ private integration-side branches, merges them into a single runnable
 artifact, and executes the test suite. If tests fail, a triage step
 determines fault — bad test, bad code, or both — and routes fixes
 back to the appropriate Worker(s). The loop repeats until all tests
-pass. Note that "both" is a real case: a test might be wrong *and*
+pass. Note that "both" is a real case: a test might be wrong _and_
 the code might be wrong in a different way, and fixing only one side
 would still fail.
 
@@ -432,8 +432,8 @@ boundary.
 
 Not all requirements are fully satisfied by
 a single work item. Some requirements are ongoing obligations that
-apply to every new instance of something — for example, *"All CLI
-subcommands shall provide usage descriptions via `--help`."* This
+apply to every new instance of something — for example, _"All CLI
+subcommands shall provide usage descriptions via `--help`."_ This
 requirement is satisfied by the work item that first implements
 `--help` support, but it must be revisited by every subsequent work
 item that adds a new subcommand.
@@ -469,7 +469,7 @@ See [open question #19](open-questions.md) for the remaining
 applicability-selector and semantic-impact questions.
 
 > **Open concern: Bootstrapping and merge viability.** Isolation
-> between Worker A and B is viable *only* if tests exercise external
+> between Worker A and B is viable _only_ if tests exercise external
 > interfaces — the same boundaries defined in the Architecture phase.
 > Worker A is a "client" of the interface contract; Worker B is the
 > "server." They don't need to agree on internals because the tests
@@ -477,7 +477,7 @@ applicability-selector and semantic-impact questions.
 > Smithy protocol tests) works in practice.
 >
 > However, the merge step is more than "put the files together."
-> Worker B must produce something that *exposes* the interface in a
+> Worker B must produce something that _exposes_ the interface in a
 > runnable form (a container that starts, an API that listens, a CLI
 > that accepts arguments) before Worker A's tests can execute. The
 > merge step likely needs to include building and starting Worker B's
@@ -529,29 +529,29 @@ property-based testing. Each has a role; none is sufficient alone.
 
 **Property-based tests (PBT)** work well for EARS requirements that
 express invariants, structural constraints, or safety properties —
-things that are cheaper to *check* than to *compute*:
+things that are cheaper to _check_ than to _compute_:
 
 | EARS Pattern | PBT Approach | Example |
-|---|---|---|
-| Ubiquitous (*"shall X"*) | Global invariant — holds for all generated inputs | "The API shall use TLS" → for any request, the connection is encrypted |
-| State-driven (*"While..."*) | State invariant — holds across arbitrary state sequences | "While in maintenance mode, shall reject writes" → for any write payload, response is 503 |
+| --- | --- | --- |
+| Ubiquitous (_"shall X"_) | Global invariant — holds for all generated inputs | "The API shall use TLS" → for any request, the connection is encrypted |
+| State-driven (_"While..."_) | State invariant — holds across arbitrary state sequences | "While in maintenance mode, shall reject writes" → for any write payload, response is 503 |
 
 PBT adds value when random/arbitrary input generation covers a
-meaningfully large input space and the property is cheaper to *check*
-than to *compute*. Both patterns above have a clear "for all X, Y
+meaningfully large input space and the property is cheaper to _check_
+than to _compute_. Both patterns above have a clear "for all X, Y
 holds" shape where X is a broad input space.
 
 **Example-based tests** are necessary for EARS requirements that specify
-*correct output for specific inputs* — the case where PBT breaks down.
+_correct output for specific inputs_ — the case where PBT breaks down.
 Specifying what the correct output should be for arbitrary input is as
 difficult as writing the original program (you'd need an oracle), so
 concrete input→output pairs are the practical tool here:
 
 | EARS Pattern | Example-based Approach | Example |
-|---|---|---|
-| Event-driven (*"When..."*) | Concrete scenario: given this input, expect this output | "When user submits valid credentials, shall return a JWT" |
-| Unwanted behavior (*"If...then"*) | Specific trigger → specific response | "If token expired, shall return 401" → construct expired token, assert 401 |
-| Optional feature (*"Where..."*) | Parameterized scenario: set config, check behavior | "Where SSO is configured, shall use SAML" → enable SSO, assert SAML redirect |
+| --- | --- | --- |
+| Event-driven (_"When..."_) | Concrete scenario: given this input, expect this output | "When user submits valid credentials, shall return a JWT" |
+| Unwanted behavior (_"If...then"_) | Specific trigger → specific response | "If token expired, shall return 401" → construct expired token, assert 401 |
+| Optional feature (_"Where..."_) | Parameterized scenario: set config, check behavior | "Where SSO is configured, shall use SAML" → enable SSO, assert SAML redirect |
 | Complex transformations | Golden-file tests: known input → known expected output | Data pipeline: fixed input file → expected output file |
 | Edge cases | Boundary values that PBT's random generation may not reliably hit | Empty input, max-length strings, zero-element collections |
 
@@ -568,7 +568,7 @@ passed. There are three possible explanations:
 1. **No change in observable behavior** — the mutation was semantically
    neutral (dead code, redundant branch, equivalent mutant). The
    program still conforms to the spec. Nothing is actually wrong.
-2. **Test suite deficiency** — the mutation *did* change observable
+2. **Test suite deficiency** — the mutation _did_ change observable
    behavior, but the tests don't cover that behavior path. The spec
    covers it; the tests are just weak.
 3. **Unspecified behavior** — the mutation changed behavior in a region
@@ -634,7 +634,7 @@ are terminal before the finding becomes `superseded-confirmed`.
 
 ### Phase 4: Inspecting (Autonomous)
 
-> *"Review of code"* — multi-agent automated review before the work
+> _"Review of code"_ — multi-agent automated review before the work
 > is finalized. Analogous to building inspectors in the construction
 > metaphor: independent specialists each examine the work from their
 > area of expertise.
@@ -693,8 +693,8 @@ other.
   adequately covers the requirements. Looks for requirements with no
   corresponding test, scenarios with insufficient boundary coverage,
   and assertions that are too loose to catch real regressions.
-  *(Open question: should this run in Phase 3 instead, as part of
-   the Building loop, so gaps are caught earlier?)*
+  _(Open question: should this run in Phase 3 instead, as part of
+   the Building loop, so gaps are caught earlier?)_
 
 - **Code Quality Inspector** — examines code cleanliness and
   maintainability: DRY violations, overly complex functions (CRAP

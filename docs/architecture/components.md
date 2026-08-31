@@ -370,7 +370,7 @@ It is used by three callers:
 ### Subcommands
 
 | Subcommand | Purpose |
-|---|---|
+| --- | --- |
 | `ears-manager check` | Validate all spec files: EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
 | `ears-manager add requirement` | Add a new EARS requirement with interface or project-wide applicability selectors and optional narrower scopes. Validates the EARS statement and metadata before writing. |
 | `ears-manager add interface` | Register a new interface in the Architecture within the active proposed change set. |
@@ -473,7 +473,7 @@ idempotency input.
 
 - **Deterministic, not AI-driven.** `ears-manager` is conventional
   code — a linter/validator/CRUD tool, not an LLM. It enforces
-  rules mechanically. The *agent* decides what requirements to
+  rules mechanically. The _agent_ decides what requirements to
   write; `ears-manager` ensures they're well-formed.
 - **Statically linked Go binary.** Implemented in Go and distributed
   as a single static binary with zero runtime dependencies. This
@@ -535,7 +535,7 @@ ProtoBot deployment may host many projects and adapter configurations.
 Each adapter maps ProtoBot's build work-item model onto a backend:
 
 | Backend | Native concept | Atomic work-item claim |
-|---|---|---|
+| --- | --- | --- |
 | GitHub Issues/Projects | One issue per build work item | Conditional state update using an expected version, or an external coordinator if the issue API cannot provide compare-and-swap. Assignment alone is not a claim. |
 | GitLab | One issue per build work item | Same contract as GitHub. |
 | Jira | One issue per build work item | Conditional transition using issue versioning, or an external coordinator. Assignment alone is not a claim. |
@@ -731,7 +731,7 @@ ProtoBot mandates only a `.protobot/` control namespace, not a universal
 language/source/test layout:
 
 | Path | Owner and purpose |
-|---|---|
+| --- | --- |
 | `.protobot/project.yaml` | Project identity, configured artifact paths, non-secret WMS/backend references, and schema versions. |
 | `.protobot/projection.yaml` | Deny-by-default path classification for Worker and attestation projections. |
 | `.protobot/policy.yaml` | Required Inspectors, WIP/scheduling policy, sandbox profile, and other reviewed project policy. |
@@ -804,7 +804,7 @@ flowchart TD
 ### Why this split
 
 | Concern | Where it lives | Why |
-|---|---|---|
+| --- | --- | --- |
 | Which work items exist, their pipeline phase, blocked status | Issue tracker | Issue trackers are built for this. |
 | Approved specifications (Sketch, EARS, change sets) | main branch (via PR merge) | Structured, versionable, diffable, and CI-lintable. Requirements have no workflow state. |
 | Draft specifications (pre-approval) | Contributor branch (PR) | Standard fork-and-PR or branch-and-PR workflow. |
@@ -1076,7 +1076,9 @@ on work items and state transitions. They answer questions like:
 - What pipeline entry point does this change type require?
   (Undefined/changes → Dimensioning; contradictions → Building
   directly. See
-  [Incremental Development](user-interaction-flow.md#incremental-development-and-change-types).)
+  [Incremental Development][incremental-development].)
+
+[incremental-development]: user-interaction-flow.md#incremental-development-and-change-types
 
 Validation Rules are a shared library or declarative rule set. The
 Drafting Table and Job Site apply them before writes for early feedback.
@@ -1103,12 +1105,12 @@ The line between Validation Rules and `ears-manager` is:
   formatting, required metadata, referential integrity between
   requirements, interfaces, explicit relationships, and change sets;
   impact dispositions; and file format consistency. These are rules
-  about the *content* of
+  about the _content_ of
   specifications.
 - **Validation Rules** handle **lifecycle** validation: work item
   state transitions, pipeline entry point determination, readiness
   checks (e.g., "are all requirements approved before moving to
-  `ready-for-building`?"). These are rules about the *workflow*
+  `ready-for-building`?"). These are rules about the _workflow_
   around specifications.
 
 ### Interfaces
@@ -1336,7 +1338,7 @@ specific vocabulary below.
 Legal finding states are enforced at the write boundary:
 
 | State | Legal next states and required actor/evidence |
-|---|---|
+| --- | --- |
 | `open` | An Inspector proposes a disposition. Worker-actionable defects atomically route; `omitted-applicable`/`spec-gap` atomically block; a dismissal enters `confirmation-pending`; a missing mutation subject may enter `obsolescence-pending`. |
 | `routed` | A rechecking Inspector may mark `resolved` for the current candidate, `reopened`, or propose subject obsolescence. Task delivery itself uses the outbox. |
 | `blocked` | A rechecking Inspector may mark `resolved` after the dependency/requirement update, `reopened`, propose subject obsolescence, or enter `scope-exclusion-pending` after an approved out-of-scope declaration. |
@@ -1410,7 +1412,7 @@ Each surviving mutant starts as an `open` ledger finding whose subject is
 the canonical mutant/instance IDs. Only Inspectors may disposition it:
 
 | Disposition | Required action and completion evidence |
-|---|---|
+| --- | --- |
 | `test-gap` | Route a sanitized requirement-level task to the appropriate test Worker. Resolve only when a rerun shows the same mutant is killed. |
 | `spec-gap` | Block and create a linked Dimensioning change set. The user adds a requirement or approves an explicit out-of-scope declaration. Added requirements require mutation rerun; an exclusion becomes `scope-excluded-confirmed` only when independent Mutation and Spec Conformance Inspectors verify the mutant affects nothing outside that declared boundary. Human input resolves scope, not mutant mechanics. |
 | `equivalent` | A second independent Inspector must confirm that the mutation causes no externally observable behavior change for any reachable input/state. An observable change outside approved requirements is `spec-gap`, not equivalent. Internal refactoring with identical external behavior may be equivalent. Both rationales and evidence remain in the Ledger. |
@@ -1520,7 +1522,7 @@ This means each component needs:
 **Per-component eval surfaces:**
 
 | Component | Key eval questions | Data source |
-|---|---|---|
+| --- | --- | --- |
 | Sketching agent (Toolkit) | Does it elicit a complete Architecture? Does it surface unstated assumptions? | Recorded Sketching sessions (input descriptions → produced Sketches) |
 | Dimensioning agent (Toolkit) | Does it produce complete EARS coverage? How many gaps does it surface vs. miss? | Recorded Dimensioning sessions; compare agent-surfaced gaps against gaps found later by Inspectors |
 | Worker A (test generator) | Do generated tests actually verify the requirements? What's the mutation kill rate? | Generated test suites vs. EARS requirements; mutation testing results |

@@ -62,7 +62,7 @@ can come later.
 We don't write code, and we don't read code. We don't write tests,
 and we don't read tests. Everything is guided by the specification.
 
-The human's involvement is defining *what* the system should do —
+The human's involvement is defining _what_ the system should do —
 precisely, unambiguously, in structured EARS requirements. Everything
 after that (test generation, code generation, review, merge) is
 fully autonomous. If the prototype is wrong, we fix the
@@ -107,7 +107,7 @@ natural-language requirements. EARS constrains every requirement
 into one of six keyword-driven templates:
 
 | Pattern | Template | When to use |
-|---|---|---|
+| --- | --- | --- |
 | **Ubiquitous** | The \<system\> shall \<response\> | Always-active requirements |
 | **Event-driven** | When \<trigger\>, the \<system\> shall \<response\> | Triggered by a discrete event |
 | **State-driven** | While \<state\>, the \<system\> shall \<response\> | Active throughout a state |
@@ -132,8 +132,8 @@ requirements feeding test generation directly.
 
 - [Alistair Mavin's EARS page](https://alistairmavin.com/ears/)
 - Mavin, A., Wilkinson, P., Harwood, A. & Novak, M. (2009). "Easy
-  Approach to Requirements Syntax (EARS)." *Proceedings of the 17th
-  IEEE International Requirements Engineering Conference*, pp.
+  Approach to Requirements Syntax (EARS)." _Proceedings of the 17th
+  IEEE International Requirements Engineering Conference_, pp.
   317–322. DOI: 10.1109/RE.2009.9
 - [Jama Software — Adopting the EARS Notation](https://www.jamasoftware.com/requirements-management-guide/writing-requirements/adopting-the-ears-notation-to-improve-requirements-engineering/)
 
@@ -199,7 +199,7 @@ ProtoBot follows a construction metaphor with four phases:
 ### Terminology
 
 | Term | Meaning |
-|---|---|
+| --- | --- |
 | **Sketching** | Human + agent define what to build (Vision) and its external boundaries (Architecture). |
 | **Dimensioning** | Human + agent produce precise EARS requirements for each interface. This is the most time-consuming interactive work. |
 | **Building** | Agents generate tests and code concurrently from approved EARS requirements. Neither sees the other's output (dual-model isolation). |
@@ -224,8 +224,8 @@ ProtoBot follows a construction metaphor with four phases:
 Specifications are produced at four levels, each more specific
 than the last:
 
-1. **Vision** (once per project) — *What* are we building? *Who*
-   for? *Why?*
+1. **Vision** (once per project) — _What_ are we building? _Who_
+   for? _Why?_
 2. **Architecture** (once-ish) — What are the external interfaces?
    What types? (API, CLI, GUI, etc.) Persistent state counts as an
    interface.

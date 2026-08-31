@@ -1,5 +1,7 @@
 # ProtoBot: Open Design Questions
 
+<!-- markdownlint-disable MD029 -->
+
 > Design document — draft, July 2026
 
 **Contents:**
@@ -16,7 +18,7 @@ Questions that are not yet resolved. Updated as decisions are made.
 
 ---
 
-### Interactive phase
+## Interactive phase
 
 1. **Spec gap surfacing UX** — How does the agent present unspecified
    behaviors during Dimensioning? Inline suggestions? Separate "gap
@@ -48,7 +50,7 @@ Questions that are not yet resolved. Updated as decisions are made.
    defaults, mutation operators, or internal test controls remain open.
    See [Kits](components.md#kits).
 
-### Specification storage
+## Specification storage
 
 7. **Requirements storage format** — JSONL is tentatively chosen for
    git-friendliness, but only works if requirements are independent
@@ -58,7 +60,7 @@ Questions that are not yet resolved. Updated as decisions are made.
    format, so this can be deferred. See the detailed note in
    [Phase 2](user-interaction-flow.md#phase-2-dimensioning).
 
-### Building phase
+## Building phase
 
 8. **Building merge infrastructure** — Worker B must produce a
    runnable artifact (container, listening API, executable CLI) before
@@ -127,7 +129,7 @@ Questions that are not yet resolved. Updated as decisions are made.
     convenient "latest known conformance" index be derived, cached, and
     invalidated without turning it back into mutable requirement state?
 
-### Inspecting phase
+## Inspecting phase
 
 11. **Test Completeness Inspector placement** — Should test
     completeness checking happen in Phase 3 (Building, so gaps are
@@ -154,7 +156,7 @@ Questions that are not yet resolved. Updated as decisions are made.
     content-addressed evidence blobs retained? See
     [Phase 4](user-interaction-flow.md#phase-4-inspecting-autonomous).
 
-### Compliance
+## Compliance
 
 13. **HU-02 compliance** — The multi-player workflow places the
     human checkpoint at PR merge time (when specs land on main).
@@ -165,7 +167,7 @@ Questions that are not yet resolved. Updated as decisions are made.
     generation likely rates "High risk" on the AI Agent Risk
     Evaluator, which may make an additional checkpoint unavoidable.
 
-### Interface specifications
+## Interface specifications
 
 18. **CLI interface spec evaluation** — `usage` (jdx.dev), docopt,
     and `wasi:cli` are listed as candidates for CLI interface
