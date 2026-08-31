@@ -36,7 +36,7 @@ jobs:
           save-cache: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install pre-commit
-        run: uv tool install pre-commit
+        run: uv tool install pre-commit==4.6.2
 
       - name: Enable cache for pre-commit hooks
         # https://github.com/actions/cache
