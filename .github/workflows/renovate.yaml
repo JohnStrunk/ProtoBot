@@ -1,0 +1,53 @@
+---
+# yamllint disable rule:line-length
+name: "Renovate"
+
+on:  # yamllint disable-line rule:truthy
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: renovate
+  cancel-in-progress: true
+
+jobs:
+  renovate:
+    name: "Renovate"
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Generate GitHub App token
+        id: get-token
+        # https://github.com/actions/create-github-app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.2.0
+        with:
+          client-id: ${{ secrets.RENOVATE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.RENOVATE_APP_PRIVATE_KEY }}
+          permission-administration: read
+          permission-checks: write
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+          permission-statuses: write
+          permission-vulnerability-alerts: read
+          permission-workflows: write
+
+      - name: Run Renovate
+        # https://github.com/renovatebot/github-action
+        uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682  # v46.2.2
+        with:
+          configurationFile: .github/renovate-config.js
+          token: ${{ steps.get-token.outputs.token }}
+        env:
+          LOG_LEVEL: debug
+          RENOVATE_REPOSITORIES: ${{ github.repository }}
+          RENOVATE_HOST_RULES: '[{"matchHost":"registry.redhat.io","username":"${{ secrets.REDHAT_REGISTRY_USER }}","password":"${{ secrets.REDHAT_REGISTRY_TOKEN }}"}]'
