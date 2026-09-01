@@ -5,6 +5,7 @@ name: "Renovate"
 on:  # yamllint disable-line rule:truthy
   schedule:
     - cron: "*/15 * * * *"
+  workflow_dispatch:
 
 concurrency:
   group: renovate
