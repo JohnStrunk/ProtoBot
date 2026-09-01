@@ -9,7 +9,7 @@ on:  # yamllint disable-line rule:truthy
 
 concurrency:
   group: renovate
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   renovate:
@@ -36,7 +36,6 @@ jobs:
           permission-checks: write
           permission-contents: write
           permission-issues: write
-          permission-members: read
           permission-pull-requests: write
           permission-statuses: write
           permission-vulnerability-alerts: read
@@ -47,7 +46,6 @@ jobs:
         uses: renovatebot/github-action@e09d604f8f803bb527bd8321ed5be06c460b8682  # v46.2.2
         with:
           configurationFile: .github/renovate-config.js
-          renovate-version: 44.54.0
           token: ${{ steps.get-token.outputs.token }}
         env:
           LOG_LEVEL: debug
