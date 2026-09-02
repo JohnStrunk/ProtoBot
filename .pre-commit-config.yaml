@@ -73,7 +73,7 @@ repos:
             )$
 
   - repo: https://github.com/hadolint/hadolint
-    rev: 2eece55955ced00200be9729e9728cb7dacca505  # pragma: allowlist secret; v2.15.1
+    rev: v2.15.1  # pragma: allowlist secret; v2.15.1
     hooks:
       # Lint Dockerfiles
       - id: hadolint
