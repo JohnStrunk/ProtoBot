@@ -39,6 +39,16 @@
       ],
       "minimumReleaseAge": null,
     },
+    {
+      // Pin pre-commit hook revisions to commit SHAs for supply-chain
+      // integrity, consistent with docker:pinDigests and
+      // helpers:pinGitHubActionDigests.
+      "description": "Pin pre-commit hooks by commit SHA",
+      "matchManagers": [
+        "pre-commit",
+      ],
+      "pinDigests": true,
+    },
   ],
   // Security fixes should be proposed immediately.
   "vulnerabilityAlerts": {
