@@ -1,0 +1,6 @@
+---
+rules:
+  dangerous-triggers:
+    ignore:
+      # Managed by fullsend — never checks out PR code, not editable here.
+      - "fullsend.yaml"
