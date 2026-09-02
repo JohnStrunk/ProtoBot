@@ -14,6 +14,10 @@
   "minimumReleaseAge": "10 days",
   "lockFileMaintenance": {
     "enabled": true,
+    // Lock file maintenance creates virtual entries without releaseTimestamp.
+    // Inheriting the top-level minimumReleaseAge blocks these PRs indefinitely
+    // under Renovate 42+'s default timestamp-required behaviour.
+    "minimumReleaseAge": null,
   },
   "packageRules": [
     {
