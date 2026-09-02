@@ -10,7 +10,28 @@
     ":gitSignOff",
   ],
   "dependencyDashboard": true,
+  "minimumReleaseAge": "10 days",
   "lockFileMaintenance": {
     "enabled": true,
+  },
+  "packageRules": [
+    {
+      "description": "Allow container updates without release timestamp",
+      "matchDatasources": [
+        "docker",
+      ],
+      "minimumReleaseAgeBehaviour": "timestamp-optional",
+    },
+    {
+      "description": "No stability wait for Red Hat base images",
+      "matchPackageNames": [
+        "registry.access.redhat.com/{/,}**",
+        "registry.redhat.io/{/,}**",
+      ],
+      "minimumReleaseAge": null,
+    },
+  ],
+  "vulnerabilityAlerts": {
+    "minimumReleaseAge": "0 days",
   },
 }
