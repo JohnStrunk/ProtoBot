@@ -9,6 +9,11 @@
     ":enablePreCommit",
     ":gitSignOff",
   ],
+  // Only rebase open PRs when they have merge conflicts, not on every
+  // merge to main. The default "behind-base-branch" (from
+  // config:recommended) causes a cascade of unnecessary rebases and
+  // review-agent re-runs on busy days.
+  "rebaseWhen": "conflicted",
   "dependencyDashboard": true,
   // Give newly released dependencies time to receive initial security review.
   "minimumReleaseAge": "10 days",
