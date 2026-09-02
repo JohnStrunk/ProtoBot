@@ -10,12 +10,15 @@
     ":gitSignOff",
   ],
   "dependencyDashboard": true,
+  // Give newly released dependencies time to receive initial security review.
   "minimumReleaseAge": "10 days",
   "lockFileMaintenance": {
     "enabled": true,
   },
   "packageRules": [
     {
+      // Registries without release timestamps would otherwise leave Docker
+      // updates pending indefinitely.
       "description": "Allow container updates without release timestamp",
       "matchDatasources": [
         "docker",
@@ -23,6 +26,8 @@
       "minimumReleaseAgeBehaviour": "timestamp-optional",
     },
     {
+      // Red Hat registry images are trusted through the Red Hat image
+      // delivery pipeline and do not need the generic stability wait.
       "description": "No stability wait for Red Hat base images",
       "matchPackageNames": [
         "registry.access.redhat.com/{/,}**",
@@ -31,6 +36,7 @@
       "minimumReleaseAge": null,
     },
   ],
+  // Security fixes should be proposed immediately.
   "vulnerabilityAlerts": {
     "minimumReleaseAge": "0 days",
   },
