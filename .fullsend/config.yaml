@@ -27,3 +27,10 @@ create_issues:
 inference:
     project: it-gcp-octo-fullsend
     wif_provider: projects/554959098399/locations/global/workloadIdentityPools/fullsend-inference/providers/gh-redhat-et-protobot
+status_notifications:
+    reaction:
+        start: enabled
+        completion: enabled
+    comment:
+        start: disabled
+        completion: enabled

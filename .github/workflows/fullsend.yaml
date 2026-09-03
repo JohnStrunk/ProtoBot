@@ -1,5 +1,4 @@
 # This file is managed by fullsend. Do not edit it directly.
-# yamllint disable rule:line-length
 # Upstream: https://github.com/fullsend-ai/fullsend/blob/main/internal/scaffold/fullsend-repo/.github/workflows/fullsend.yaml
 ---
 # fullsend shim workflow (per-repo installation mode)
@@ -20,7 +19,7 @@
 # stage jobs with -agent- suffix. Roles operate independently (#2452).
 name: fullsend
 
-on:  # yamllint disable-line rule:truthy
+on:
   issues:
     types: [opened, edited, labeled]
   issue_comment:
@@ -34,11 +33,31 @@ permissions: {}
 
 jobs:
   dispatch:
+    # pull_request_target also includes `closed`, `labeled`, and `unlabeled`.
+    # Exclude Renovate only for actions that automatically start a review;
+    # preserve other Fullsend handling, including retro processing on `closed`.
+    # Upstream tracking: dispatch routing (#1985) and unified agent delivery
+    # (#1986): https://github.com/fullsend-ai/fullsend/issues/1985
+    # https://github.com/fullsend-ai/fullsend/issues/1986
+    # https://github.com/fullsend-ai/fullsend/issues/5360
     if: >-
       (github.event_name != 'pull_request_target' && github.event_name != 'pull_request_review'
        || github.event.pull_request.head.ref != 'fullsend/scaffold-install')
       && (github.event_name != 'issue_comment'
        || github.event.comment.user.type != 'Bot')
+      && !(
+        github.event_name == 'pull_request_target'
+        && startsWith(github.head_ref, 'renovate/')
+        && (
+          github.event.action == 'opened'
+          || github.event.action == 'synchronize'
+          || github.event.action == 'ready_for_review'
+          || (
+            github.event.action == 'labeled'
+            && github.event.label.name == 'ready-for-review'
+          )
+        )
+      )
     permissions:
       actions: write
       id-token: write
@@ -46,7 +65,7 @@ jobs:
       issues: write
       packages: read
       pull-requests: write
-    uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@d9e8bec726f85e0cfd1aeca44252030135a5b1d1 # v0.39.0
+    uses: fullsend-ai/fullsend/.github/workflows/reusable-dispatch.yml@2a103497560b9bcca901372c70a6e073b1a73cde # v0.40.0
     with:
       event_action: ${{ github.event.action }}
       install_mode: per-repo
