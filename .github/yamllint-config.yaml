@@ -9,6 +9,11 @@ extends: default
 #   config/**
 #   bundle/**
 
+# fullsend.yaml and prioritize.yaml are managed by fullsend, not editable here.
+ignore: |
+  .github/workflows/fullsend.yaml
+  .github/workflows/prioritize.yml
+
 rules:
   comments:  # renovate-bot dosen't put 2 spaces before the version number
     ignore: |
