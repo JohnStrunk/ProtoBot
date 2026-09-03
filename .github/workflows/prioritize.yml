@@ -1,5 +1,4 @@
 # This file is managed by fullsend. Do not edit it directly.
-# yamllint disable rule:line-length
 # Upstream: https://github.com/fullsend-ai/fullsend/blob/main/internal/scaffold/fullsend-repo/.github/workflows/prioritize.yml
 ---
 # fullsend-stage: prioritize
@@ -11,7 +10,7 @@ permissions:
   id-token: write
   issues: write
 
-on:  # yamllint disable-line rule:truthy
+on:
   workflow_dispatch:
     inputs:
       event_type:
@@ -34,7 +33,7 @@ concurrency:
 
 jobs:
   prioritize:
-    uses: fullsend-ai/fullsend/.github/workflows/reusable-prioritize.yml@d9e8bec726f85e0cfd1aeca44252030135a5b1d1 # v0.39.0
+    uses: fullsend-ai/fullsend/.github/workflows/reusable-prioritize.yml@2a103497560b9bcca901372c70a6e073b1a73cde # v0.40.0
     with:
       event_type: ${{ inputs.event_type }}
       source_repo: ${{ inputs.source_repo }}
