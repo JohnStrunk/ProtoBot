@@ -33,11 +33,31 @@ permissions: {}
 
 jobs:
   dispatch:
+    # pull_request_target also includes `closed`, `labeled`, and `unlabeled`.
+    # Exclude Renovate only for actions that automatically start a review;
+    # preserve other Fullsend handling, including retro processing on `closed`.
+    # Upstream tracking: dispatch routing (#1985) and unified agent delivery
+    # (#1986): https://github.com/fullsend-ai/fullsend/issues/1985
+    # https://github.com/fullsend-ai/fullsend/issues/1986
+    # https://github.com/fullsend-ai/fullsend/issues/5360
     if: >-
       (github.event_name != 'pull_request_target' && github.event_name != 'pull_request_review'
        || github.event.pull_request.head.ref != 'fullsend/scaffold-install')
       && (github.event_name != 'issue_comment'
        || github.event.comment.user.type != 'Bot')
+      && !(
+        github.event_name == 'pull_request_target'
+        && startsWith(github.head_ref, 'renovate/')
+        && (
+          github.event.action == 'opened'
+          || github.event.action == 'synchronize'
+          || github.event.action == 'ready_for_review'
+          || (
+            github.event.action == 'labeled'
+            && github.event.label.name == 'ready-for-review'
+          )
+        )
+      )
     permissions:
       actions: write
       id-token: write

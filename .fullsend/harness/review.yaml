@@ -1,6 +1,0 @@
----
-base: "https://raw.githubusercontent.com/fullsend-ai/agents/v0.40.0/harness/review.yaml#sha256=260bf4939f52ef173911d3d788f85bd62b26802f09711d8dcdcce8dbb24c5f04"
-
-# Skip review Renovate updates by "dependencies" labels
-trigger: >
-  !("dependencies" in event.state.labels)
