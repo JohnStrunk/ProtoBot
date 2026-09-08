@@ -1,6 +1,6 @@
 # ProtoBot: Architecture
 
-> Design document — draft, July 2026
+> Design document — draft, September 2026
 >
 > Part of ProtoBot's initial Sketch — defines the system's external
 > interfaces, pluggable boundaries, persistent state, and
@@ -45,32 +45,39 @@ For ProtoBot's Vision (the first level of the Sketch), see the
 
 ## External Interface Inventory
 
-ProtoBot exposes seven primary component boundaries, each with
-one or more external interfaces. The inventory also includes
-persistent state (which outlives any single run and requires its
-own read/write contract) and environmental constraints (which
-dictate implementation choices).
+The inventory below lists every external interface: component
+boundaries, persistent state (which outlives any single run and
+requires its own read/write contract), and pipeline endpoints.
+Environmental constraints are listed in a
+[separate table](#environmental-constraints).
 
 | # | Interface | Type | Provider | Consumers |
 | --- | --- | --- | --- | --- |
 | 1 | Drafting Table ↔ User (TUI) | REPL | Drafting Table | — |
 | 2 | Drafting Table ↔ User (Web) | Web GUI | Drafting Table | — |
-| 3 | Specification Toolkit ↔ Agent Harness | Linkable library | Specification Toolkit | Drafting Table (TUI), Drafting Table (Web) |
+| 3 | Specification Toolkit ↔ Agent Harness | Agent skill package | Specification Toolkit | Drafting Table (TUI), Drafting Table (Web) |
 | 4 | `ears-manager` CLI | CLI | `ears-manager` | Specification Toolkit, CI, Job Site |
 | 5 | WMS Adapter API | Network service | WMS Adapter | Drafting Table, Job Site |
-| 6 | Validation Rules | Linkable library | Validation Rules | Drafting Table, Job Site, WMS Adapter |
+| 6 | Validation Rules | Linkable library or declarative rule set _(open — see [components.md](components.md#validation-rules))_ | Validation Rules | Drafting Table, Job Site, WMS Adapter |
 | 7 | Project repository (Git) | Persistent state | Project | Drafting Table, Job Site, `ears-manager`, CI |
 | 8 | Job Site intake (change-set registration, true-bug intake) | CLI + webhook | Job Site | CI hooks, Git hooks, maintainers |
 | 9 | Claim coordinator | Persistent state | WMS Adapter | Job Site |
 | 10 | Kit source | Package source | Kits | Drafting Table |
+| 11 | IdeaBot handoff _(manual, Q4)_ | Pipeline input | IdeaBot | Drafting Table |
+| 12 | Prototype and demo artifacts | Pipeline output | Job Site | TransferBot, stakeholders |
 
 Most interfaces are described in dedicated sections below.
-Kit source details (versioned import manifest, resolution, and
-digest verification), the Job Site intake interface, and the
-claim coordinator are captured in the
-[Interface Specification Approach](#interface-specification-approach)
-table or the [Persistent State](#persistent-state) section
+The Job Site intake interface and the claim coordinator are
+captured in the [Persistent State](#persistent-state) section
 rather than in standalone sections.
+
+**Kit source** has three interfaces (see
+[components.md — Kits](components.md#kits)): import into
+`ears-manager` as a proposed change set with Kit provenance,
+resolution of pinned source/version/digest, and Inspector
+definition activation via project policy review. The
+specification approach is a versioned import manifest
+(source/version/digest/provenance).
 
 ---
 
@@ -146,9 +153,10 @@ Sketching and Dimensioning. It is not a running service — it is
 a set of skills, tool definitions, and prompts consumed by the
 agent harness.
 
-**Interface type:** Linkable library — the Toolkit is loaded
+**Interface type:** Agent skill package — the Toolkit is loaded
 into the agent harness at session start and provides structured
-instructions and tool schemas.
+instructions and tool schemas. Nothing links to it as a library;
+the contract is Markdown skills, JSON tool schemas, and prompts.
 
 **External contract:**
 
@@ -157,9 +165,10 @@ instructions and tool schemas.
   Dimensioning (translate Architecture into EARS requirements,
   surface spec gaps, handle each EARS pattern type).
 - **Tool definitions:** MCP tool schemas or API client code for
-  `ears-manager` operations (add, list, validate, compare,
-  impact) and WMS Adapter operations (create/read/update work
-  items, query blocked items).
+  `ears-manager` operations (see the
+  [`ears-manager` CLI table](#ears-manager-cli)) and WMS Adapter
+  operations (create/read/update work items, query blocked
+  items).
 - **Prompts:** System prompts, templates, and reference material
   including EARS pattern definitions, the interface-type
   taxonomy, gap-closing heuristics, and the specification
@@ -174,9 +183,9 @@ agent harness — OpenCode, Claude Code, a hosted web runtime, or
 future harnesses. It depends on standard tool execution and
 prompt loading; no harness-specific APIs beyond those.
 
-**Runtime dependencies:** Two services — the WMS Adapter (for
-work-item lifecycle state) and `ears-manager` (for all
-specification reads and writes).
+**Runtime dependencies:** The WMS Adapter API (for work-item
+lifecycle state), the `ears-manager` binary (for all
+specification reads and writes), and a Git working tree.
 
 See [System Components — Specification
 Toolkit](components.md#specification-toolkit) for design details.
@@ -295,9 +304,9 @@ and lifecycle state machine.
 Validation Rules are the domain logic that enforces
 well-formedness on work-item state transitions.
 
-**Interface type:** Linkable library — a shared library or
-declarative rule set consumed by the Drafting Table, Job Site,
-and WMS Adapter boundary.
+**Interface type:** Linkable library or declarative rule set
+_(open — the packaging is not yet decided)_ — consumed by the
+Drafting Table, Job Site, and WMS Adapter boundary.
 
 **External contract:**
 
@@ -375,6 +384,12 @@ architecture are detailed in the [System
 Components](components.md#job-site) design document and are
 out of scope for this Sketch.
 
+**Pipeline input (what seeds ProtoBot):**
+
+- **IdeaBot handoff** _(manual, Q4)_ — IdeaBot artifacts seed
+  the first Sketching session. Until Q4 is resolved, this
+  handoff is manual.
+
 **Handoff inputs (what the Job Site receives):**
 
 - **Job Site intake events** — change-set registration (on
@@ -402,7 +417,8 @@ out of scope for this Sketch.
 **Handoff outputs (what the Job Site produces):**
 
 - **Merged code and tests** on the `wi/` branch, merged to
-  main on completion.
+  main on completion — [pending
+  Q13](open-questions.md#q13-autonomous-merge-and-hu-02).
 - **Conformance evidence** — immutable verification artifacts
   naming requirement IDs, specification commits, and tested
   candidate commits.
@@ -413,6 +429,11 @@ out of scope for this Sketch.
   for escalation).
 - **Escalation issues** opened in the project repository when
   undefined behavior is discovered.
+- **Prototype and demo artifacts** — the working, tested,
+  inspected prototype and its demonstration artifacts (manifest
+  under `.protobot/attestations/demos/`). These are the
+  pipeline's primary product, consumed by TransferBot and
+  stakeholders.
 - **Structured trace data** — replayable inputs, outputs, and
   decision records for every agentic operation, enabling
   component-level evaluability. The trace format is an open
@@ -442,27 +463,40 @@ Git/project-repository integration.
 
 ### User-facing interaction surface
 
-The Drafting Table supports two interaction phases:
+The Drafting Table supports three interaction phases:
 
 1. **Sketching** — the user describes what they want to build.
    The agent structures the intent into a Vision statement and
    an Architecture (this document's own format). The user
    approves or revises each level.
 
-2. **Dimensioning** — the user and agent produce precise EARS
+2. **Backlog refinement** — the agent and a human maintainer
+   refine requests: find duplicates, classify each as
+   _undefined_, _changes_, or _contradicts_ existing EARS,
+   and identify affected interfaces and scopes. The
+   classification determines the pipeline entry point
+   (Dimensioning for _undefined_ and _changes_; Building
+   directly for _contradicts_ / true bugs). See
+   [User Interaction Flow — Request Backlog and
+   Refinement](user-interaction-flow.md#request-backlog-and-refinement).
+
+3. **Dimensioning** — the user and agent produce precise EARS
    requirements for each interface identified in the
    Architecture. The agent proposes requirements, surfaces
    gaps, runs impact analysis, and the user reviews the
    resulting change set.
 
-In both phases, the user's role is to provide intent, answer
+In all phases, the user's role is to provide intent, answer
 clarifying questions, and approve artifacts. The agent's role
 is to structure, suggest, validate, and persist through
 governed tool integrations.
 
-Between sessions, the Drafting Table surfaces blocked work
-items from the WMS and lets the user resolve them (add a
-requirement or approve an out-of-scope declaration).
+On session start, the TUI Drafting Table pulls blocked work
+items from the WMS and presents them so the user can resolve
+them (add a requirement or approve an out-of-scope
+declaration). The Web Drafting Table pushes these
+notifications via a persistent browser connection or an
+external channel (Q2).
 
 ### OpenCode-plus-skill strawman
 
@@ -561,7 +595,8 @@ catching violations before they reach CI.
 | `ears-manager retire` | Specification store | Retire a requirement through a change set |
 | `ears-manager check` | Specification store | Validate spec well-formedness |
 | WMS query | WMS Adapter | Read work-item state, query blocked items |
-| WMS resolve | WMS Adapter | Submit reviewed resolutions for blocked items |
+| WMS request create/refine/link | WMS Adapter | Create, refine, and link backlog requests |
+| WMS submit resolution | WMS Adapter | Submit reviewed change-set references for blocked items |
 | Git branch/commit/PR | Project repository | Create branches, commit artifacts, open PRs |
 
 ### Data and control flow
@@ -720,11 +755,13 @@ incompatible decisions.
 | --- | --- |
 | `ears-manager`: Go, static binary | Zero runtime dependencies across all deployment contexts — dev containers, CI runners, sandboxes, local machines. |
 | First Drafting Table harness: OpenCode | OpenCode's model-provider flexibility and skill system provide the fastest path to a working TUI Drafting Table. |
-| First Job Site backend: Fullsend / OpenShell | Fullsend is the closest peer in the GE Agentic SDLC Working Group. OpenShell provides kernel-enforced sandboxing. |
+| First Job Site backend: Fullsend / OpenShell | Fullsend is the closest peer in the GE Agentic SDLC Working Group. OpenShell provides kernel-enforced sandboxing. Fallback: a portable rootless-OCI/microVM profile for platforms where OpenShell is unavailable (e.g., `restricted-v2` — no `CAP_SYS_ADMIN`). |
 | Prototype outputs: UBI + Hummingbird images | Lightweight, fast-turnaround demo builds on Red Hat certified base images. |
 | Authentication: OAuth 2.1 | ESS-required baseline. MCP/API servers terminate inbound client tokens and use server-owned credentials downstream (Alcove Bridge/Gate pattern). |
 | Credential isolation: Bridge/Gate pattern | Agent processes never see real credentials. Bridges pre-fetch tokens; Gates inject them at the network boundary. |
 | Evaluability from day one | Every agentic component records replayable inputs/outputs and structured traces, enabling component-level testing and measurable improvement. This is an architectural constraint, not retrofitted. |
+| No CRDs or operators on Managed Platform Plus (IdeaBot ADR-0021) | Inherited constraint. The Web Drafting Table needs a deployment target that does not depend on CRDs or operators. |
+| Identity: Red Hat SSO / Keycloak (IdeaBot ADR-0012) | Inherited constraint. The OAuth 2.1 issuer for hosted modes is Red Hat SSO (Keycloak). |
 | Prototype scope: not every prototype is a container | The set of supported output types will expand over time. Initial types should support bootstrapping (CLI tools, Go binaries). |
 
 ---
@@ -732,7 +769,7 @@ incompatible decisions.
 ## Interface Specification Approach
 
 The table below maps each interface type to a specification
-approach, extending the interface-type taxonomy defined in the
+approach, following the interface-type taxonomy defined in the
 [Specification
 Hierarchy](user-interaction-flow.md#specification-hierarchy).
 Interfaces that share a type share the same specification
@@ -742,11 +779,11 @@ approach.
 | --- | --- | --- |
 | `ears-manager` CLI | CLI | `usage` (jdx.dev) / docopt / `wasi:cli` — [evaluation pending (Q18)](open-questions.md#q18-cli-interface-spec-evaluation) |
 | WMS Adapter API | Network service | Smithy or OpenAPI |
-| Specification Toolkit | Linkable library | WIT (Wasm Interface Types) or versioned skill/tool schema |
-| Validation Rules | Linkable library | WIT or declarative state-machine schema |
-| Drafting Table (TUI) | REPL | Specification Toolkit skills/prompts define the interaction protocol — no separate IDL |
+| Specification Toolkit | Agent skill package | Skill manifest + MCP tool schemas (JSON Schema) |
+| Validation Rules | Linkable library or declarative rule set | WIT or declarative state-machine schema _(open — see [components.md](components.md#validation-rules))_ |
+| Drafting Table (TUI) | REPL | Specification Toolkit skills and prompts define the interaction protocol |
 | Drafting Table (Web) | Web GUI | Open gap — Web GUI specification approach not yet established |
-| Project repository | Persistent state | `.protobot/project.yaml` schema + `ears-manager` CLI contract |
+| Project repository | Persistent state | JSON Schema for each `.protobot/` file + `ears-manager` CLI contract |
 | Kit source | Package source | Versioned import manifest with source/version/digest/provenance |
 
 Interface specifications are produced at level 3 of the

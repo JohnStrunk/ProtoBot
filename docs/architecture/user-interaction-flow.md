@@ -100,7 +100,7 @@ ongoing interactive work happens.
 | --- | --- | --- |
 | Network service | Smithy / OpenAPI | REST API, gRPC service |
 | CLI | `usage` (jdx.dev) / docopt / `wasi:cli` _(needs evaluation)_ | `protobot generate` |
-| REPL | _(open gap — no real IDL exists)_ | Interactive notebook |
+| REPL | Skills and prompts define the interaction protocol | Interactive notebook |
 | Linkable library | WIT (Wasm Interface Types) | Shared SDK module |
 | Web GUI (html/css) | _(open gap — not yet solved)_ | Dashboard UI |
 | Native GUI | _(open gap — not yet solved)_ | Desktop app |
