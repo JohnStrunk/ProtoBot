@@ -333,7 +333,8 @@ without a separate policy review.
 
 `ears-manager` is a CLI tool that serves as the programmatic
 interface to the specification store. It abstracts the underlying
-file format (JSONL, directory-of-files, or whatever is chosen),
+file format (currently one-file-per-record YAML per
+[ADR-0001](../decisions/0001-requirements-storage-format.md)),
 manages change sets, and enforces EARS methodology rules
 deterministically. Semantic impact analysis still requires agent and
 human judgment, but its inputs and approved result are structured.
@@ -410,8 +411,8 @@ It is used by three callers:
   digest, owner, and validator. Opaque prose and external IDLs still pass
   through `ears-manager` for change-set membership and path/transaction
   control; format-specific tools perform their content validation.
-- **File format consistency.** Whatever storage format is chosen
-  (JSONL, directory-of-files, etc.), `ears-manager` ensures files
+- **File format consistency.** `ears-manager` ensures one-file-per-record
+  YAML files ([ADR-0001](../decisions/0001-requirements-storage-format.md))
   are syntactically valid and follow the expected schema.
 
 ### Change-set impact analysis
@@ -482,8 +483,9 @@ idempotency input.
   without depending on what's installed in the local environment.
 - **Format-agnostic interface.** Callers interact via subcommands,
   not by reading/writing files directly. This means the underlying
-  storage format can change (JSONL → directory-of-YAML → SQLite)
-  without breaking agents, CI, or human workflows.
+  storage format can change without breaking agents, CI, or
+  human workflows. The initial format is one-file-per-record
+  YAML ([ADR-0001](../decisions/0001-requirements-storage-format.md)).
 - **Single write gate for specification artifacts.** All registered spec
   reads/writes go through `ears-manager`. It directly understands the
   requirement/interface registry and delegates validation for opaque
@@ -493,14 +495,13 @@ idempotency input.
 
 ### Open design questions
 
-- **Storage format.** JSONL is tentatively chosen for
-  git-friendliness, but `ears-manager` abstracts this. The choice
-  can be deferred and changed later without affecting callers. See
-  [open question Q7](open-questions.md#q7-requirements-storage-format).
-- **Spec directory layout.** One file per interface? One file per
-  requirement? A hierarchy mirroring the specification levels
-  (Vision → Architecture → Interface → Requirement)? The layout
-  affects merge conflict frequency and `ears-manager`'s internal
+- **Spec directory layout.** The record format is decided
+  (one file per record,
+  [ADR-0001](../decisions/0001-requirements-storage-format.md)),
+  but the directory hierarchy is not. Flat, or mirroring
+  the specification levels (Vision → Architecture → Interface
+  → Requirement)? Naming convention for record files? The
+  layout affects discoverability and `ears-manager`'s internal
   complexity.
 - **Query richness.** How far does `ears-manager list` go? Simple
   filtering (by interface, applicability scope, or pattern type)? Or
@@ -904,16 +905,12 @@ and a new Inspection Run. A path-disjoint result never waives these gates.
 
 ### Open design questions
 
-- **Requirements storage format.** EARS requirements need to be
-  structured files at known paths. JSONL (one requirement per line)
-  is tentatively chosen for git-friendliness, but cross-references
-  and hierarchy may require a different format. See
-  [open question Q7](open-questions.md#q7-requirements-storage-format).
-- **Spec directory layout.** What does the spec directory look like?
-  One file per interface? One file per requirement? A hierarchy
-  mirroring the specification levels (Vision → Architecture →
-  Interface → Requirement)? The layout affects merge conflict
-  frequency and queryability.
+- **Spec directory layout.** The record format is decided
+  (one file per record,
+  [ADR-0001](../decisions/0001-requirements-storage-format.md)),
+  but the directory hierarchy is not. Flat, or mirroring
+  the specification levels? Naming convention for record
+  files? The layout affects discoverability and queryability.
 - **Branch naming and lifecycle.** Convention for branch names
   (e.g., `wi/<id>-<slug>`), when branches are created (on work item
   creation or on first content write), and cleanup policy for
