@@ -24,7 +24,34 @@
     // under Renovate 42+'s default timestamp-required behaviour.
     "minimumReleaseAge": null,
   },
+  "customManagers": [
+    {
+      // Track fullsend-ai/agents version pins in harness base: URLs.
+      // SHA256 hashes are updated automatically by postUpgradeTasks
+      // (scripts/renovate/update-fullsend-harness-sha.sh).
+      "customType": "regex",
+      "description": "Track fullsend-ai/agents version in harness base URLs",
+      "managerFilePatterns": [".fullsend/harness/*.yaml"],
+      "matchStrings": [
+        "base:\\s*\"https://raw\\.githubusercontent\\.com/fullsend-ai/agents/v(?<currentValue>\\d+\\.\\d+\\.\\d+)/",
+      ],
+      "depNameTemplate": "fullsend-ai/agents",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+    },
+  ],
   "packageRules": [
+    {
+      // After fullsend-ai/agents version bump, recompute SHA256 hashes in
+      // harness base: URLs.
+      "description": "Update fullsend harness SHA256 hashes on version bump",
+      "matchPackageNames": ["fullsend-ai/agents"],
+      "postUpgradeTasks": {
+        "commands": ["bash scripts/renovate/update-fullsend-harness-sha.sh"],
+        "fileFilters": [".fullsend/harness/*.yaml"],
+        "executionMode": "branch",
+      },
+    },
     {
       // Registries without release timestamps would otherwise leave Docker
       // updates pending indefinitely.
