@@ -13,20 +13,20 @@
 ProtoBot's specification documents live under `docs/` in the
 following hierarchy:
 
-- `docs/vision.md` — project Vision (purpose, users, outcomes)
+- `docs/vision.md` — project Vision (purpose, users, outcomes).
 - `docs/architecture.md` — Architecture artifact (external
-  interfaces, persistent state, environmental constraints)
+  interfaces, persistent state, environmental constraints).
 - `docs/architecture/overview.md` — guiding principles, EARS
-  format, workflow, and platform
+  format, workflow, and platform.
 - `docs/architecture/components.md` — component architecture,
-  interfaces, and cross-cutting concerns
+  interfaces, and cross-cutting concerns.
 - `docs/architecture/user-interaction-flow.md` — phase details,
-  sequence diagrams, and testing strategy
+  sequence diagrams, and testing strategy.
 - `docs/architecture/related-work.md` — internal and external
-  projects informing the design
+  projects informing the design.
 - `docs/architecture/open-questions.md` — unresolved design
-  questions across all areas
-- `docs/decisions/` — architecture decision records (ADRs)
+  questions across all areas.
+- `docs/decisions/` — architecture decision records (ADRs).
 
 ### Rules for creating or modifying specification documents
 
