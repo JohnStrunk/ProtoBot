@@ -28,7 +28,8 @@ review document, not comments on GitHub. Post to GitHub only when asked to.
 
 1. Header: PR link, head and base SHAs, author, review date, files touched.
 2. Verdict: approve or request changes, then the blocking comments as a
-   list, one line each: ID and title.
+   list, one line each: ID and title. Praise and any `chore` or `thought`
+   follow. Nothing else.
 3. Comments, grouped in this order: blocking; non-blocking issues and
    suggestions; todos, nitpicks, and questions; other files. Inside a group,
    keep file order.
@@ -75,6 +76,10 @@ The Drafting Table agent creates and refines backlog requests
 
 ## Rules for the content
 
+- Post only what the author can act on. A check that found nothing (the
+  branch is behind `main`, the merge is clean, no stale wording is left)
+  goes in the "What was checked" section of the local document, never in
+  the posted review or its comments.
 - Problem first, then evidence, then fix. Say what is wrong before why.
 - Every fix must make the design or the code simpler or more complete. Drop
   a proposal that adds more than it removes.
