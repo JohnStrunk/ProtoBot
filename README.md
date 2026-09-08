@@ -61,7 +61,7 @@ commit-scoped conformance evidence are recorded separately.
 - [ProtoBot project board](https://github.com/orgs/redhat-et/projects/35/views/1)
 - [Vision](docs/vision.md)
 - [Architecture overview](docs/architecture/overview.md)
-- [Architecture interfaces and constraints](docs/architecture/architecture.md)
+- [Architecture interfaces and constraints](docs/architecture.md)
 - [System components](docs/architecture/components.md)
 - [User interaction flow](docs/architecture/user-interaction-flow.md)
 - [Related work](docs/architecture/related-work.md)

@@ -303,7 +303,7 @@ ProtoBot's own components need (CLI tools, Go binaries, etc.).
 
 - [Vision](../vision.md) — Purpose, intended users, desired
   outcomes, prototype scope, and non-goals.
-- [Architecture](architecture.md) — External interface
+- [Architecture](../architecture.md) — External interface
   inventory, pluggable boundaries, persistent state,
   environmental constraints, and Drafting Table boundary.
 - [User Interaction Flow](user-interaction-flow.md) — Phase

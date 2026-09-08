@@ -27,7 +27,7 @@
 
 This document is the Architecture artifact of ProtoBot's initial
 Sketch. It defines the second level of ProtoBot's own
-[specification hierarchy](overview.md#specification-hierarchy):
+[specification hierarchy](architecture/overview.md#specification-hierarchy):
 the system's external interfaces, their types, and the approach
 for specifying each one.
 
@@ -39,7 +39,7 @@ here are the boundaries where an independent party could write
 an implementation against the contract.
 
 For ProtoBot's Vision (the first level of the Sketch), see the
-[Overview](overview.md).
+[Overview](architecture/overview.md).
 
 ---
 
@@ -58,7 +58,7 @@ Environmental constraints are listed in a
 | 3 | Specification Toolkit ↔ Agent Harness | Agent skill package | Specification Toolkit | Drafting Table (TUI), Drafting Table (Web) |
 | 4 | `ears-manager` CLI | CLI | `ears-manager` | Specification Toolkit, CI, Job Site |
 | 5 | WMS Adapter API | Network service | WMS Adapter | Drafting Table, Job Site |
-| 6 | Validation Rules | Linkable library or declarative rule set _(open — see [components.md](components.md#validation-rules))_ | Validation Rules | Drafting Table, Job Site, WMS Adapter |
+| 6 | Validation Rules | Linkable library or declarative rule set _(open — see [components.md](architecture/components.md#validation-rules))_ | Validation Rules | Drafting Table, Job Site, WMS Adapter |
 | 7 | Project repository (Git) | Persistent state | Project | Drafting Table, Job Site, `ears-manager`, CI |
 | 8 | Job Site intake (change-set registration, true-bug intake) | CLI + webhook | Job Site | CI hooks, Git hooks, maintainers |
 | 9 | Claim coordinator | Persistent state | WMS Adapter | Job Site |
@@ -72,7 +72,7 @@ captured in the [Persistent State](#persistent-state) section
 rather than in standalone sections.
 
 **Kit source** has three interfaces (see
-[components.md — Kits](components.md#kits)): import into
+[components.md — Kits](architecture/components.md#kits)): import into
 `ears-manager` as a proposed change set with Kit provenance,
 resolution of pinned source/version/digest, and Inspector
 definition activation via project policy review. The
@@ -137,11 +137,31 @@ updates.
   browser connection)
 - No local setup required
 
+**Session state:** The Web Drafting Table is a shared,
+multi-tenant service that must manage per-user session state
+(conversation history, in-progress change sets, and tool
+execution context). Session state is an additional persistent
+store not required by the TUI, where the local harness
+process owns the session implicitly.
+
+**Authentication and authorization:** As a shared service, the
+Web Drafting Table requires authn/authz at the application
+boundary. Users authenticate via OAuth 2.1 (Red Hat SSO /
+Keycloak — see [Environmental
+Constraints](#environmental-constraints)). Authorization
+determines which projects and specification artifacts a user
+may access and which WMS operations they may perform
+(e.g., only authorized maintainers update business priority).
+The credential isolation pattern (Bridge/Gate) applies: the
+Web Drafting Table's agent runtime never sees user
+credentials directly.
+
 **Scope for specification:** The Web GUI interface type has no
 established IDL for ProtoBot's use case. The web interface
 shares the Specification Toolkit's domain logic with the TUI;
-the additional specification surface is the notification and
-session persistence model.
+the additional specification surface is the session
+management, authentication/authorization model, and
+notification/push model.
 
 ---
 
@@ -188,7 +208,7 @@ lifecycle state), the `ears-manager` binary (for all
 specification reads and writes), and a Git working tree.
 
 See [System Components — Specification
-Toolkit](components.md#specification-toolkit) for design details.
+Toolkit](architecture/components.md#specification-toolkit) for design details.
 
 ---
 
@@ -206,23 +226,43 @@ stable subcommand surface.
 
 | Subcommand | Purpose |
 | --- | --- |
-| `check` | Validate spec files: EARS formatting, required fields, referential integrity. CI gate. |
-| `add requirement` | Add a new EARS requirement with applicability metadata. |
-| `add interface` | Register a new interface in the Architecture. |
+| `requirement add` | Add a new EARS requirement with applicability metadata. |
+| `requirement list` | List requirements (filterable). |
+| `requirement show` | Show a requirement by ID. |
+| `requirement update` | Modify an existing requirement through a change set. |
+| `requirement retire` | Retire a requirement through a change set. |
+| `interface add` | Register a new interface in the Architecture. |
+| `interface list` | List interfaces (filterable). |
+| `interface show` | Show an interface by ID. |
+| `interface update` | Modify an existing interface through a change set. |
 | `artifact put` | Create/update a registered artifact (Vision, Architecture, IDL). |
 | `artifact get` | Read a registered artifact by kind or ID. |
-| `change-set` | Create, inspect, and update proposed change sets. |
-| `compare` | Compare a change set with the current Schematic. |
+| `artifact list` | List registered artifacts. |
+| `change-set create` | Create a new proposed change set. |
+| `change-set list` | List change sets (filterable). |
+| `change-set show` | Show a change set by ID. |
+| `change-set compare` | Compare a change set with the current Schematic. |
+| `change-set update` | Update a proposed change set. |
+| `check` | Validate spec files: EARS formatting, required fields, referential integrity. CI gate. |
 | `impact` | Produce potentially applicable requirements from scope intersections. |
-| `list` | List requirements, interfaces, change sets, or artifacts. |
-| `show` | Show a requirement, interface, change set, or artifact by ID. |
-| `update` | Modify an existing interface or requirement through a change set. |
-| `retire` | Retire a requirement through a change set. |
 
 **Callers:** The Specification Toolkit (via agent tool calls),
 CI pipelines (`ears-manager check` as a merge gate), the Job
 Site (resolving requirements at a specification commit), and
 humans directly.
+
+**File system interface:** `ears-manager` reads and writes
+specification data on disk (under paths registered in
+`.protobot/project.yaml`). The on-disk format is an external
+interface because requirements data must be forward
+upgradeable as `ears-manager` evolves. Each data file carries
+a schema version; `ears-manager` refuses to operate on data
+at a version newer than its own, and forward migration
+happens through a reviewed change set (see
+[Persistent State — Specification store](#specification-store-git)).
+Callers must not parse or write these files directly — the
+CLI is the stable contract; the storage format may change
+between versions.
 
 **Design constraint:** Deterministic, not AI-driven.
 `ears-manager` is conventional code — a linter, validator, and
@@ -230,7 +270,7 @@ CRUD tool. The agent decides _what_ requirements to write;
 `ears-manager` ensures they are well-formed.
 
 See [System Components —
-`ears-manager`](components.md#ears-manager) for subcommand
+`ears-manager`](architecture/components.md#ears-manager) for subcommand
 details and validation rules.
 
 ---
@@ -252,10 +292,9 @@ implementation is active per project.
 - **Materialization:** Atomically create or return a build work
   item by stable idempotency key, writing the complete contract
   in one durable operation.
-- **Lifecycle transitions:** Update state only when the caller
-  supplies the expected current state and monotonically
-  increasing contract version. Claiming uses atomic
-  compare-and-swap with a fencing token.
+- **Lifecycle transitions:** Atomic update of work-item state.
+  Every state mutation is atomic and returns the new state or
+  a conflict.
 - **Queries:** Read items by ID, state, dependency, owner, or
   idempotency key.
 - **Git references:** Record specification and code commits,
@@ -290,11 +329,11 @@ logic at the API boundary.
 
 In single-player mode the adapter, Job Site, and sandbox all run
 on the developer's machine without requiring a cluster
-([Overview — Single-player mode](overview.md#single-player-mode)).
+([Overview — Single-player mode](architecture/overview.md#single-player-mode)).
 OAuth 2.1 with Bridge/Gate is required only in the hosted modes.
 
 See [System Components — WMS
-Adapter](components.md#wms-adapter) for the full API surface
+Adapter](architecture/components.md#wms-adapter) for the full API surface
 and lifecycle state machine.
 
 ---
@@ -330,7 +369,7 @@ Drafting Table, Job Site, and WMS Adapter boundary.
   readiness checks.
 
 See [System Components — Validation
-Rules](components.md#validation-rules) for details.
+Rules](architecture/components.md#validation-rules) for details.
 
 ---
 
@@ -368,7 +407,7 @@ Job Site (integration branches, merges), `ears-manager`
 (specification working tree), and CI (validation gates).
 
 See [System Components — Content Storage
-Model](components.md#content-storage-model) for the full
+Model](architecture/components.md#content-storage-model) for the full
 content model and merge strategy.
 
 ---
@@ -381,7 +420,7 @@ scope to the handoff boundary — what crosses the line between
 interactive and autonomous work. The Job Site's internal
 components, worker topology, execution backends, and sandbox
 architecture are detailed in the [System
-Components](components.md#job-site) design document and are
+Components](architecture/components.md#job-site) design document and are
 out of scope for this Sketch.
 
 **Pipeline input (what seeds ProtoBot):**
@@ -418,7 +457,7 @@ out of scope for this Sketch.
 
 - **Merged code and tests** on the `wi/` branch, merged to
   main on completion — [pending
-  Q13](open-questions.md#q13-autonomous-merge-and-hu-02).
+  Q13](architecture/open-questions.md#q13-autonomous-merge-and-hu-02).
 - **Conformance evidence** — immutable verification artifacts
   naming requirement IDs, specification commits, and tested
   candidate commits.
@@ -478,7 +517,7 @@ The Drafting Table supports three interaction phases:
    (Dimensioning for _undefined_ and _changes_; Building
    directly for _contradicts_ / true bugs). See
    [User Interaction Flow — Request Backlog and
-   Refinement](user-interaction-flow.md#request-backlog-and-refinement).
+   Refinement](architecture/user-interaction-flow.md#request-backlog-and-refinement).
 
 3. **Dimensioning** — the user and agent produce precise EARS
    requirements for each interface identified in the
@@ -584,15 +623,11 @@ catching violations before they reach CI.
 
 | Tool | System | Operations |
 | --- | --- | --- |
-| `ears-manager add requirement` | Specification store | Add an EARS requirement |
-| `ears-manager add interface` | Specification store | Register a new interface |
-| `ears-manager artifact put/get` | Specification store | Manage Vision, Architecture, IDL artifacts |
-| `ears-manager change-set` | Specification store | Create, inspect, update change sets |
-| `ears-manager compare` | Specification store | Compare change set with Schematic |
+| `ears-manager requirement *` | Specification store | Add, list, show, update, retire requirements |
+| `ears-manager interface *` | Specification store | Add, list, show, update interfaces |
+| `ears-manager artifact put/get/list` | Specification store | Manage Vision, Architecture, IDL artifacts |
+| `ears-manager change-set *` | Specification store | Create, list, show, compare, update change sets |
 | `ears-manager impact` | Specification store | Generate applicable-requirement candidates |
-| `ears-manager list/show` | Specification store | Query requirements, interfaces, artifacts |
-| `ears-manager update` | Specification store | Modify an existing requirement or interface through a change set |
-| `ears-manager retire` | Specification store | Retire a requirement through a change set |
 | `ears-manager check` | Specification store | Validate spec well-formedness |
 | WMS query | WMS Adapter | Read work-item state, query blocked items |
 | WMS request create/refine/link | WMS Adapter | Create, refine, and link backlog requests |
@@ -607,7 +642,7 @@ Drafting Table during a Dimensioning session:
 ```text
 User ──── intent / approval ──────→ Agent
 Agent ──── clarifying questions ──→ User
-Agent ──── ears-manager add ──────→ Spec Store (working tree)
+Agent ──── requirement add ───────→ Spec Store (working tree)
 Agent ──── ears-manager impact ───→ Spec Store (candidate list)
 Agent ──── WMS query ─────────────→ WMS Backend (blocked items)
 Agent ──── present change set ────→ User
@@ -739,7 +774,7 @@ outside the project repository.
 **Schema owner:** The deployment operator.
 
 See [System Components — Content Storage
-Model](components.md#content-storage-model) for the full
+Model](architecture/components.md#content-storage-model) for the full
 content model.
 
 ---
@@ -771,16 +806,16 @@ incompatible decisions.
 The table below maps each interface type to a specification
 approach, following the interface-type taxonomy defined in the
 [Specification
-Hierarchy](user-interaction-flow.md#specification-hierarchy).
+Hierarchy](architecture/user-interaction-flow.md#specification-hierarchy).
 Interfaces that share a type share the same specification
 approach.
 
 | Interface | Type | Specification approach |
 | --- | --- | --- |
-| `ears-manager` CLI | CLI | `usage` (jdx.dev) / docopt / `wasi:cli` — [evaluation pending (Q18)](open-questions.md#q18-cli-interface-spec-evaluation) |
+| `ears-manager` CLI | CLI | `usage` (jdx.dev) / docopt / `wasi:cli` — [evaluation pending (Q18)](architecture/open-questions.md#q18-cli-interface-spec-evaluation) |
 | WMS Adapter API | Network service | Smithy or OpenAPI |
 | Specification Toolkit | Agent skill package | Skill manifest + MCP tool schemas (JSON Schema) |
-| Validation Rules | Linkable library or declarative rule set | WIT or declarative state-machine schema _(open — see [components.md](components.md#validation-rules))_ |
+| Validation Rules | Linkable library or declarative rule set | WIT or declarative state-machine schema _(open — see [components.md](architecture/components.md#validation-rules))_ |
 | Drafting Table (TUI) | REPL | Specification Toolkit skills and prompts define the interaction protocol |
 | Drafting Table (Web) | Web GUI | Open gap — Web GUI specification approach not yet established |
 | Project repository | Persistent state | JSON Schema for each `.protobot/` file + `ears-manager` CLI contract |
@@ -796,13 +831,13 @@ that contract.
 
 ## Related Documents
 
-- [Overview](overview.md) — What ProtoBot is, guiding principles,
+- [Overview](architecture/overview.md) — What ProtoBot is, guiding principles,
   and workflow summary
-- [System Components](components.md) — Component architecture,
+- [System Components](architecture/components.md) — Component architecture,
   interfaces, and cross-cutting concerns
-- [User Interaction Flow](user-interaction-flow.md) — Phase details
+- [User Interaction Flow](architecture/user-interaction-flow.md) — Phase details
   and sequence diagrams
-- [Open Design Questions](open-questions.md) — Unresolved
+- [Open Design Questions](architecture/open-questions.md) — Unresolved
   design questions across all areas
-- [Related Work](related-work.md) — Red Hat internal projects,
+- [Related Work](architecture/related-work.md) — Red Hat internal projects,
   external factory projects, and lessons learned
