@@ -15,6 +15,21 @@
   // review-agent re-runs on busy days.
   "rebaseWhen": "conflicted",
   "dependencyDashboard": true,
+  // Keep the Skillsaw ruleset version in .skillsaw.yaml updateable.
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)\\.skillsaw\\.yaml$/",
+      ],
+      "matchStrings": [
+        "version:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?",
+      ],
+      "depNameTemplate": "skillsaw",
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "pep440",
+    },
+  ],
   // Give newly released dependencies time to receive initial security review.
   "minimumReleaseAge": "10 days",
   "lockFileMaintenance": {
@@ -80,6 +95,15 @@
         "pre-commit",
       ],
       "pinDigests": true,
+    },
+    {
+      // Keep the Skillsaw hook and its config version in sync.
+      "description": "Group Skillsaw hook and config updates",
+      "groupName": "skillsaw",
+      "matchPackageNames": [
+        "skillsaw",
+        "stbenjam/skillsaw",
+      ],
     },
   ],
   // Security fixes should be proposed immediately.
