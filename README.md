@@ -63,6 +63,7 @@ commit-scoped conformance evidence are recorded separately.
 - [User interaction flow](docs/architecture/user-interaction-flow.md)
 - [Related work](docs/architecture/related-work.md)
 - [Open design questions](docs/architecture/open-questions.md)
+- [Architecture decisions](docs/decisions/)
 
 ProtoBot is under active design and implementation. The architecture documents
 describe the current direction and identify decisions that remain open.

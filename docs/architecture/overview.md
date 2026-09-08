@@ -311,3 +311,5 @@ ProtoBot's own components need (CLI tools, Go binaries, etc.).
   questions across all areas.
 - [Related Work](related-work.md) — Red Hat internal projects,
   external factory projects, and lessons learned.
+- [Architecture Decisions](../decisions/) — Resolved design
+  decisions with full rationale.
