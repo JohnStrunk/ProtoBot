@@ -28,8 +28,8 @@ review document, not comments on GitHub. Post to GitHub only when asked to.
 
 1. Header: PR link, head and base SHAs, author, review date, files touched.
 2. Verdict: approve or request changes, then the blocking comments as a
-   list, one line each: ID and title. Praise and any `chore` or `thought`
-   follow. Nothing else.
+   list, one line each: ID and title. Then any `chore`, then praise, then
+   any `thought`. Nothing else.
 3. Comments, grouped in this order: blocking; non-blocking issues and
    suggestions; todos, nitpicks, and questions; other files. Inside a group,
    keep file order.
@@ -68,8 +68,9 @@ The Drafting Table agent creates and refines backlog requests
 - **Labels:** `issue` for a concrete defect, `suggestion` for an improvement
   with its reason, `todo` for a small required change, `question` for a
   concern you cannot settle, `nitpick` for a preference, `praise` for what
-  is right, `chore` for a task that must happen before acceptance, `thought`
-  and `note` for non-blocking context.
+  is right, `chore` for a task that must happen before merge and has no
+  line to anchor to (it blocks, like an `issue (blocking)`), `thought` and
+  `note` for non-blocking context.
 - **Decorations:** always decorate `issue` with `(blocking)` or
   `(non-blocking)`. `(blocking)` means the PR must not merge until the
   comment is resolved. A `suggestion` without a decoration is non-blocking.
