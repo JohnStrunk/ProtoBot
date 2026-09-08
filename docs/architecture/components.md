@@ -485,8 +485,7 @@ idempotency input.
   not by reading/writing files directly. This means the underlying
   storage format can change without breaking agents, CI, or
   human workflows. The initial format is one-file-per-record
-  YAML
-  ([ADR-0001](../decisions/0001-requirements-storage-format.md)).
+  YAML ([ADR-0001](../decisions/0001-requirements-storage-format.md)).
 - **Single write gate for specification artifacts.** All registered spec
   reads/writes go through `ears-manager`. It directly understands the
   requirement/interface registry and delegates validation for opaque

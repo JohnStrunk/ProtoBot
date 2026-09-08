@@ -2,6 +2,17 @@
 
 > Status: **Accepted** — September 2026
 
+**Contents:**
+
+- [Context](#context)
+- [Decision](#decision)
+- [Rationale](#rationale)
+- [Alternatives Considered](#alternatives-considered)
+- [Cross-Reference Representation](#cross-reference-representation)
+- [Change-Set History Representation](#change-set-history-representation)
+- [Consequences](#consequences)
+- [Related Documents](#related-documents)
+
 ## Context
 
 `ears-manager` is ProtoBot's exclusive read/write gate for
@@ -387,7 +398,7 @@ how those files are serialized and organized on disk.
 
 ---
 
-## Related
+## Related Documents
 
 - [Q7: Requirements storage format][q7] — the open
   question this ADR resolves
