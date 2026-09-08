@@ -51,25 +51,26 @@ persistent state (which outlives any single run and requires its
 own read/write contract) and environmental constraints (which
 dictate implementation choices).
 
-| # | Interface | Type | Owner |
-| --- | --- | --- | --- |
-| 1 | Drafting Table ↔ User (TUI) | REPL | Drafting Table |
-| 2 | Drafting Table ↔ User (Web) | Web GUI | Drafting Table |
-| 3 | Specification Toolkit ↔ Agent Harness | Linkable library | Specification Toolkit |
-| 4 | `ears-manager` CLI | CLI | `ears-manager` |
-| 5 | WMS Adapter API | Network service | WMS Adapter |
-| 6 | Validation Rules | Linkable library | Validation Rules |
-| 7 | Project repository (Git) | Persistent state | Project |
-| 8 | Job Site ↔ WMS Adapter | Network service | Job Site |
-| 9 | Job Site ↔ Project Repo | Persistent state | Job Site |
-| 10 | Kit source | Package source | Kits |
+| # | Interface | Type | Provider | Consumers |
+| --- | --- | --- | --- | --- |
+| 1 | Drafting Table ↔ User (TUI) | REPL | Drafting Table | — |
+| 2 | Drafting Table ↔ User (Web) | Web GUI | Drafting Table | — |
+| 3 | Specification Toolkit ↔ Agent Harness | Linkable library | Specification Toolkit | Drafting Table (TUI), Drafting Table (Web) |
+| 4 | `ears-manager` CLI | CLI | `ears-manager` | Specification Toolkit, CI, Job Site |
+| 5 | WMS Adapter API | Network service | WMS Adapter | Drafting Table, Job Site |
+| 6 | Validation Rules | Linkable library | Validation Rules | Drafting Table, Job Site, WMS Adapter |
+| 7 | Project repository (Git) | Persistent state | Project | Drafting Table, Job Site, `ears-manager`, CI |
+| 8 | Job Site intake (change-set registration, true-bug intake) | CLI + webhook | Job Site | CI hooks, Git hooks, maintainers |
+| 9 | Claim coordinator | Persistent state | WMS Adapter | Job Site |
+| 10 | Kit source | Package source | Kits | Drafting Table |
 
-Each interface except Kit source is described in a dedicated
-section below; Kit source details (versioned import manifest,
-resolution, and digest verification) are captured in the
+Most interfaces are described in dedicated sections below.
+Kit source details (versioned import manifest, resolution, and
+digest verification), the Job Site intake interface, and the
+claim coordinator are captured in the
 [Interface Specification Approach](#interface-specification-approach)
-table, which maps each type to the IDL or specification method
-that will be used to define its contract.
+table or the [Persistent State](#persistent-state) section
+rather than in standalone sections.
 
 ---
 
@@ -163,6 +164,10 @@ instructions and tool schemas.
   including EARS pattern definitions, the interface-type
   taxonomy, gap-closing heuristics, and the specification
   hierarchy.
+- **Trace output:** Structured trace data (replayable inputs,
+  outputs, and decision records) for every agentic operation,
+  enabling component-level evaluability. The trace format is
+  an open design question.
 
 **Harness contract:** The Toolkit must work in any compatible
 agent harness — OpenCode, Claude Code, a hosted web runtime, or
@@ -266,6 +271,19 @@ transition semantics. Backend-specific translators remain
 deliberately thin; shared Validation Rules enforce lifecycle
 logic at the API boundary.
 
+**Deployment topology:**
+
+| Mode | WMS Adapter | Job Site and sandbox | Token source |
+| --- | --- | --- | --- |
+| Single-player | Local process over MCP stdio | Local process; sandbox via portable rootless-OCI/microVM profile | User's own Git host token (no OAuth 2.1 infrastructure required) |
+| Multi-player | Network service (one per project) | Hosted service; sandbox via Fullsend/OpenShell | OAuth 2.1 via Alcove Bridge/Gate pattern |
+| Web | Network service (shared deployment) | Hosted service; sandbox via Fullsend/OpenShell | OAuth 2.1 via Alcove Bridge/Gate pattern |
+
+In single-player mode the adapter, Job Site, and sandbox all run
+on the developer's machine without requiring a cluster
+([Overview — Single-player mode](overview.md#single-player-mode)).
+OAuth 2.1 with Bridge/Gate is required only in the hosted modes.
+
 See [System Components — WMS
 Adapter](components.md#wms-adapter) for the full API surface
 and lifecycle state machine.
@@ -359,6 +377,14 @@ out of scope for this Sketch.
 
 **Handoff inputs (what the Job Site receives):**
 
+- **Job Site intake events** — change-set registration (on
+  merge, a registration hook calls the Job Site with the
+  change-set ID, merge commit, and materialization key; in
+  single-player mode, a local
+  `register-approved-change-set` command) and true-bug intake
+  (a bug report with violated requirement IDs and affected
+  scope, without a change set or PR). Both are external
+  entry points (CI hooks, Git hooks, maintainers).
 - **Build work items** from the WMS Adapter in
   `ready-for-building` state, claimed via atomic
   compare-and-swap.
@@ -387,6 +413,10 @@ out of scope for this Sketch.
   for escalation).
 - **Escalation issues** opened in the project repository when
   undefined behavior is discovered.
+- **Structured trace data** — replayable inputs, outputs, and
+  decision records for every agentic operation, enabling
+  component-level evaluability. The trace format is an open
+  design question.
 
 **Interfaces consumed by the Job Site:**
 
@@ -485,6 +515,22 @@ Specification Toolkit. The agent never edits specification
 files directly — all reads and writes go through
 `ears-manager`.
 
+**Enforcement:** This rule is enforced structurally, not by
+prompting alone. The mandatory enforcement layers are:
+
+- **Branch protection on `main`** — prevents direct pushes;
+  all changes require a reviewed PR.
+- **`ears-manager check` as a CI merge gate** — validates
+  specification well-formedness, required metadata, and
+  referential integrity before merge.
+- **Path ownership in CI** — rejects edits by a component or
+  Worker outside its owned or allowlisted paths (CODEOWNERS
+  and required reviews).
+
+Optional early enforcement: harness permission rules that
+deny writes under specification paths at the tool level,
+catching violations before they reach CI.
+
 **Tool governance principles:**
 
 - **All specification mutations go through `ears-manager`.**
@@ -555,8 +601,12 @@ Materializer ── create work item ─→ WMS Backend
 ## Persistent State
 
 Persistent state outlives any single run and requires its own
-interface contract. ProtoBot has three categories of persistent
-state.
+interface contract. ProtoBot has six categories of persistent
+state. Each store carries a schema version (in
+`.protobot/project.yaml`); when a tool encounters data at a
+version newer than its own, it refuses to operate rather than
+silently corrupting state. Forward migration happens through a
+reviewed change set, not automatically.
 
 ### Specification store (Git)
 
@@ -570,6 +620,9 @@ directly.
 **Where it lives:** The project repository, under paths
 registered in `.protobot/project.yaml`.
 
+**Schema owner:** `ears-manager`. On version mismatch,
+`ears-manager` refuses and reports the expected version.
+
 ### Work-item lifecycle state (WMS backend)
 
 Build work-item state — pipeline phase, blocked/ready status,
@@ -581,6 +634,9 @@ through the WMS Adapter API.
 **Where it lives:** The configured WMS backend, one per
 project.
 
+**Schema owner:** WMS Adapter. On version mismatch, the
+adapter refuses the operation.
+
 ### Project configuration (`.protobot/`)
 
 Project identity, artifact paths, projection manifests,
@@ -589,6 +645,63 @@ in the `.protobot/` control namespace in the project
 repository.
 
 **Where it lives:** The project repository under `.protobot/`.
+
+**Schema owner:** `ears-manager` (for `project.yaml` and
+specification paths) and the Job Site (for the test catalog
+and attestation paths). On version mismatch, the owning tool
+refuses.
+
+### Claim coordinator
+
+The claim coordinator provides atomic compare-and-swap
+semantics for work-item claims and finding-ledger outbox
+operations on backends that lack native conditional updates
+(GitHub, GitLab, Jira, Trello). It holds leases and fencing
+tokens that determine whether two Job Sites can claim the
+same item.
+
+**Where it lives:**
+
+| Mode | Location |
+| --- | --- |
+| Single-player | Local process or in-memory (single claimant) |
+| Multi-player | Shared durable store alongside the WMS backend |
+| Web | Same as multi-player |
+
+**Schema owner:** WMS Adapter. Reconciliation with the
+backend is the adapter's responsibility.
+
+### Evidence and artifact store
+
+Content-addressed raw evidence (integration artifacts,
+inspection reports) and large demo artifacts (video, images)
+referenced by digest. The conformance evidence that the
+completion envelope references lives here; losing it breaks
+the evidence chain.
+
+**Where it lives:**
+
+| Mode | Location |
+| --- | --- |
+| Single-player | Local filesystem under `.protobot/attestations/` |
+| Multi-player | Approved object/OCI storage, referenced by digest |
+| Web | Same as multi-player |
+
+**Schema owner:** Job Site. Retention policy is a project
+policy decision in `.protobot/policy.yaml`.
+
+### Deployment-level registry
+
+A hosted ProtoBot deployment serves many projects and adapter
+configurations. The deployment-level registry tracks project
+registrations, adapter configurations, and shared
+infrastructure state. It lives outside any single project's
+`.protobot/`.
+
+**Where it lives:** The deployment's own configuration store,
+outside the project repository.
+
+**Schema owner:** The deployment operator.
 
 See [System Components — Content Storage
 Model](components.md#content-storage-model) for the full
@@ -611,6 +724,7 @@ incompatible decisions.
 | Prototype outputs: UBI + Hummingbird images | Lightweight, fast-turnaround demo builds on Red Hat certified base images. |
 | Authentication: OAuth 2.1 | ESS-required baseline. MCP/API servers terminate inbound client tokens and use server-owned credentials downstream (Alcove Bridge/Gate pattern). |
 | Credential isolation: Bridge/Gate pattern | Agent processes never see real credentials. Bridges pre-fetch tokens; Gates inject them at the network boundary. |
+| Evaluability from day one | Every agentic component records replayable inputs/outputs and structured traces, enabling component-level testing and measurable improvement. This is an architectural constraint, not retrofitted. |
 | Prototype scope: not every prototype is a container | The set of supported output types will expand over time. Initial types should support bootstrapping (CLI tools, Go binaries). |
 
 ---
@@ -621,9 +735,8 @@ The table below maps each interface type to a specification
 approach, extending the interface-type taxonomy defined in the
 [Specification
 Hierarchy](user-interaction-flow.md#specification-hierarchy).
-Interfaces that share a type (e.g., Job Site ↔ WMS Adapter and
-WMS Adapter API are both network services) share the same
-specification approach.
+Interfaces that share a type share the same specification
+approach.
 
 | Interface | Type | Specification approach |
 | --- | --- | --- |
