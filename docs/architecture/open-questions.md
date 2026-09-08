@@ -5,14 +5,15 @@
 **Contents:**
 
 - [Interactive phase](#interactive-phase)
-- [Specification storage](#specification-storage)
 - [Building phase](#building-phase)
 - [Inspecting phase](#inspecting-phase)
 - [Compliance](#compliance)
 - [Interface specifications](#interface-specifications)
+- [Resolved questions](#resolved-questions)
 - [Related Documents](#related-documents)
 
-Questions that are not yet resolved. Updated as decisions are made.
+Questions that are not yet resolved, and resolved questions with
+pointers to their decisions. Updated as decisions are made.
 
 ---
 
@@ -57,22 +58,6 @@ Kits are versioned imports;
    whether experience justifies skills, build/test conventions, projection
    defaults, mutation operators, or internal test controls remain open.
    See [Kits](components.md#kits).
-
-## Specification storage
-
-### Q7: Requirements storage format — Resolved
-
-**Decision:** One-file-per-record YAML. See
-[ADR-0001](../decisions/0001-requirements-storage-format.md).
-
-JSONL was rejected because concurrent edits to the same file
-produce merge conflicts even for independent requirements, and
-single-line JSON objects are difficult to review in PRs. One
-file per record eliminates merge conflicts for independent
-edits and produces minimal, focused diffs. YAML is preferred
-over JSON for human readability and multi-line EARS text
-support. `ears-manager` enforces canonical serialization to
-keep diffs stable.
 
 ## Building phase
 
@@ -210,6 +195,15 @@ The multi-player workflow places the
     specification. Need to evaluate which (if any) is suitable for
     ProtoBot's needs. See the interface-type taxonomy in
     [Specification Hierarchy](user-interaction-flow.md#specification-hierarchy).
+
+---
+
+## Resolved questions
+
+### Q7: Requirements storage format
+
+Resolved → [ADR-0001](../decisions/0001-requirements-storage-format.md).
+One-file-per-record YAML.
 
 ---
 

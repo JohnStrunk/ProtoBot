@@ -55,12 +55,19 @@ respectively).
 
 ### 1. Git diff/merge compatibility
 
-One-file-per-record **eliminates spurious merge conflicts for
-independent edits**. Two contributors working on different
-requirements in the same change set modify different files; `git
-merge` applies both changes without conflict. This is the
-strongest possible guarantee — no format tuning or merge drivers
-required.
+One-file-per-record **eliminates merge conflicts for
+independent requirement edits**. Two contributors working on
+different requirements modify different files; `git merge`
+applies both changes without conflict — no format tuning or
+merge drivers required.
+
+Conflicts still occur in shared files: two contributors who
+add requirements to the same change set both edit that
+change-set manifest, and any index file `ears-manager`
+maintains is a similar hot spot. `ears-manager` keeps these
+conflicts mechanical by using sorted lists and deterministic
+key ordering, so the merge resolution is straightforward even
+when it is not automatic.
 
 By contrast, any single-file format (JSONL, a monolithic YAML
 document, or a JSON array) places all records in one file,
@@ -116,8 +123,9 @@ requirement changes:
 - **Revising** a requirement modifies one file. The PR diff
   shows a before/after comparison of that requirement only.
 - **Retiring** a requirement modifies one file (status field
-  change) or removes it, depending on the retention policy
-  `ears-manager` implements.
+  change). The file is never deleted; retired records remain
+  as permanent targets of historical cross-references and
+  approved change-set manifests.
 - **Cross-reference changes** modify only the files that add
   or remove relationships.
 
@@ -141,7 +149,17 @@ editors and tooling:
 - Stable key ordering (fixed order defined by the schema,
   not alphabetical)
 - Consistent YAML scalar style (block scalars for multi-line
-  EARS text, plain scalars for short values)
+  EARS text; plain scalars for short values; quoted scalars
+  for values that are not unambiguously strings — timestamps,
+  bare `yes`/`no`/`on`/`off`, numeric-looking IDs, and
+  values with leading zeros)
+- One sentence per line in block scalars (no column-based
+  rewrapping), so a single changed word does not re-flow
+  subsequent lines
+- Two-space indentation with sequences indented consistently,
+  matching the repository's yamllint configuration
+- LF line endings only (no CRLF), regardless of contributor
+  platform
 - No trailing whitespace; single newline at end of file
 - UTF-8 encoding without BOM
 - Relationship lists sorted by target ID
@@ -163,13 +181,18 @@ because:
 - **Human readability.** Requirements are reviewed by humans
   (architects, stakeholders) who may not use `ears-manager`
   for every read. YAML is more accessible without tooling.
-- **Comments.** YAML supports comments, which `ears-manager`
-  can use for tooling metadata (e.g., `# ears-manager:
-  generated`) without adding schema fields. Comments are
-  stripped from structured output but preserved in files.
-- **Ecosystem.** Go's YAML libraries (e.g., `gopkg.in/yaml.v3`)
-  support round-trip preservation of comments and formatting,
-  aligning with the canonical serialization requirement.
+- **Comments.** YAML supports inline comments, which improves
+  readability over JSON. `ears-manager` writes a single
+  generated header comment (e.g.,
+  `# managed by ears-manager — do not edit by hand`) and
+  preserves it across rewrites. Comments carry no semantics;
+  `ears-manager check` and the #46 schema ignore them.
+- **Ecosystem.** Go is the implementation language for
+  `ears-manager`. The YAML library must support deterministic
+  emit: explicit control over key order, indentation, scalar
+  style, and line-break placement. Round-trip preservation of
+  input formatting is not required, since `ears-manager`
+  always writes canonical output.
 
 JSON remains the format for `ears-manager` structured CLI
 output (commands that produce machine-readable results), keeping
@@ -322,8 +345,9 @@ serialized by `ears-manager`.
 
 ### Benefits
 
-- Merge conflicts between independent requirement edits are
-  eliminated.
+- Merge conflicts between independent requirement record edits
+  are eliminated (shared files like change-set manifests may
+  still conflict but are kept mechanical by sorted lists).
 - PR diffs are minimal and focused on the changed records.
 - Human reviewers can read spec files without tooling.
 - `ears-manager` can enforce canonical formatting on individual
@@ -380,7 +404,7 @@ how those files are serialized and organized on disk.
 - #34 — Git and project-repository integration (the PR
   reviewability plan here should stay consistent)
 
-[q7]: ../architecture/open-questions.md#q7-requirements-storage-format--resolved
+[q7]: ../architecture/open-questions.md#q7-requirements-storage-format
 [phase2]: ../architecture/user-interaction-flow.md#phase-2-dimensioning
 [em]: ../architecture/components.md#ears-manager
 [csm]: ../architecture/components.md#content-storage-model

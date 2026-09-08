@@ -496,12 +496,13 @@ idempotency input.
 
 ### Open design questions
 
-- **Storage format — Resolved.** One-file-per-record YAML. See
-  [ADR-0001](../decisions/0001-requirements-storage-format.md).
-- **Spec directory layout.** One file per interface? One file per
-  requirement? A hierarchy mirroring the specification levels
-  (Vision → Architecture → Interface → Requirement)? The layout
-  affects merge conflict frequency and `ears-manager`'s internal
+- **Spec directory layout.** The record format is decided
+  (one file per record,
+  [ADR-0001](../decisions/0001-requirements-storage-format.md)),
+  but the directory hierarchy is not. Flat, or mirroring
+  the specification levels (Vision → Architecture → Interface
+  → Requirement)? Naming convention for record files? The
+  layout affects discoverability and `ears-manager`'s internal
   complexity.
 - **Query richness.** How far does `ears-manager list` go? Simple
   filtering (by interface, applicability scope, or pattern type)? Or
@@ -905,14 +906,12 @@ and a new Inspection Run. A path-disjoint result never waives these gates.
 
 ### Open design questions
 
-- **Requirements storage format — Resolved.** One-file-per-record
-  YAML. See
-  [ADR-0001](../decisions/0001-requirements-storage-format.md).
-- **Spec directory layout.** What does the spec directory look like?
-  One file per interface? One file per requirement? A hierarchy
-  mirroring the specification levels (Vision → Architecture →
-  Interface → Requirement)? The layout affects merge conflict
-  frequency and queryability.
+- **Spec directory layout.** The record format is decided
+  (one file per record,
+  [ADR-0001](../decisions/0001-requirements-storage-format.md)),
+  but the directory hierarchy is not. Flat, or mirroring
+  the specification levels? Naming convention for record
+  files? The layout affects discoverability and queryability.
 - **Branch naming and lifecycle.** Convention for branch names
   (e.g., `wi/<id>-<slug>`), when branches are created (on work item
   creation or on first content write), and cleanup policy for
