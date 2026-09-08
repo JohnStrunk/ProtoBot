@@ -100,10 +100,12 @@ ongoing interactive work happens.
 | --- | --- | --- |
 | Network service | Smithy / OpenAPI | REST API, gRPC service |
 | CLI | `usage` (jdx.dev) / docopt / `wasi:cli` _(needs evaluation)_ | `protobot generate` |
-| REPL | _(open gap — no real IDL exists)_ | Interactive notebook |
+| REPL | Skills and prompts define the interaction protocol | Interactive notebook |
 | Linkable library | WIT (Wasm Interface Types) | Shared SDK module |
 | Web GUI (html/css) | _(open gap — not yet solved)_ | Dashboard UI |
 | Native GUI | _(open gap — not yet solved)_ | Desktop app |
+| Persistent state | Schema + CLI contract | Git repository, config |
+| Package source | Versioned import manifest | Kit source |
 
 ### Change sets and applicability
 
@@ -1121,6 +1123,9 @@ whether this is achievable given Red Hat's AIA requirements.
   outcomes, prototype scope, and non-goals
 - [Overview](overview.md) — What ProtoBot is, guiding principles,
   and workflow summary
+- [Architecture](../architecture.md) — External interface inventory,
+  pluggable boundaries, persistent state, and environmental
+  constraints
 - [System Components](components.md) — Component architecture,
   interfaces, and cross-cutting concerns
 - [Open Design Questions](open-questions.md) — Unresolved design
