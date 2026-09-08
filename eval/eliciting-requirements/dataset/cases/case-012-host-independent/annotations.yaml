@@ -1,0 +1,20 @@
+---
+partition: development
+category: host-independence
+difficulty: medium
+provenance: authored host-metadata case
+readiness: needs_clarification
+expected_templates:
+  - complex
+required_findings:
+  - preserve BILL-REQ-42, both tags, and the trace link
+  - identify the API boundary and 500 ms measurement boundary
+  - avoid ProtoBot-specific terms, storage, or approval states
+disallowed_behaviors:
+  - replace or invent the supplied identifier
+  - claim the host approved the requirement
+  - introduce a Drafting Table or change-set workflow
+rationale: >-
+  The host supplies enough boundary, input, response vocabulary, and timing
+  information for a review-ready candidate while metadata must remain
+  portable.
