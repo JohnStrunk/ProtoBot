@@ -48,7 +48,11 @@ revised later without breaking callers.
 
 Use **one file per record in YAML format** for all specification
 records managed by `ears-manager`: requirements, interfaces,
-change-set manifests, and artifact-registry entries.
+and change-set manifests. Artifact registration metadata
+(kind, path, digest, owner, validator) remains in
+`.protobot/project.yaml`
+([components.md](../architecture/components.md#content-storage-model))
+and is not covered by this format decision.
 
 Each record is a single YAML file whose filename is derived from
 its stable ID. `ears-manager` owns the mapping from ID to file
@@ -112,10 +116,9 @@ touches the same monolithic file.
 Change-set manifests are already stored as individual files in
 `.protobot/change-sets/`
 ([content storage model](../architecture/components.md#content-storage-model)).
-Using one-file-per-record for requirements, interfaces, and
-artifact-registry entries makes the entire specification store
-consistent: every record is a file, every file is individually
-versioned by Git.
+Using one-file-per-record for requirements and interfaces
+makes the entire specification store consistent: every record
+is a file, every file is individually versioned by Git.
 
 Immutability of approved change sets is enforced by
 `ears-manager`, not by the file format. An approved manifest
@@ -160,8 +163,9 @@ editors and tooling:
 - Stable key ordering (fixed order defined by the schema,
   not alphabetical)
 - Consistent YAML scalar style (block scalars for multi-line
-  EARS text; plain scalars for short values; quoted scalars
-  for values that are not unambiguously strings — timestamps,
+  EARS text; plain scalars for short values that are
+  unambiguously strings; quoted scalars for values that
+  could be parsed as non-string types — timestamps,
   bare `yes`/`no`/`on`/`off`, numeric-looking IDs, and
   values with leading zeros)
 - One sentence per line in block scalars (no column-based
@@ -174,6 +178,9 @@ editors and tooling:
 - No trailing whitespace; single newline at end of file
 - UTF-8 encoding without BOM
 - Relationship lists sorted by target ID
+- No anchors, aliases, merge keys (`<<`), custom tags, or
+  duplicate keys; `ears-manager` rejects them and parses
+  canonical files with a safe loader only
 
 These rules ensure that two writes of the same logical content
 produce byte-identical files, so diffs reflect only real
@@ -307,8 +314,10 @@ relationship vocabulary from the architecture docs:
 
 - `depends-on` — must be acyclic; `ears-manager` validates
   this on every write
-- `conflicts-with` — symmetric; `ears-manager` ensures both
-  sides are recorded
+- `conflicts-with` — stored in the declaring file only;
+  `ears-manager check` derives and validates the inverse
+  (symmetric-storage enforcement is a schema decision
+  for #46)
 - `supersedes` — directional; the superseding requirement
   references the superseded one
 - `related-to` — informational; no validation constraints
@@ -324,7 +333,8 @@ a list of typed string references.
 
 - Every target ID resolves to an existing record
 - `depends-on` relationships form a DAG (no cycles)
-- `conflicts-with` is recorded symmetrically
+- `conflicts-with` inverses are derived and validated
+  (symmetric storage, if adopted, is defined by #46)
 
 ---
 
@@ -345,10 +355,9 @@ PR merge is the permanent audit record. `ears-manager` refuses
 to modify an approved manifest.
 
 The one-file-per-record format is consistent with this existing
-design. Change-set manifests, requirements, interfaces, and
-artifact-registry entries all follow the same pattern: one YAML
-file per record, individually versioned by Git, canonically
-serialized by `ears-manager`.
+design. Change-set manifests, requirements, and interfaces all
+follow the same pattern: one YAML file per record, individually
+versioned by Git, canonically serialized by `ears-manager`.
 
 ---
 
