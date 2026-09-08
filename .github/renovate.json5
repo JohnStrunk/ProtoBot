@@ -15,9 +15,6 @@
   // review-agent re-runs on busy days.
   "rebaseWhen": "conflicted",
   "dependencyDashboard": true,
-  "allowedCommands": [
-    "^bash scripts/renovate/update-fullsend-harness-sha\\.sh$",
-  ],
   // Give newly released dependencies time to receive initial security review.
   "minimumReleaseAge": "10 days",
   "lockFileMaintenance": {
