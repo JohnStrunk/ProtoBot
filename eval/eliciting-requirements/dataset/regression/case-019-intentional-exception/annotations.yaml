@@ -5,7 +5,7 @@ difficulty: hard
 provenance: held-out intentional-exception case
 readiness: needs_clarification
 expected_templates:
-  - ubiquitous
+  - event-driven
   - complex
 required_findings:
   - >-

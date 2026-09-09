@@ -14,8 +14,12 @@ This directory contains the Agent Eval Harness configuration for
   Structural EARS and readiness checks remain inline as deterministic judges.
 - The CLI runner temporarily removes `reference.md` and `annotations.yaml`
   from each case workspace while the skill runs, then restores them for
-  collection and scoring. This prevents the evaluated skill from reading its
-  answer key without relying on runner-specific permission forwarding.
+  collection and scoring. It also generates an OpenCode permission config that
+  denies read, grep, and glob access to those answer keys. This prevents the
+  evaluated skill from reading them without relying on Agent Eval Harness
+  permission forwarding. When available, the wrapper additionally runs
+  OpenCode in a bubblewrap mount namespace with a private `/tmp`; the fallback
+  retains the path-level OpenCode denies.
 
 The references describe semantic properties and acceptable behavior. They do
 not require one exact wording, because multiple EARS sentences can preserve

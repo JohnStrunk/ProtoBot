@@ -143,15 +143,30 @@ judges:
       )[-1]
       candidate = re.split(r"(?im)^##\s+[^#]", candidate, maxsplit=1)[0]
       flat = " ".join(candidate.lower().split())
-      requirement_lines = [
-          line for line in candidate.splitlines()
-          if re.search(
-              r"(?i)\bRequirement\b[^:\n]*:|^\s*>\s*"
-              r"(?:While|When|Where|If|The)\b",
+      requirement_text = []
+      in_requirement = False
+      for line in candidate.splitlines():
+          marker = re.search(r"(?i)\bRequirement\b[^:\n]*:\s*(.*)$", line)
+          if marker:
+              in_requirement = True
+              requirement_text.append(marker.group(1))
+              continue
+          if in_requirement and re.search(
+              r"^\s*(?:#{2,6}\s|[-*]\s+(?:\*\*)?"
+              r"(?:Status|Template|Source intent|Implementability|"
+              r"Verification)\b)",
               line,
-          ) and re.search(r"\bshall\b", line, re.IGNORECASE)
+          ):
+              in_requirement = False
+          elif in_requirement:
+              requirement_text.append(line)
+      requirement_lines = [
+          line for line in requirement_text
+          if re.search(r"\bshall\b", line, re.IGNORECASE)
       ]
       if not requirement_lines:
+          if "unresolved" in expected and "unresolved" in candidate.lower():
+              return True, "Pattern selection is explicitly unresolved"
           if not expected and (
               "unresolved" in candidate.lower()
               or "pattern selection" in candidate.lower()
@@ -216,8 +231,12 @@ judges:
       ).lower()
       category = ann.get("category", "")
       if category in ("readiness-gating", "controlled-language"):
-          if "needs clarification" not in text:
-              return False, "Held-out ambiguity was not gated"
+          expected = ann.get("readiness", "needs_clarification")
+          if expected == "needs_clarification":
+              if "needs clarification" not in text:
+                  return False, "Held-out ambiguity was not gated"
+          elif "ready for review" not in text:
+              return False, "Ready held-out case lacks ready status"
       if category == "consistency-analysis":
           finding_terms = (
               "conflict", "duplicate", "gap", "precedence",

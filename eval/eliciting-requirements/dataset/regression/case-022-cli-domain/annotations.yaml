@@ -5,7 +5,7 @@ difficulty: medium
 provenance: held-out command-line interface case
 readiness: needs_clarification
 expected_templates:
-  - event-driven
+  - complex
 required_findings:
   - >-
     preserve the command, option, valid path, preview-only definition, and

@@ -5,7 +5,7 @@ difficulty: hard
 provenance: held-out malformed EARS case
 readiness: needs_clarification
 expected_templates:
-  - state-driven
+  - unresolved
   - event-driven
 required_findings:
   - identify the missing trigger and response context in Q1

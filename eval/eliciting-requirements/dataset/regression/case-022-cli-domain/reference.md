@@ -1,7 +1,8 @@
 # Reference properties
 
-- Select event-driven for invoking the command and preserve the exact option
-  and valid project path condition.
+- Select complex because the valid project-path precondition and command
+  invocation jointly scope the behavior; preserve the exact option and path
+  condition.
 - Require observable changed-file reporting and evidence that the project was
   not modified.
 - Preserve `preview-only` as a defined domain term and keep it separate from

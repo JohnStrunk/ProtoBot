@@ -138,7 +138,9 @@ requirements, consistency analysis, and the exact portable response shape.
 
 The short rule is: ask rather than guess, keep unresolved candidates at
 `needs clarification`, and require observable implementability and verification
-contracts before `ready for review`.
+contracts before `ready for review`. Check each candidate independently: if its
+contract says `open`, `unresolved`, `pending`, or `incomplete`, that candidate
+must not be `candidate` or `ready for review`.
 
 ## Supporting Requirements and Language
 
