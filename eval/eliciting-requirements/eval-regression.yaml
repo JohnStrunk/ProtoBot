@@ -14,16 +14,12 @@ execution:
 runner:
   type: cli
   command:
-    - opencode
-    - run
-    - --dir
+    - bash
+    - "{config_dir}/scripts/run-opencode.sh"
     - "{workspace}"
-    - --model
     - "{model}"
-    - --format
-    - json
-    - --auto
-    - "/{agent} {args}"
+    - "{agent}"
+    - "{args}"
 
 models:
   skill: google-vertex/claude-sonnet-4-6@default
@@ -31,13 +27,6 @@ models:
 
 mlflow:
   experiment: eliciting-requirements-regression
-
-permissions:
-  allow: []
-  deny:
-    - "mcp__*"
-    - "Read(reference.md)"
-    - "Read(annotations.yaml)"
 
 dataset:
   path: dataset/regression
@@ -125,6 +114,14 @@ judges:
           return False, "Not every candidate has an implementability contract"
       if candidate.lower().count("verification contract") < len(statuses):
           return False, "Not every candidate has a verification contract"
+      required = [
+          "ready for review",
+          "implementability contract",
+          "verification contract",
+      ]
+      missing = [item for item in required if item not in text.lower()]
+      if missing:
+          return False, "Ready case is missing: " + ", ".join(missing)
       return True, "Held-out ready case includes both contracts"
 
   - name: ears_structure
@@ -146,6 +143,30 @@ judges:
       )[-1]
       candidate = re.split(r"(?im)^##\s+[^#]", candidate, maxsplit=1)[0]
       flat = " ".join(candidate.lower().split())
+      requirement_lines = [
+          line for line in candidate.splitlines()
+          if re.search(
+              r"(?i)\bRequirement\b[^:\n]*:|^\s*>\s*"
+              r"(?:While|When|Where|If|The)\b",
+              line,
+          ) and re.search(r"\bshall\b", line, re.IGNORECASE)
+      ]
+      if not requirement_lines:
+          if not expected and (
+              "unresolved" in candidate.lower()
+              or "pattern selection" in candidate.lower()
+          ):
+              return True, "Pattern selection is explicitly unresolved"
+          return False, "No normative requirement sentence contains shall"
+      if any(
+          len(re.findall(r"\bshall\b", line, re.IGNORECASE)) != 1
+          for line in requirement_lines
+      ):
+          return False, "A normative sentence contains more than one shall"
+      if not expected:
+          return True, "No specific EARS template is required"
+      normalize = lambda value: re.sub(r"[\s_-]+", "", value.lower())
+      labels = normalize(flat)
       patterns = {
           "ubiquitous": r"(?:requirement:\s*)?(?:the\s+)?"
           r"[a-z][^.]{1,200}\bshall\b[^.]+",
@@ -156,27 +177,17 @@ judges:
           "complex": r"\bwhile\b.+?,\s*when\b.+?,.+?\bshall\b",
       }
       for template in expected:
-          if template not in flat:
+          if normalize(template) not in labels:
               return False, "Missing template label: " + template
           pattern = patterns.get(template)
           if pattern and not re.search(pattern, flat, re.IGNORECASE):
               return False, "Missing canonical syntax for: " + template
-      requirement_lines = [
-          line for line in candidate.splitlines()
-          if re.search(r"\bshall\b", line, re.IGNORECASE)
-      ]
-      if not requirement_lines:
-          return False, "No normative requirement sentence contains shall"
-      if any(
-          len(re.findall(r"\bshall\b", line, re.IGNORECASE)) != 1
-          for line in requirement_lines
-      ):
-          return False, "A normative sentence contains more than one shall"
       return True, "Expected EARS syntax is present"
 
   - name: ears_template_coverage
     description: Held-out cases preserve the expected EARS distinction.
     check: |
+      import re
       ann = outputs.get("annotations", {})
       expected = [
           str(item).lower() for item in ann.get("expected_templates", [])
@@ -184,8 +195,10 @@ judges:
       text = (
           outputs.get("artifacts_content", "")
           or outputs.get("conversation", "")
-      ).lower()
-      missing = [item for item in expected if item not in text]
+      )
+      normalize = lambda value: re.sub(r"[\s_-]+", "", value.lower())
+      text = normalize(text)
+      missing = [item for item in expected if normalize(item) not in text]
       if missing:
           return False, (
               "Expected template labels not found: " + ", ".join(missing)

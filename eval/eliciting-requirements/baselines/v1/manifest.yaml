@@ -3,7 +3,7 @@ baseline_id: v1
 status: live-evaluation-snapshot
 recorded_at: 2026-09-08
 skill: eliciting-requirements
-skill_revision: 4b6fe4caf284  # pragma: allowlist secret
+skill_revision: 7b2ba149f0ce  # pragma: allowlist secret
 harness:
   repository: https://github.com/opendatahub-io/agent-eval-harness
   revision: c64e24661eb7
@@ -11,10 +11,12 @@ harness:
 model:
   skill: google-vertex/claude-sonnet-4-6@default
   judge: claude-opus-4-6 via Vertex
-  runner: Agent Eval Harness cli adapter invoking OpenCode
+  runner: >-
+    Agent Eval Harness cli adapter invoking the answer-key-isolating OpenCode
+    wrapper
   settings: default, parallelism 3
 corpus:
-  development_cases: 12
+  development_cases: 13
   held_out_regression_cases: 10
   development_config: eval/eliciting-requirements/eval.yaml
   regression_config: eval/eliciting-requirements/eval-regression.yaml
@@ -60,7 +62,7 @@ run:
     - per-case judge findings
     - per-case traces and metrics
     - human calibration review
-  results_path: eval/runs/eliciting-requirements/v1/
+  results_path: eval/runs/eliciting-requirements/v2/
   regression_results_path: eval/runs/eliciting-requirements/v1-regression/
   note: >-
     Live model execution is recorded by the harness and must not be fabricated

@@ -12,6 +12,10 @@ This directory contains the Agent Eval Harness configuration for
 - The two semantic rubrics are inline in the configs so nested config paths
   resolve correctly from both the repository root and Agent Eval Harness.
   Structural EARS and readiness checks remain inline as deterministic judges.
+- The CLI runner temporarily removes `reference.md` and `annotations.yaml`
+  from each case workspace while the skill runs, then restores them for
+  collection and scoring. This prevents the evaluated skill from reading its
+  answer key without relying on runner-specific permission forwarding.
 
 The references describe semantic properties and acceptable behavior. They do
 not require one exact wording, because multiple EARS sentences can preserve
@@ -23,7 +27,7 @@ From the repository root, install or load Agent Eval Harness and run:
 
 ```text
 /eval-setup
-/eval-run --config eval/eliciting-requirements/eval.yaml --model google-vertex/claude-sonnet-4-6@default --run-id v1
+/eval-run --config eval/eliciting-requirements/eval.yaml --model google-vertex/claude-sonnet-4-6@default --run-id v2
 /eval-review --config eval/eliciting-requirements/eval.yaml --run-id v1
 /eval-run --config eval/eliciting-requirements/eval-regression.yaml --model google-vertex/claude-sonnet-4-6@default --run-id v1-regression
 ```

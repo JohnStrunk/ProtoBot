@@ -2,7 +2,7 @@
 type: skill-eval
 skill: eliciting-requirements
 analyzed_at: 2026-09-08
-skill_hash: 4b6fe4caf284
+skill_hash: 7b2ba149f0ce
 ---
 
 # Skill Evaluation Analysis
@@ -41,8 +41,10 @@ The package is a markdown response with these sections:
 - Review Status
 
 Each candidate has an EARS template, status, rationale, implementability
-contract, and verification contract. No candidate is ready for review unless
-both contracts pass.
+contract, and verification contract. A candidate may use the explicit
+`unresolved` template value when pattern selection is blocked; it must then be
+`needs clarification` and explain the missing decision. No candidate is ready
+for review unless both contracts pass.
 
 ## Quality Criteria
 

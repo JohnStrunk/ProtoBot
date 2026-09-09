@@ -276,11 +276,10 @@ Use these statuses:
 
 - `needs clarification`: either contract is incomplete, or a material
   question, conflict, or undefined term remains.
-- `candidate`: a plausible interpretation is drafted, but the user has not
-  supplied enough information to pass the gate. Use this only for a clearly
-  provisional interpretation before presenting it as an actionable
-  requirement. If a drafted candidate has any material unresolved item in
-  either contract, use `needs clarification` instead.
+- `candidate`: a fully contracted, actionable draft that is not yet approved
+  by the host. Do not use this status for a missing boundary, unresolved
+  material question, incomplete contract, or unselected EARS pattern; use
+  `needs clarification` instead.
 - `ready for review`: both contracts pass and no material finding blocks
   review. This is not approval.
 
@@ -478,8 +477,10 @@ Findings` to a more general analysis heading or omit an empty section.
 ## Candidate Requirements
 ### Candidate 1 (or supplied host ID)
 - Status: needs clarification | candidate | ready for review
-- Template: one of the six EARS patterns
-- Requirement: one normative EARS sentence
+- Template: one of the six EARS patterns, or `unresolved` when selection is
+  blocked by missing information
+- Requirement: one normative EARS sentence, or an explicit note that drafting
+  is blocked until the unresolved pattern question is answered
 - Source intent and rationale
 - Implementability contract: ...
 - Verification contract: ...
