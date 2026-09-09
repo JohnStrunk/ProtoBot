@@ -3,7 +3,7 @@ baseline_id: v1
 status: live-evaluation-snapshot
 recorded_at: 2026-09-08
 skill: eliciting-requirements
-skill_revision: 1f1b145c545b  # pragma: allowlist secret
+skill_revision: 26a09fd3c2c2  # pragma: allowlist secret
 harness:
   repository: https://github.com/opendatahub-io/agent-eval-harness
   revision: c64e24661eb7

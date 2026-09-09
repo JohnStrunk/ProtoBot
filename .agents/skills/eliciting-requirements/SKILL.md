@@ -130,181 +130,19 @@ The complex form is a combination of conditions, not a default form. If the
 state, event, optional capability, or unwanted condition describes an
 independent obligation, split it into separate requirements instead.
 
-### Pattern distinctions
+## Detailed Guidance
 
-- Use `When` for a discrete event, such as a request being submitted. Do not
-  use it for an enduring state or a vague condition.
-- Use `While` or `During` for an ongoing state or precondition. Do not use it
-  for a one-time event.
-- Use `Where` only for an optional capability included in the product. An
-  ordinary runtime branch is not an optional feature.
-- Use `If ... then` for unwanted behavior. Keep failure and recovery behavior
-  visible instead of hiding it in a normal-path sentence.
-- When an unwanted condition is nested inside a state-and-event scope, split
-  it into its own `If ... then` requirement unless the combined condition is
-  genuinely one indivisible obligation. Do not label a `While ... when ...`
-  sentence as unwanted behavior without the `If ... then` form.
-- Use the ubiquitous form only when no condition, event, feature scope, or
-  unwanted situation limits the obligation.
-- Use the complex form only when removing one of its conditions would change
-  the meaning of the same obligation.
+Read [references/ears-and-review.md](references/ears-and-review.md) for pattern
+distinctions and examples, drafting checks, readiness contracts, supporting
+requirements, consistency analysis, and the exact portable response shape.
 
-### Pattern selection procedure
-
-For each behavior, answer these questions in order:
-
-1. What system is inside the requirement boundary?
-2. Is the behavior always active, or does a condition scope it?
-3. If it is conditional, is the condition an optional product capability, an
-   unwanted situation, an ongoing state, or a discrete event?
-4. What observable response proves that the system met the obligation?
-5. Are all conditions required for one obligation, or should the behavior be
-   split?
-
-If the answer to a question is unknown, ask it. Do not choose a template by
-guessing.
-
-### Examples
-
-Use the following examples to explain the semantic choice, not as text to copy
-into an unrelated domain:
-
-1. **Ubiquitous:** `The account service shall record the account identifier
-   for every accepted account.` The obligation has no condition.
-2. **Event-driven:** `When a client submits a valid order, the order service
-   shall return an order identifier.` Submission is a discrete event.
-3. **State-driven:** `While the device is in maintenance mode, the controller
-   shall inhibit remote actuation.` The obligation lasts for the state.
-4. **Optional feature:** `Where offline export is included, the export
-   service shall provide the current report as a downloadable file.` The
-   behavior depends on a capability included in the product.
-5. **Unwanted behavior:** `If an authorization check fails, then the gateway
-   shall deny the requested operation without disclosing protected data.` The
-   condition is an unwanted security situation.
-6. **Complex:** `While the aircraft is on-ground, when reverse thrust is
-   commanded, the control system shall enable deployment of the thrust
-   reverser.` Both the state and event are needed for this one response.
-
-An in-flight reverse-thrust command is a separate unwanted-behavior or
-state/event requirement, not an exception to hide in the on-ground sentence.
-
-## Drafting a Candidate
-
-For each behavior, draft the smallest EARS sentence that preserves the source
-intent. Then inspect it for missing information rather than filling the gap
-with a design choice.
-
-If the pattern is known but a contract is incomplete, still show a clearly
-labeled provisional EARS sentence with the unresolved condition or value
-explicitly marked. Mark that candidate `needs clarification`; do not omit the
-candidate or replace its EARS sentence with prose only.
-
-Check all of the following:
-
-- The responsible system, actor, and affected interface are identifiable.
-- The trigger, state, feature scope, or unwanted condition is explicit when
-  needed.
-- The response is observable and uses a concrete verb.
-- Inputs, identities, data fields, domain terms, and lifecycle terms are
-  defined or explicitly questioned.
-- Quantities, units, limits, ranges, rates, ordering, deadlines, durations,
-  and tolerances are present when they affect behavior.
-- Alternate, failure, cancellation, timeout, retry, recovery, and partial
-  completion behavior is addressed when material.
-- Empty, minimum, maximum, duplicate, concurrent, and out-of-order cases are
-  addressed when the request implies them.
-- The sentence does not prescribe an internal design.
-- The obligation can be independently negotiated and verified.
-- Passive voice does not hide the responsible system or actor.
-- Pronouns and cross-references have an unambiguous antecedent.
-- Lists and sets have a defined scope instead of an unbounded `etc.`.
-- A sentence does not mix a goal, rationale, design proposal, and obligation.
-- Stacked clauses, nominalizations, and vague connector words do not hide
-  independent decisions.
-
-Use temporary labels such as `Candidate 1` for an unlabeled response. These
-labels are for this review only; they are not durable host IDs. If the host
-provided an ID, preserve it exactly and use it in findings and trace links.
-
-When revising an existing requirement, show all three of these items:
-
-1. The source requirement or a short source excerpt.
-2. The proposed EARS revision.
-3. The ambiguity, conflict, or implementation risk removed by the revision.
-
-## The Readiness Gate
-
-Do not mark a candidate `ready for review` unless both contracts are complete.
-`ready for review` means the package can be sent to the host's review process;
-it does not mean approved.
-
-### Implementability contract
-
-Record the following for each candidate, or state why a field is not
-applicable:
-
-- System boundary and responsible system.
-- Actor, affected interface, and external systems.
-- Inputs and relevant data definitions.
-- Preconditions, state, optional-feature scope, and trigger.
-- Observable normal, alternate, and failure response.
-- Quantities, units, limits, timing, ordering, and tolerances.
-- Domain terms and dependencies an implementer would otherwise have to guess.
-- Material decisions that remain unresolved.
-
-The contract fails if a material item is unknown, if conditions overlap an
-unresolved conflicting requirement, or if two reasonable implementations
-could differ in externally visible behavior.
-
-### Verification contract
-
-Record the following without prescribing a test framework or implementation:
-
-- Setup, state, input data, and stimulus.
-- Observable evidence or oracle.
-- Expected result.
-- Explicit pass/fail criteria, including scope, thresholds, units, and timing
-  where relevant.
-- Boundary, negative, and failure cases when material.
-- Required data, instrumentation, assessment, or external evidence.
-
-The contract fails if an evaluator cannot tell what to observe, what result is
-expected, or what counts as pass or fail.
-
-### Gate outcomes
-
-Use these statuses:
-
-- `needs clarification`: either contract is incomplete, or a material
-  question, conflict, or undefined term remains.
-- `candidate`: a fully contracted, actionable draft that is not yet approved
-  by the host. Do not use this status for a missing boundary, unresolved
-  material question, incomplete contract, or unselected EARS pattern; use
-  `needs clarification` instead.
-- `ready for review`: both contracts pass and no material finding blocks
-  review. This is not approval.
-
-Write the status value exactly as one of `needs clarification`, `candidate`, or
-`ready for review`. Do not replace it with a synonym such as `blocked`,
-`pending`, `draft`, or `not ready`.
-
-These claims must fail the gate until refined:
-
-- `The UI must be responsive.` Ask which interaction, workload, device scope,
-  response-time measure, and pass/fail observation are intended.
-- `The system must not contain security vulnerabilities.` This is an unbounded
-  absence claim. Ask for threat scope, vulnerability classes, assessment
-  method, severity threshold, and release boundary. Decompose it into
-  observable security behaviors and separately scoped assurance criteria.
-
-Flag vague terms such as `quickly`, `appropriately`, `user-friendly`, `as
-needed`, `normally`, `securely`, `support`, `handle`, `etc.`, and `reasonable`
-unless the user defines an agreed measure. Preserve the vague source wording
-in the rationale when useful, but do not mark it ready.
+The short rule is: ask rather than guess, keep unresolved candidates at
+`needs clarification`, and require observable implementability and verification
+contracts before `ready for review`.
 
 ## Supporting Requirements and Language
 
-Read `references/quality-guidance.md` when drafting supporting requirements or
+Read [references/quality-guidance.md](references/quality-guidance.md) when drafting supporting requirements or
 applying controlled-language guidance. The guidance keeps ASD-STE100-inspired
 style separate from the normative EARS rules and preserves uncertainty.
 
@@ -349,115 +187,12 @@ performance, security, privacy, accessibility, localization, compatibility,
 retention, auditability, or observability when the request or its boundary
 implies it.
 
-## Consistency Analysis
+## Output Discipline
 
-Analyze a set, not just each sentence independently. Normalize each candidate
-by recording:
-
-- Host ID or temporary candidate label.
-- Responsible system and externally visible subject.
-- Feature scope.
-- Preconditions and states.
-- Trigger or unwanted condition.
-- Response.
-- Timing, quantities, ranges, ordering, and quality constraints.
-
-Compare conditions semantically. Equivalent concepts such as `request is
-accepted` and `valid submission` may overlap even when the words differ.
-
-Report at least these finding kinds when present:
-
-- **Conflict:** applicable requirements cannot both be satisfied.
-- **Overlap:** requirements may describe the same behavior and need
-  consolidation or an explicit relationship.
-- **Duplicate:** requirements are the same or near-identical and may drift.
-- **Gap:** an important behavior is not defined.
-- **Precedence question:** requirements may coexist, but exception or
-  evaluation order is undefined.
-- **Intentional exception:** an apparent conflict is resolved by an explicit
-  state, feature, priority, or exception condition.
-- **Infeasible, vacuous, or unreachable:** the condition or obligation cannot
-  be meaningfully exercised as written.
-
-Check specifically for:
-
-- Contradictory responses under overlapping conditions.
-- Normal-path and failure-path overlap with no exception or precedence.
-- Unexpectedly overlapping state or event scopes.
-- Inconsistent values, units, ranges, deadlines, retries, or cardinalities.
-- Allow/forbid contradictions.
-- Optional-feature requirements that conflict with ubiquitous requirements.
-- Incompatible contracts across system or external interfaces.
-- Missing behavior at an implied boundary, failure, or lifecycle transition.
-
-Every finding must show the affected labels or excerpts, overlapping
-conditions, consequence, and focused resolution options. Possible options are
-narrowing a condition, splitting a requirement, adding an explicit exception,
-defining precedence, consolidating duplicates, or asking the user to choose.
-Never invent priority to resolve a conflict. Specificity alone does not create
-precedence.
-
-## Portable Response Shape
-
-Use this shape unless the host supplies a compatible format. Keep each level
-of certainty separate:
-
-Use the section headings shown below exactly. A downstream evaluator and host
-may locate the portable fields by these headings; do not rename `Consistency
-Findings` to a more general analysis heading or omit an empty section.
-
-```text
-# Requirements Elicitation Package
-
-## Understanding
-- Requested outcome
-- Proposed system boundary
-- Actors, interfaces, external systems, and relevant context
-
-## Clarifying Questions
-- Question and the behavior that remains ambiguous
-
-## Candidate Requirements
-### Candidate 1 (or supplied host ID)
-- Status: needs clarification | candidate | ready for review
-- Template: one of the six EARS patterns, or `unresolved` when selection is
-  blocked by missing information
-- Requirement: one normative EARS sentence, or an explicit note that drafting
-  is blocked until the unresolved pattern question is answered
-- Source intent and rationale
-- Implementability contract: ...
-- Verification contract: ...
-
-## Suggested Supporting Requirements
-- Relationship, proposed behavior, source relationship, and reason
-
-## Consistency Findings
-- Kind, affected candidates, overlapping condition, consequence, and options
-
-## Assumptions
-- Only explicit or clearly labeled provisional interpretations
-
-## Rationale and Context
-- Non-normative motivation and domain context
-
-## Review Status
-- What is ready for review
-- What needs clarification
-- What the host must decide
-```
-
-Use `No material findings` or `No suggestions justified by the source` when a
-section has no content. Do not omit a section merely because it is empty.
-
-For host-supplied metadata, include a clearly labeled metadata note and
-preserve IDs, tags, trace links, and review metadata without requiring any
-particular storage format. Do not claim a host approval state. Do not turn the
-verification contract into Gherkin or implementation-specific test steps.
-
-For non-interactive use, return the package with unanswered questions and
-explicit statuses. Do not manufacture answers so that a candidate appears
-ready. For interactive use, pause after the focused questions when their
-answers are needed, then revise the package on the next turn.
+Use the exact headings and status/template fields in
+[references/ears-and-review.md](references/ears-and-review.md). Preserve host
+metadata, do not claim approval, and do not turn verification into Gherkin or
+implementation-specific test steps.
 
 ## Out of Scope
 
