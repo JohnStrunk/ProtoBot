@@ -236,16 +236,16 @@ Architecture change:
 ### Change-Set Manifests
 
 Change-set manifests record a durable specification transaction.
-Each manifest is mutable while proposed and immutable after
-approval. The fields capture the base specification state, the
-intent, the operations performed, and the impact assessment.
+A manifest is mutable on a feature branch and becomes immutable
+once its PR merges to the main branch — the merge is the
+approval event. The fields capture the base specification state,
+the intent, the operations performed, and the impact assessment.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | string (ID) | yes | Stable identifier. Format: `CS-<NNN>` where `<NNN>` is a zero-padded sequence number. |
 | `base_commit` | string | yes | The immutable base specification commit this change set is based on. A full 40-character hexadecimal Git commit hash. Mutable refs (branch names, tags) are not accepted. Together with the WMS merge-commit reference, this forms the materialization idempotency input ([components.md](../architecture/components.md#change-set-impact-analysis)). |
 | `intent` | string | yes | Human-readable description of what this change set accomplishes and why. |
-| `status` | string (enum) | yes | One of `proposed` or `approved`. Approved manifests are immutable. |
 | `operations` | list\[object\] | yes | Requirement operations in this change set. See [Change-Set Operations](#change-set-operations). |
 | `interface_operations` | list\[object\] | no | Interface operations in this change set (registrations, updates, retirements). See [Interface Operations](#interface-operations). |
 | `artifact_operations` | list\[object\] | no | Artifact operations in this change set (registrations, updates). See [Artifact Operations](#artifact-operations). |
@@ -253,7 +253,7 @@ intent, the operations performed, and the impact assessment.
 | `affected_scopes` | list\[string\] | no | Narrower scopes affected, using the same vocabulary as `applies_to.scopes` in requirements. |
 | `implementation_required` | boolean | yes | Whether this change set requires implementation work (a build work item). |
 | `implementation_rationale` | string | conditional | Required when `implementation_required` is `false`. Explains why no implementation work is needed (e.g., documentation-only change). |
-| `impact_assessment` | list\[object\] | conditional | Impact assessment for unchanged requirements. See [Impact Assessment](#impact-assessment). Required when `status` is `approved` and any candidate unchanged requirement exists (i.e., `ears-manager impact` identified at least one candidate). |
+| `impact_assessment` | list\[object\] | conditional | Impact assessment for unchanged requirements. See [Impact Assessment](#impact-assessment). Required before the change set can be merged (approved) and any candidate unchanged requirement exists (i.e., `ears-manager impact` identified at least one candidate). |
 | `created` | string (ISO 8601) | yes | Timestamp when the change set was created. |
 
 #### Change-Set Operations
@@ -545,7 +545,6 @@ intent: >-
   Add authentication requirements for the API gateway
   interface, including token issuance, expiration, and
   error handling.
-status: proposed
 operations:
   - action: add
     requirement_id: REQ-AUTH-001
