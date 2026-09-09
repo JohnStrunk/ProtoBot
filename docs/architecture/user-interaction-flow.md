@@ -321,9 +321,10 @@ At least one selector identifies its scope. Most requirements use one or
 more stable interface IDs; project-wide and environmental requirements
 use an explicit project selector. Projects may define narrower
 capability or resource selectors in `applies_to.scopes` to reduce
-false-positive intersections. The exact selector vocabulary remains an
-open schema-design question; broad interface or project overlap provides
-a safe initial candidate set.
+false-positive intersections. The selector model is defined by
+[ADR-0002](../decisions/0002-ears-specification-record-schema.md):
+scopes are free-form project-defined strings with a reserved `project`
+value for project-wide and environmental requirements.
 
 Every requirement also declares `verification.mode`. The default is
 `isolated-interface`; `implementation-aware` requires a rationale in the

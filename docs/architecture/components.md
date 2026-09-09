@@ -508,10 +508,10 @@ idempotency input.
   richer queries like "requirements with no usable scope" or
   "interfaces with no requirements"? Richer queries make the agent's
   job easier but increase `ears-manager`'s complexity.
-- **EARS template strictness.** How strictly does `ears-manager`
-  enforce EARS patterns? Exact keyword matching ("When...",
-  "While...", "If...then...")? Or does it allow minor variations?
-  Too strict may fight the agent; too loose defeats the purpose.
+- **EARS template strictness.** Resolved →
+  [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
+  Full EARS text stored as a free-form string; `ears-manager`
+  validates via keyword-based regex matching.
 
 ---
 

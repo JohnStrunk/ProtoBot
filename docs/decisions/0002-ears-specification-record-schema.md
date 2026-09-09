@@ -67,6 +67,24 @@ type managed by `ears-manager`. Field types use these conventions:
 - **object** --- a nested structure with its own fields
 - **boolean** --- `true` or `false`
 
+### Schema Versioning
+
+Each specification store carries a schema version in
+`.protobot/project.yaml`, as established by the Architecture
+([architecture.md](../architecture.md#persistent-state)). The
+version applies per store, not per file: all records in a store
+share the store's version. `ears-manager` refuses to operate on
+data at a version newer than its own and forward-migrates older
+versions through a reviewed change set.
+
+The initial schema version for all four stores defined by this
+ADR is `1`. The version number is a monotonically increasing
+integer. Any change to a store's field names, types, required
+constraints, or enum values increments its version. Additive
+changes (new optional fields, new enum values) and breaking
+changes both increment the version; `ears-manager` uses the
+version to decide whether migration is needed.
+
 ### Requirement Records
 
 Requirement records are the primary specification artifact. Each
@@ -125,17 +143,23 @@ grammar beyond the keywords.
 
 The `applies_to` object identifies which parts of the system a
 requirement applies to. At least one of `interfaces` or `scopes`
-must be non-empty. A project-wide requirement uses an explicit
-project selector in `scopes`.
+must be non-empty. A project-wide or environmental requirement
+must include the reserved scope `project`.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `interfaces` | list\[string (ID)\] | no | Interface IDs this requirement applies to. Each ID must resolve to a registered interface. |
-| `scopes` | list\[string\] | no | Narrower applicability scopes. Project-defined strings (e.g., `authentication`, `data-export`, `project-wide`). Not validated against a controlled vocabulary by `ears-manager`; projects may enforce a vocabulary via project policy. |
+| `scopes` | list\[string\] | no | Applicability scopes. The reserved value `project` identifies project-wide and environmental requirements; `ears-manager` validates its use and can find all project-wide requirements mechanically. Other values are project-defined strings (e.g., `authentication`, `data-export`) not validated against a controlled vocabulary by `ears-manager`; projects may enforce a vocabulary via project policy. |
 
 **Constraint:** at least one of `interfaces` or `scopes` must be
 present and non-empty. `ears-manager` validates that every interface
 ID in `interfaces` resolves to a registered interface record.
+Project-wide and environmental requirements must include the reserved
+scope `project` so that `ears-manager impact` can find them
+mechanically
+([components.md](../architecture/components.md#ears-manager),
+[user-interaction-flow.md](../architecture/user-interaction-flow.md#phase-2-dimensioning),
+[open-questions.md](../architecture/open-questions.md#q19-applicability-metadata-and-semantic-impact-coverage)).
 
 #### Verification
 
@@ -173,20 +197,25 @@ approach or IDL.
 
 #### Interface Type Enum
 
-The `type` field classifies the interface. The initial taxonomy is
-derived from the Architecture's interface-type classification. This
-list may be extended as the project evolves:
+The `type` field classifies the interface using the
+Architecture's interface-type taxonomy
+([Specification Hierarchy][spec-hierarchy]).
+Each type determines the specification approach and seeds the
+Inspector roster. This list may be extended through a reviewed
+Architecture change:
+
+[spec-hierarchy]: ../architecture/user-interaction-flow.md#specification-hierarchy
 
 | Value | Description |
 | --- | --- |
-| `api` | HTTP/REST/GraphQL API. |
-| `cli` | Command-line interface. |
-| `grpc` | gRPC service interface. |
-| `event` | Event/message-based interface (pub/sub, queue). |
-| `file` | File-based interface (config files, data files). |
-| `library` | Programmatic library/SDK interface. |
-| `ui` | User interface (web, desktop, mobile). |
-| `system` | System-level interface (OS, hardware, network). |
+| `network-service` | Network service (REST API, gRPC service). Specification approach: Smithy or OpenAPI. |
+| `cli` | Command-line interface. Specification approach: `usage` (jdx.dev) / docopt / `wasi:cli` (evaluation pending, [Q18](../architecture/open-questions.md#q18-cli-interface-spec-evaluation)). |
+| `repl` | Read-eval-print loop. Specification approach: skills and prompts define the interaction protocol. |
+| `linkable-library` | Linkable library or SDK. Specification approach: WIT (Wasm Interface Types). |
+| `web-gui` | Web GUI (HTML/CSS). Specification approach: open gap — not yet established. |
+| `native-gui` | Native GUI (desktop, mobile). Specification approach: open gap — not yet established. |
+| `persistent-state` | Persistent state store (Git repository, config, database). Specification approach: JSON Schema + CLI contract. |
+| `package-source` | Package or Kit source. Specification approach: versioned import manifest. |
 
 ### Change-Set Manifests
 
@@ -198,10 +227,12 @@ intent, the operations performed, and the impact assessment.
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `id` | string (ID) | yes | Stable identifier. Format: `CS-<NNN>` where `<NNN>` is a zero-padded sequence number. |
-| `base_commit` | string | yes | The specification commit this change set is based on. A short Git ref or branch name (not a full hash). |
+| `base_commit` | string | yes | The immutable base specification commit this change set is based on. A full 40-character hexadecimal Git commit hash. Mutable refs (branch names, tags) are not accepted. Together with the WMS merge-commit reference, this forms the materialization idempotency input ([components.md](../architecture/components.md#change-set-impact-analysis)). |
 | `intent` | string | yes | Human-readable description of what this change set accomplishes and why. |
 | `status` | string (enum) | yes | One of `proposed` or `approved`. Approved manifests are immutable. |
 | `operations` | list\[object\] | yes | Requirement operations in this change set. See [Change-Set Operations](#change-set-operations). |
+| `interface_operations` | list\[object\] | no | Interface operations in this change set (registrations, updates, retirements). See [Interface Operations](#interface-operations). |
+| `artifact_operations` | list\[object\] | no | Artifact operations in this change set (registrations, updates). See [Artifact Operations](#artifact-operations). |
 | `affected_interfaces` | list\[string (ID)\] | yes | Interface IDs affected by this change set. Each must resolve to a registered interface. |
 | `affected_scopes` | list\[string\] | no | Narrower scopes affected, using the same vocabulary as `applies_to.scopes` in requirements. |
 | `implementation_required` | boolean | yes | Whether this change set requires implementation work (a build work item). |
@@ -219,6 +250,32 @@ change:
 | `action` | string (enum) | yes | One of `add`, `revise`, or `retire`. |
 | `requirement_id` | string (ID) | yes | The requirement being operated on. For `add`, this is the new ID. For `revise` and `retire`, this must resolve to an existing requirement. |
 | `rationale` | string | no | Why this operation is included. Particularly useful for `revise` and `retire`. |
+
+#### Interface Operations
+
+Each operation in the `interface_operations` list describes one
+interface change within the change set. `ears-manager add interface`
+and `ears-manager update` write these entries
+([components.md](../architecture/components.md#subcommands)).
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | string (enum) | yes | One of `add`, `revise`, or `retire`. |
+| `interface_id` | string (ID) | yes | The interface being operated on. For `add`, this is the new ID. For `revise` and `retire`, this must resolve to an existing interface. |
+| `rationale` | string | no | Why this operation is included. |
+
+#### Artifact Operations
+
+Each operation in the `artifact_operations` list describes one
+artifact-registry change within the change set.
+`ears-manager artifact put` writes these entries
+([components.md](../architecture/components.md#subcommands)).
+
+| Field | Type | Required | Description |
+| --- | --- | --- | --- |
+| `action` | string (enum) | yes | One of `add` or `revise`. |
+| `artifact_id` | string (ID) | yes | The artifact being operated on. For `add`, this is the new ID. For `revise`, this must resolve to an existing artifact-registry entry. |
+| `rationale` | string | no | Why this operation is included. |
 
 #### Impact Assessment
 
@@ -251,7 +308,7 @@ logical structure of each entry within that file.
 | `path` | string | yes | Relative path from the repository root to the artifact file. |
 | `digest` | string | yes | Content digest for integrity verification. Format: `<algorithm>:<value>` (e.g., `sha256:...`). Updated by `ears-manager` on every write. |
 | `owner` | string | yes | The component or role responsible for this artifact (e.g., `ears-manager`, `user`, `kit`). |
-| `validator` | string | no | The validation tool or approach for this artifact's content (e.g., `markdownlint`, `openapi-lint`, `protoc`). When set, `ears-manager artifact put` invokes this validator. When absent, no content validation is performed beyond path and digest tracking. |
+| `validator` | string (enum) | no | A name drawn from `ears-manager`'s built-in validator registry. `ears-manager` ships a fixed set of validator names (e.g., `markdownlint`, `openapi-lint`, `protoc`) and resolves each to a known, bundled validation routine. `ears-manager` never executes a caller-supplied command line; unrecognized names are rejected. When absent, no content validation is performed beyond path and digest tracking. |
 
 #### Artifact Kind Enum
 
@@ -350,6 +407,13 @@ defined.
 **Decision:** `conflicts-with` and `related-to` are stored in both
 files. `ears-manager check` validates symmetry.
 
+This supersedes [ADR-0001's Cross-Reference
+Representation][adr1-xref], which deferred the `conflicts-with`
+storage rule to this ADR and described `related-to` without
+symmetric storage. ADR-0001 has been amended to match.
+
+[adr1-xref]: 0001-requirements-storage-format.md#cross-reference-representation
+
 **Rationale:** bidirectional relationships must be discoverable from
 either end. Storing in both files makes each requirement
 self-describing: reading a single file shows all its relationships.
@@ -406,10 +470,12 @@ synchronization problems between the spec store and the WMS.
 - **Free-form scopes.** Without a controlled vocabulary enforced by
   `ears-manager`, scope strings may drift. Projects must manage
   consistency through policy or CI rules.
-- **Schema evolution.** Adding fields or enum values requires
-  updating `ears-manager` and potentially migrating existing
-  records. This is manageable because `ears-manager` abstracts all
-  reads and writes.
+- **Schema evolution.** Adding fields or enum values increments
+  the per-store schema version in `.protobot/project.yaml` and
+  requires updating `ears-manager` and potentially migrating
+  existing records. This is manageable because `ears-manager`
+  abstracts all reads and writes and refuses to operate on data
+  at a version newer than its own.
 
 ### Example Requirement Record
 
@@ -441,7 +507,7 @@ status: active
 ```yaml
 id: api-gateway
 name: API Gateway
-type: api
+type: network-service
 spec_approach: OpenAPI 3.1
 description: >-
   The primary HTTP API surface for external clients.
@@ -453,7 +519,7 @@ status: active
 
 ```yaml
 id: CS-001
-base_commit: main
+base_commit: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 intent: >-
   Add authentication requirements for the API gateway
   interface, including token issuance, expiration, and
@@ -466,6 +532,8 @@ operations:
     requirement_id: REQ-AUTH-002
   - action: add
     requirement_id: REQ-AUTH-003
+interface_operations: []
+artifact_operations: []
 affected_interfaces:
   - api-gateway
 affected_scopes:

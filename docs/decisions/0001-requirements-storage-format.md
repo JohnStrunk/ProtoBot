@@ -314,14 +314,18 @@ relationship vocabulary from the architecture docs:
 
 - `depends-on` — must be acyclic; `ears-manager` validates
   this on every write
-- `conflicts-with` — stored in the declaring file only;
-  `ears-manager check` derives and validates the inverse
-  (symmetric-storage enforcement is a schema decision
-  for #46)
+- `conflicts-with` — stored in both files;
+  `ears-manager check` validates symmetry
+  ([ADR-0002](0002-ears-specification-record-schema.md)
+  decided bidirectional storage)
 - `supersedes` — directional; the superseding requirement
   references the superseded one
-- `related-to` — informational; no validation constraints
-  beyond target existence
+- `related-to` — stored in both files;
+  `ears-manager check` validates symmetry.
+  Informational; no validation constraints beyond target
+  existence and symmetry
+  ([ADR-0002](0002-ears-specification-record-schema.md)
+  decided bidirectional storage)
 
 Each relationship is stored as a list entry in the source
 requirement's file, containing the relationship type and the
@@ -333,8 +337,8 @@ a list of typed string references.
 
 - Every target ID resolves to an existing record
 - `depends-on` relationships form a DAG (no cycles)
-- `conflicts-with` inverses are derived and validated
-  (symmetric storage, if adopted, is defined by #46)
+- `conflicts-with` and `related-to` symmetry is validated
+  ([ADR-0002](0002-ears-specification-record-schema.md))
 
 ---
 
