@@ -78,7 +78,7 @@ run:
 case_baseline:
   source_of_truth: dataset/*/*/annotations.yaml and reference.md
   scoring: semantic properties, not exact output text
-  false_ready_cases:
+  critical_false_ready_cases:
     - case-008-vague-ui
     - case-009-broad-security
     - case-014-uncertainty
