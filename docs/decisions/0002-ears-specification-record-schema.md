@@ -133,10 +133,11 @@ case-insensitive regex matching:
 - **`state-driven`**: text matches `^While .+, the .+ shall .+`
 - **`unwanted-behavior`**: text matches `^If .+, then the .+ shall .+`
 - **`optional-feature`**: text matches `^Where .+, the .+ shall .+`
-- **`complex`**: text contains at least two of the keywords `When`,
-  `While`, `If...then`, `Where`, combined with `shall`. The exact
-  validation rule for `complex` is intentionally looser to
-  accommodate the variety of combined patterns.
+- **`complex`**: text must contain `shall` AND at least two of the
+  following keywords (case-insensitive): `When`, `While`, `If`
+  followed later by `then`, `Where`. The exact validation rule for
+  `complex` is intentionally looser than the single-pattern rules
+  to accommodate the variety of combined patterns.
 
 Validation is intentionally keyword-based rather than structurally
 parsed. The full EARS text is stored as-is, preserving human
@@ -219,7 +220,7 @@ Architecture change:
 | `linkable-library` | Linkable library or SDK. Specification approach: WIT (Wasm Interface Types). |
 | `web-gui` | Web GUI (HTML/CSS). Specification approach: open gap — not yet established. |
 | `native-gui` | Native GUI (desktop, mobile). Specification approach: open gap — not yet established. |
-| `persistent-state` | Persistent state store (Git repository, config, database). Specification approach: JSON Schema + CLI contract. |
+| `persistent-state` | Persistent state store (Git repository, config, database). Specification approach: Schema + CLI contract. |
 | `package-source` | Package or Kit source. Specification approach: versioned import manifest. |
 
 ### Change-Set Manifests
