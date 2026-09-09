@@ -112,12 +112,15 @@ When tests fail after merging
 
 ### Q19: Applicability metadata and semantic impact coverage
 
-The scope-selector model and relationship vocabulary are resolved
-    by [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
+The scope-selector model and relationship storage rules are
+    resolved by
+    [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
     Scopes are free-form project-defined strings with a reserved
-    `project` value for project-wide requirements; the minimum
-    relationship vocabulary is `depends-on`, `conflicts-with`,
-    `supersedes`, and `related-to`.
+    `project` value for project-wide requirements. The minimum
+    relationship vocabulary (`depends-on`, `conflicts-with`,
+    `supersedes`, `related-to`) was established in the architecture
+    docs; ADR-0002 decided how those relationships are stored
+    (directionality and symmetry validation).
     Remaining questions: what controlled vocabulary or selector model
     expresses capability/resource scope beyond the reserved `project`
     value, which additional domain-specific relationships prove
@@ -206,13 +209,15 @@ Resolved → [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
 Full EARS text stored as a free-form string tagged with a pattern
 `type` enum; `ears-manager` validates via keyword-based regex.
 
-### Q19: Scope-selector model and relationship vocabulary (partial)
+### Q19: Scope-selector model and relationship storage (partial)
 
 Resolved → [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
 Scopes are free-form project-defined strings with a reserved
-`project` value. Relationship vocabulary: `depends-on`,
-`conflicts-with`, `supersedes`, `related-to`. Remaining
-sub-questions (controlled vocabulary, domain-specific
+`project` value. Relationship storage: `conflicts-with` and
+`related-to` are bidirectional (both files, symmetry validated);
+`depends-on` and `supersedes` are directional (source file only).
+The vocabulary itself was established in the architecture docs.
+Remaining sub-questions (controlled vocabulary, domain-specific
 relationships, eval coverage) stay open above.
 
 ---

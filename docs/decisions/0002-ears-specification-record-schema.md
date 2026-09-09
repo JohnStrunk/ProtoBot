@@ -44,11 +44,12 @@ record type. The schema is format-agnostic --- it defines what
 - **Q19 applicability-selector vocabulary**
   ([open-questions.md](../architecture/open-questions.md#q19-applicability-metadata-and-semantic-impact-coverage)):
   the `applies_to` selector uses `interfaces` (list of interface
-  IDs) and `scopes` (list of free-form strings). The `scopes`
-  vocabulary is project-defined and not constrained by this schema
+  IDs) and `scopes` (list of free-form strings). The reserved
+  value `project` identifies project-wide and environmental
+  requirements; `ears-manager` validates its use. Other scope
+  values are project-defined and not constrained by this schema
   beyond requiring non-empty strings. Projects may adopt a
-  controlled vocabulary via project policy; `ears-manager` validates
-  only that referenced interface IDs resolve.
+  controlled vocabulary via project policy.
 
 ---
 
@@ -77,13 +78,17 @@ share the store's version. `ears-manager` refuses to operate on
 data at a version newer than its own and forward-migrates older
 versions through a reviewed change set.
 
-The initial schema version for all four stores defined by this
-ADR is `1`. The version number is a monotonically increasing
-integer. Any change to a store's field names, types, required
-constraints, or enum values increments its version. Additive
-changes (new optional fields, new enum values) and breaking
-changes both increment the version; `ears-manager` uses the
-version to decide whether migration is needed.
+This ADR defines four record types that live in two of the
+Architecture's six stores: requirements, interfaces, and
+change sets in the specification store, and artifact-registry
+entries in `.protobot/project.yaml`. Each store carries one
+version key; the initial version for both is `1`. The version
+number is a monotonically increasing integer. Any change to a
+store's field names, types, required constraints, or enum
+values increments its version. Additive changes (new optional
+fields, new enum values) and breaking changes both increment
+the version; `ears-manager` uses the version to decide
+whether migration is needed.
 
 ### Requirement Records
 
@@ -257,11 +262,13 @@ Each operation in the `interface_operations` list describes one
 interface change within the change set. `ears-manager add interface`
 and `ears-manager update` write these entries
 ([components.md](../architecture/components.md#subcommands)).
+Interface retirement is recorded as a `revise` operation that
+sets `status: retired` on the interface record.
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `action` | string (enum) | yes | One of `add`, `revise`, or `retire`. |
-| `interface_id` | string (ID) | yes | The interface being operated on. For `add`, this is the new ID. For `revise` and `retire`, this must resolve to an existing interface. |
+| `action` | string (enum) | yes | One of `add` or `revise`. |
+| `interface_id` | string (ID) | yes | The interface being operated on. For `add`, this is the new ID. For `revise`, this must resolve to an existing interface. |
 | `rationale` | string | no | Why this operation is included. |
 
 #### Artifact Operations
@@ -384,17 +391,20 @@ keywords will pass validation. This is acceptable because
 `ears-manager` is a formatting linter, not a semantic analyzer;
 the Dimensioning agent and human reviewer catch semantic issues.
 
-### Applicability scopes: free-form strings
+### Applicability scopes: free-form strings with a reserved value
 
 **Decision:** the `applies_to.scopes` field uses free-form strings
-rather than a controlled enum.
+rather than a controlled enum. The reserved value `project`
+identifies project-wide and environmental requirements;
+`ears-manager` validates its use.
 
 **Rationale:** Q19 identified that the capability/resource scope
 vocabulary is project-specific and cannot be fully enumerated in
 advance. Interface selectors are validated against the interface
-registry. Scope strings are not validated against a controlled
-vocabulary by `ears-manager` --- projects may enforce their own
-vocabulary via project policy or CI rules.
+registry. Apart from the reserved `project` value, scope strings
+are not validated against a controlled vocabulary by
+`ears-manager` --- projects may enforce their own vocabulary via
+project policy or CI rules.
 
 **Trade-off:** free-form scopes risk inconsistent naming across
 requirements (e.g., `auth` vs. `authentication`). This is mitigated

@@ -255,8 +255,8 @@ humans directly.
 specification data on disk (under paths registered in
 `.protobot/project.yaml`). The on-disk format is an external
 interface because requirements data must be forward
-upgradeable as `ears-manager` evolves. Each data file carries
-a schema version; `ears-manager` refuses to operate on data
+upgradeable as `ears-manager` evolves. Each store carries a
+schema version; `ears-manager` refuses to operate on data
 at a version newer than its own, and forward migration
 happens through a reviewed change set (see
 [Persistent State — Specification store](#specification-store-git)).
