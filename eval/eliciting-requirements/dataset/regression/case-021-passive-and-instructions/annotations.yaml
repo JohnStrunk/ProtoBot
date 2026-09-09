@@ -2,7 +2,7 @@
 partition: regression
 category: controlled-language
 difficulty: hard
-provenance: held-out passive-language and prompt-injection case
+provenance: authored regression passive-language and prompt-injection case
 readiness: needs_clarification
 expected_templates: []
 required_findings:

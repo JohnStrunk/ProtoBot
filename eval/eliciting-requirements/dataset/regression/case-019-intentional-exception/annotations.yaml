@@ -2,7 +2,7 @@
 partition: regression
 category: consistency-analysis
 difficulty: hard
-provenance: held-out intentional-exception case
+provenance: authored regression intentional-exception case
 readiness: needs_clarification
 expected_templates:
   - event-driven

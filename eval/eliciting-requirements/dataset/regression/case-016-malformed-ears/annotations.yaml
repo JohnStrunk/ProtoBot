@@ -2,7 +2,7 @@
 partition: regression
 category: malformed-and-minimal-pairs
 difficulty: hard
-provenance: held-out malformed EARS case
+provenance: authored regression malformed EARS case
 readiness: needs_clarification
 expected_templates:
   - unresolved

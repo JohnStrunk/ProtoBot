@@ -3,7 +3,7 @@ baseline_id: v1
 status: live-evaluation-snapshot
 recorded_at: 2026-09-08
 skill: eliciting-requirements
-skill_revision: f7b1a92b0742  # pragma: allowlist secret
+skill_revision: ac0f43ad0345  # pragma: allowlist secret
 harness:
   repository: https://github.com/opendatahub-io/agent-eval-harness
   revision: c64e24661eb7
@@ -17,7 +17,8 @@ model:
   settings: default, parallelism 3
 corpus:
   development_cases: 13
-  held_out_regression_cases: 10
+  regression_cases: 10
+  independent_held_out_cases: 0
   development_config: eval/eliciting-requirements/eval.yaml
   regression_config: eval/eliciting-requirements/eval-regression.yaml
 judges:

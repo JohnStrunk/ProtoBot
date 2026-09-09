@@ -1,8 +1,9 @@
 ---
 name: eliciting-requirements-regression
 description: >
-  Held-out regression evaluation for the eliciting-requirements skill. Run
-  this configuration separately from the visible development corpus.
+  Known regression evaluation for the eliciting-requirements skill. Run this
+  configuration separately from the visible development corpus; an independent
+  held-out sample is pending calibration.
 
 execution:
   mode: case
@@ -33,7 +34,8 @@ dataset:
   schema: |
     Each case directory contains input.yaml with a prompt, annotations.yaml
     with expected semantic properties and the regression partition, and
-    reference.md with property-based expected behavior. The prompt asks the
+    reference.md with property-based expected behavior. These are known
+    regression cases, not an independent held-out sample. The prompt asks the
     skill to return the package and write artifacts/result.md.
 
 outputs:
@@ -82,7 +84,7 @@ judges:
       return True, "Portable package sections are present"
 
   - name: readiness_gate
-    description: Held-out cases do not bypass the two-contract readiness gate.
+    description: Regression cases do not bypass the two-contract readiness gate.
     check: |
       import re
       ann = outputs.get("annotations", {})
@@ -125,7 +127,7 @@ judges:
       return True, "Held-out ready case includes both contracts"
 
   - name: ears_structure
-    description: Held-out candidates use the selected EARS syntax.
+    description: Regression candidates use the selected EARS syntax.
     check: |
       import re
       ann = outputs.get("annotations", {})
@@ -165,7 +167,10 @@ judges:
           if re.search(r"\bshall\b", line, re.IGNORECASE)
       ]
       if not requirement_lines:
-          if "unresolved" in expected and "unresolved" in candidate.lower():
+          if (
+              expected == ["unresolved"]
+              and "unresolved" in candidate.lower()
+          ):
               return True, "Pattern selection is explicitly unresolved"
           if not expected and (
               "unresolved" in candidate.lower()
@@ -191,16 +196,19 @@ judges:
           "unwanted behavior": r"\bif\b.+?,\s*then\s+.+?\bshall\b",
           "complex": r"\bwhile\b.+?,\s*when\b.+?,.+?\bshall\b",
       }
+      requirement_body = " ".join(requirement_text)
       for template in expected:
           if normalize(template) not in labels:
               return False, "Missing template label: " + template
           pattern = patterns.get(template)
-          if pattern and not re.search(pattern, flat, re.IGNORECASE):
+          if pattern and not re.search(
+              pattern, requirement_body, re.IGNORECASE
+          ):
               return False, "Missing canonical syntax for: " + template
       return True, "Expected EARS syntax is present"
 
   - name: ears_template_coverage
-    description: Held-out cases preserve the expected EARS distinction.
+    description: Regression cases preserve the expected EARS distinction.
     check: |
       import re
       ann = outputs.get("annotations", {})
@@ -222,7 +230,7 @@ judges:
 
   - name: category_critical_gate
     description: >-
-      Held-out critical categories retain their required safety behavior.
+      Regression categories retain their required safety behavior.
     check: |
       ann = outputs.get("annotations", {})
       text = (

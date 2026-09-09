@@ -2,7 +2,7 @@
 partition: regression
 category: consistency-analysis
 difficulty: medium
-provenance: held-out near-duplicate and gap case
+provenance: authored regression near-duplicate and gap case
 readiness: needs_clarification
 expected_templates:
   - event-driven

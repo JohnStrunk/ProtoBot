@@ -2,7 +2,7 @@
 partition: regression
 category: failure-and-lifecycle
 difficulty: hard
-provenance: held-out retry and partial-completion case
+provenance: authored regression retry and partial-completion case
 readiness: needs_clarification
 expected_templates:
   - event-driven

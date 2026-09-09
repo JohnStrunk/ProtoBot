@@ -2,7 +2,7 @@
 type: skill-eval
 skill: eliciting-requirements
 analyzed_at: 2026-09-08
-skill_hash: f7b1a92b0742
+skill_hash: ac0f43ad0345
 ---
 
 # Skill Evaluation Analysis
@@ -71,9 +71,10 @@ critical structural failure behind a semantic average.
 
 ## Regression Method
 
-Visible development cases live in `dataset/cases/`. Held-out cases live in
-`dataset/regression/` and use `eval-regression.yaml`. Confirmed failures are
-added to the held-out corpus before the skill is changed. Live harness runs
-retain their case outputs, traces, costs, latency, and human calibration
-artifacts under the run ID; a new baseline is a new directory and never
-replaces an earlier one.
+Visible development cases live in `dataset/cases/`. Known regression cases
+live in `dataset/regression/` and use `eval-regression.yaml`; they are not an
+independent held-out corpus. Confirmed failures are added there before the
+skill is changed. Issue #63 tracks curating and calibrating a truly held-out
+sample. Live harness runs retain their case outputs, traces, costs, latency,
+and human calibration artifacts under the run ID; a new baseline is a new
+directory and never replaces an earlier one.

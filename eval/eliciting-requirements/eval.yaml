@@ -181,7 +181,10 @@ judges:
           if re.search(r"\bshall\b", line, re.IGNORECASE)
       ]
       if not requirement_lines:
-          if "unresolved" in expected and "unresolved" in candidate.lower():
+          if (
+              expected == ["unresolved"]
+              and "unresolved" in candidate.lower()
+          ):
               return True, "Pattern selection is explicitly unresolved"
           if not expected and (
               "unresolved" in candidate.lower()
@@ -207,11 +210,14 @@ judges:
           "unwanted behavior": r"\bif\b.+?,\s*then\s+.+?\bshall\b",
           "complex": r"\bwhile\b.+?,\s*when\b.+?,.+?\bshall\b",
       }
+      requirement_body = " ".join(requirement_text)
       for template in expected:
           if normalize(template) not in labels:
               return False, "Missing template label: " + template
           pattern = patterns.get(template)
-          if pattern and not re.search(pattern, flat, re.IGNORECASE):
+          if pattern and not re.search(
+              pattern, requirement_body, re.IGNORECASE
+          ):
               return False, "Missing canonical syntax for: " + template
       return True, "Expected EARS syntax is present"
 

@@ -39,7 +39,8 @@ Follow these rules on every invocation:
    implementers or verifiers to choose different behavior. Never hide that
    uncertainty in a confident sentence.
 6. A syntactically valid EARS sentence is only a candidate. Mark it `ready for
-   review` only after both quality contracts in [The readiness gate](#the-readiness-gate)
+review` only after both quality contracts in the
+[readiness gate](references/ears-and-review.md#readiness-gate)
    pass.
 7. Suggestions and assumptions remain visibly separate from candidate
    requirements. A suggestion is not an approved requirement.

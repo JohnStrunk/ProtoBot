@@ -1,8 +1,9 @@
 ---
 baseline_id: v1
-skill_revision: f7b1a92b0742  # pragma: allowlist secret
+skill_revision: ac0f43ad0345  # pragma: allowlist secret
 development_run_id: v2
 regression_run_id: v1-regression
+independent_held_out_cases: 0
 development:
   cases: 13
   execution_succeeded: {pass_rate: 1.0}

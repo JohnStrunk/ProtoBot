@@ -2,7 +2,7 @@
 partition: regression
 category: domain-diversity
 difficulty: medium
-provenance: held-out command-line interface case
+provenance: authored regression command-line interface case
 readiness: needs_clarification
 expected_templates:
   - complex

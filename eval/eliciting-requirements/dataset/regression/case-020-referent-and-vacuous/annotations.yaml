@@ -2,7 +2,7 @@
 partition: regression
 category: controlled-language
 difficulty: hard
-provenance: held-out referent and vacuity case
+provenance: authored regression referent and vacuity case
 readiness: needs_clarification
 expected_templates: []
 required_findings:

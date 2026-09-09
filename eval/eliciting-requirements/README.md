@@ -7,8 +7,10 @@ This directory contains the Agent Eval Harness configuration for
 
 - `dataset/cases/` contains visible development cases. Each case has an
   `input.yaml`, `annotations.yaml`, and property-based `reference.md`.
-- `dataset/regression/` contains held-out cases. Run them with
-  `eval-regression.yaml`; do not use them to tune the visible corpus.
+- `dataset/regression/` contains known regression cases. Run them with
+  `eval-regression.yaml`; do not use them to tune the visible corpus. An
+  independently curated held-out corpus is still pending calibration issue
+  #63.
 - The two semantic rubrics are inline in the configs so nested config paths
   resolve correctly from both the repository root and Agent Eval Harness.
   Structural EARS and readiness checks remain inline as deterministic judges.

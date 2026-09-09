@@ -2,7 +2,7 @@
 partition: regression
 category: elicitation-and-leakage
 difficulty: hard
-provenance: held-out implementation-leakage case
+provenance: authored regression implementation-leakage case
 readiness: needs_clarification
 expected_templates:
   - event-driven
