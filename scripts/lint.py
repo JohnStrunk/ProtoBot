@@ -76,6 +76,20 @@ _NAME_PREFIX_TYPES: list[tuple[str, str]] = [
 ]
 
 
+def _is_binary(path: str) -> bool:
+    """Return *True* if *path* looks like a binary file.
+
+    Checks the first 8 KB for null bytes — the same heuristic used by
+    ``git diff`` and the ``identify`` library that pre-commit relies on.
+    """
+    try:
+        with open(REPO_ROOT / path, "rb") as fh:
+            chunk = fh.read(8192)
+    except OSError:
+        return False
+    return b"\x00" in chunk
+
+
 def _file_type(path: str) -> str:
     """Return a type tag for *path* based on name / extension."""
     name = Path(path).name
@@ -92,8 +106,13 @@ def _filter_by_types(
     if not types:
         return files
     ts = set(types)
-    if "all" in ts or "text" in ts:
+    if "all" in ts:
         return files
+    if "text" in ts:
+        # "text" matches every recognised extension *except* binary files.
+        # Pre-commit uses the ``identify`` library to make this distinction;
+        # we approximate it by checking for null bytes in the first 8 KB.
+        return [f for f in files if not _is_binary(f)]
     return [f for f in files if _file_type(f) in ts]
 
 
@@ -165,6 +184,9 @@ def _ensure_tool(
     if shutil.which(cmd):
         return True
     if installer == "pip" and package:
+        if version is None:
+            print(f"  Refusing to install {package}: no frozen version available")
+            return False
         print(f"  Installing {package} via pip …")
         if _pip_install(package, version):
             return shutil.which(cmd) is not None
@@ -227,6 +249,20 @@ _BUILTINS: dict[str, Any] = {
 #
 # If a hook is added to the YAML without a corresponding entry
 # here, the script reports it as UNSUPPORTED and exits non-zero.
+#
+# Argument-passing mechanisms (in command-line order):
+#
+#   1. ``prepend_args`` — inserted immediately after the base
+#      command.  Use for sub-commands and their flags that must
+#      always appear (e.g. ``["check"]`` → ``ruff check …``).
+#
+#   2. ``fixed_args`` — appended after prepend_args.  When present
+#      these REPLACE the YAML-configured ``args`` entirely, so the
+#      hook ignores per-repo argument overrides.
+#
+#   3. YAML ``args`` — appended after prepend_args when
+#      ``fixed_args`` is absent.  This is the normal per-repo
+#      configuration from ``.pre-commit-config.yaml``.
 
 REGISTRY: dict[str, dict[str, Any]] = {
     # ── Python: pre-commit-hooks ───────────────────────────────
@@ -430,7 +466,9 @@ def _run_hook(
     # For npx tools, the command is run via npx
     if installer == "npx":
         pkg = package or cmd
-        pkg_spec = f"{pkg}@{version}" if version else pkg
+        if version is None:
+            return "unavailable", f"no frozen version for {pkg}"
+        pkg_spec = f"{pkg}@{version}"
         base_cmd: list[str] = ["npx", "--yes", pkg_spec]
         # When the hook command differs from the package name
         # (e.g. renovate-config-validator from renovate), append it.
@@ -454,6 +492,7 @@ def _run_hook(
         full_cmd.extend(hook_yaml["args"])
 
     if pass_filenames:
+        full_cmd.append("--")
         full_cmd.extend(hook_files)
 
     try:
@@ -467,6 +506,8 @@ def _run_hook(
         )
     except FileNotFoundError:
         return "unavailable", f"command not found: {full_cmd[0]}"
+    except PermissionError:
+        return "unavailable", f"permission denied: {full_cmd[0]}"
     except subprocess.TimeoutExpired:
         return "fail", "timed out after 300 s"
 
@@ -488,12 +529,26 @@ def _git(*args: str) -> str:
         cwd=str(REPO_ROOT),
         check=False,
     )
+    if r.returncode != 0:
+        stderr = r.stderr.strip()
+        print(
+            f"WARNING: git {' '.join(args)} exited {r.returncode}"
+            + (f": {stderr}" if stderr else ""),
+            file=sys.stderr,
+        )
     return r.stdout.strip()
 
 
 def _get_files(args: argparse.Namespace) -> list[str]:
     if args.files:
-        return [str(f) for f in args.files]
+        validated: list[str] = []
+        for f in args.files:
+            resolved = (REPO_ROOT / f).resolve()
+            if not str(resolved).startswith(str(REPO_ROOT)):
+                print(f"WARNING: skipping path outside repo root: {f}")
+                continue
+            validated.append(str(f))
+        return validated
 
     if args.all_files:
         raw = [f for f in _git("ls-files").splitlines() if f]

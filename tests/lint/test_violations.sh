@@ -17,8 +17,16 @@ LINT="${REPO_ROOT}/scripts/lint.py"
 TMPDIR_BASE="$(mktemp -d)"
 PASS=0
 FAIL=0
+# Track test fixture files created in the repo so they can be
+# cleaned up even if the script is interrupted.
+CREATED_FILES=()
 
-cleanup() { rm -rf "${TMPDIR_BASE}"; }
+cleanup() {
+    for f in "${CREATED_FILES[@]}"; do
+        rm -f "${f}"
+    done
+    rm -rf "${TMPDIR_BASE}"
+}
 trap cleanup EXIT
 
 # ── Helpers ────────────────────────────────────────────────────
@@ -36,6 +44,7 @@ assert_lint() {
     local filepath="${REPO_ROOT}/${filename}"
     mkdir -p "$(dirname "${filepath}")"
     printf '%s' "${content}" > "${filepath}"
+    CREATED_FILES+=("${filepath}")
 
     local rc=0
     local output
@@ -73,11 +82,14 @@ cd "${REPO_ROOT}"
 # ── Parity check ──────────────────────────────────────────────
 
 echo "── Parity ──────────────────────────────────────────────"
-if python3 "${LINT}" --check-parity 2>&1 | grep -q "PARITY CHECK PASSED"; then
+parity_rc=0
+parity_output="$(python3 "${LINT}" --check-parity 2>&1)" || parity_rc=$?
+if [[ "${parity_rc}" -eq 0 ]] && echo "${parity_output}" | grep -q "PARITY CHECK PASSED"; then
     echo "PASS  parity: all hooks have registered handlers"
     PASS=$((PASS + 1))
 else
-    echo "FAIL  parity: some hooks lack registered handlers"
+    echo "FAIL  parity: some hooks lack registered handlers (exit code: ${parity_rc})"
+    echo "${parity_output}" | tail -5 | sed 's/^/    /'
     FAIL=$((FAIL + 1))
 fi
 
