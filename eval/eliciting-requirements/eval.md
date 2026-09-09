@@ -2,7 +2,7 @@
 type: skill-eval
 skill: eliciting-requirements
 analyzed_at: 2026-09-08
-skill_hash: 7b2ba149f0ce
+skill_hash: 1f1b145c545b
 ---
 
 # Skill Evaluation Analysis

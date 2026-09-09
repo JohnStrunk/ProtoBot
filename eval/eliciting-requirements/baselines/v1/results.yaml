@@ -1,6 +1,6 @@
 ---
 baseline_id: v1
-skill_revision: 7b2ba149f0ce  # pragma: allowlist secret
+skill_revision: 1f1b145c545b  # pragma: allowlist secret
 development_run_id: v2
 regression_run_id: v1-regression
 development:

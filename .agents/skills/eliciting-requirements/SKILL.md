@@ -4,7 +4,8 @@ description: >
   Turns goals, feature requests, interface descriptions, existing
   requirements, and requirement sets into precise, implementation-independent
   EARS requirements with focused questions, supporting suggestions, complete
-  verification contracts, and consistency findings.
+  verification contracts, and consistency findings. Use when eliciting,
+  refining, reviewing, or comparing requirements before implementation.
 user-invocable: true
 allowed-tools: Read, Write, Grep, Glob
 ---
@@ -301,34 +302,11 @@ needed`, `normally`, `securely`, `support`, `handle`, `etc.`, and `reasonable`
 unless the user defines an agreed measure. Preserve the vague source wording
 in the rationale when useful, but do not mark it ready.
 
-## Controlled-Language Discipline
+## Supporting Requirements and Language
 
-Use ASD-STE100 Simplified Technical English as a source of general writing
-principles only. Do not reproduce its dictionary or rule text, claim
-compliance or certification, or force software requirements into aerospace
-maintenance vocabulary.
-
-Prefer:
-
-- One idea per sentence.
-- Short sentences and active voice.
-- Explicit subjects and concrete verbs.
-- Consistent tense and defined domain terms.
-- A roughly 20-25 word length as a prompt to inspect complexity, not a hard
-  limit.
-
-Do not suppress uncertainty. `Unclear`, `may`, `probably`, alternatives, and
-provisional interpretations are valid surrounding language when the source is
-uncertain. Ask for resolution instead of converting uncertainty into an
-unsupported requirement.
-
-Keep these implementation details out of the normative sentence unless they
-are themselves an externally visible contract:
-
-- Internal class, function, module, prompt, or agent names.
-- Database tables, schemas, indexes, caches, or queue choices.
-- Frameworks, programming languages, libraries, or deployment mechanisms.
-- A particular algorithm, data structure, test framework, or file layout.
+Read `references/quality-guidance.md` when drafting supporting requirements or
+applying controlled-language guidance. The guidance keeps ASD-STE100-inspired
+style separate from the normative EARS rules and preserves uncertainty.
 
 ## Elicitation Loop
 
@@ -370,41 +348,6 @@ Do not ask about a quality attribute merely because it is common. Ask about
 performance, security, privacy, accessibility, localization, compatibility,
 retention, auditability, or observability when the request or its boundary
 implies it.
-
-## Supporting Requirements
-
-Look for behavior required to make the source request complete, implementable,
-and verifiable. A suggestion must include the source behavior it relates to,
-the missing behavior, and a short reason. Keep every suggestion outside the
-candidate requirement list until the user accepts it.
-
-Use one of these relationship labels:
-
-- **Required companion:** needed for the source behavior to be complete.
-- **Failure-path companion:** defines a material failure or recovery path.
-- **Boundary companion:** defines an implied limit or edge case.
-- **Interface companion:** defines behavior at a system or external boundary.
-- **Operational companion:** defines an observable operational quality implied
-  by the request.
-- **Optional consideration:** plausible but not justified by the current
-  request; ask whether it belongs in scope.
-
-Ground suggestions in the request. Consider these areas only when relevant:
-
-- Normal, alternate, negative, and recovery paths.
-- Validation, missing or malformed values, duplicates, and boundaries.
-- State entry, exit, transition, reset, and lifecycle behavior.
-- Authentication, authorization, ownership, and permission failures.
-- Persistence, consistency, idempotence, ordering, and concurrency.
-- Dependency failures, timeouts, retries, cancellation, and partial
-  completion.
-- Performance, capacity, latency, availability, rate limits, and resource
-  exhaustion.
-- Security, privacy, auditability, retention, and sensitive-data handling.
-- User feedback, accessibility, localization, compatibility, and observability.
-
-Do not dump this list into the response. Do not invent a feature because it is
-common in another system.
 
 ## Consistency Analysis
 
@@ -533,16 +476,8 @@ the implementation that creates that evidence.
 
 ## Evaluation Expectations
 
-This skill is evaluated through the repository's Agent Eval Harness
-configuration. Evaluation cases cover all six templates, near-misses and
-minimal pairs, vague and implementation-specific prose, supporting
-requirements, contracts and readiness gating, conflicting and duplicate sets,
-gaps and precedence, uncertainty, host metadata, multiple domains, and
-malformed input. A revision must retain the committed corpus and prior
-baseline, add confirmed failures as regression cases, and pass both
-deterministic structural judges and semantic review thresholds.
-
-The evaluation configuration is not a host workflow requirement for normal
-use. It is a reproducible quality gate for this skill.
+The Agent Eval Harness configuration, corpus, baseline, and regression rules
+are documented in `eval/eliciting-requirements/README.md`. Use that workflow
+for evaluation; it is not a required host workflow for normal skill use.
 
 $ARGUMENTS
