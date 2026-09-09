@@ -390,8 +390,8 @@ It is used by three callers:
 - **EARS formatting.** Each requirement statement must match one of
   the six EARS patterns (ubiquitous, event-driven, state-driven,
    unwanted behavior, optional feature, and complex/combined). The
-   tool parses the statement and rejects free-form text that doesn't
-   fit a pattern.
+   tool validates the statement against its declared pattern type
+   via keyword-based regex and rejects text that does not match.
 - **Required metadata.** Each requirement must have a stable ID, at
   least one machine-queryable applicability selector, an EARS pattern
   type, and provenance. Most selectors name interfaces; project-wide
@@ -404,8 +404,8 @@ It is used by three callers:
   references interfaces defined in the Architecture. Explicit
   requirement relationships and change-set references must resolve.
   The minimum relationship vocabulary is `depends-on`, `conflicts-with`,
-  `supersedes`, and `related-to`; `depends-on` must be acyclic. Dangling
-  references are flagged.
+  `supersedes`, and `related-to`; `depends-on` and `supersedes` must be
+  acyclic. Dangling references are flagged.
 - **Artifact governance.** Every Vision, Architecture, interface IDL,
   requirement store, and change-set file is registered by kind, path,
   digest, owner, and validator. Opaque prose and external IDLs still pass
@@ -508,10 +508,6 @@ idempotency input.
   richer queries like "requirements with no usable scope" or
   "interfaces with no requirements"? Richer queries make the agent's
   job easier but increase `ears-manager`'s complexity.
-- **EARS template strictness.** How strictly does `ears-manager`
-  enforce EARS patterns? Exact keyword matching ("When...",
-  "While...", "If...then...")? Or does it allow minor variations?
-  Too strict may fight the agent; too loose defeats the purpose.
 
 ---
 

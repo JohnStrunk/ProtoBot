@@ -112,22 +112,20 @@ When tests fail after merging
 
 ### Q19: Applicability metadata and semantic impact coverage
 
-Change
-    sets now distinguish changed requirements from applicable unchanged
-    requirements. Every requirement has at least one machine-queryable
-    applicability selector. Most name interfaces; project-wide and
-    environmental requirements use an explicit project selector.
-    Optional narrower scope selectors and explicit relationships improve
-    precision.
-    `ears-manager impact` mechanically generates conservative
-    candidates, the Dimensioning agent supplements them semantically,
-    and the user records reviewed applicable/not-applicable dispositions
-    with the changed set. The minimum relationship vocabulary is decided:
-    `depends-on`, `conflicts-with`, `supersedes`, and `related-to`.
+The scope-selector model and relationship storage rules are
+    resolved by
+    [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
+    Scopes are free-form project-defined strings with a reserved
+    `project` value for project-wide requirements. The minimum
+    relationship vocabulary (`depends-on`, `conflicts-with`,
+    `supersedes`, `related-to`) was established in the architecture
+    docs; ADR-0002 decided how those relationships are stored
+    (directionality and symmetry validation).
     Remaining questions: what controlled vocabulary or selector model
-    expresses capability/resource scope, which additional domain-specific
-    relationships prove necessary, and how do evals measure obligations
-    missed by semantic impact analysis?
+    expresses capability/resource scope beyond the reserved `project`
+    value, which additional domain-specific relationships prove
+    necessary, and how do evals measure obligations missed by semantic
+    impact analysis?
     See
     [ongoing obligations](user-interaction-flow.md#ongoing-obligations).
 
@@ -204,6 +202,23 @@ The multi-player workflow places the
 
 Resolved → [ADR-0001](../decisions/0001-requirements-storage-format.md).
 One-file-per-record YAML.
+
+### Q16: EARS template strictness
+
+Resolved → [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
+Full EARS text stored as a free-form string tagged with a pattern
+`type` enum; `ears-manager` validates via keyword-based regex.
+
+### Q19: Scope-selector model and relationship storage (partial)
+
+Resolved → [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
+Scopes are free-form project-defined strings with a reserved
+`project` value. Relationship storage: `conflicts-with` and
+`related-to` are bidirectional (both files, symmetry validated);
+`depends-on` and `supersedes` are directional (source file only).
+The vocabulary itself was established in the architecture docs.
+Remaining sub-questions (controlled vocabulary, domain-specific
+relationships, eval coverage) stay open above.
 
 ---
 

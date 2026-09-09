@@ -61,7 +61,8 @@ path and enforces canonical serialization on every write.
 The exact directory hierarchy (how files are organized within the
 spec store) and the logical field-level schema (which fields each
 record type contains) are out of scope for this ADR and are
-addressed by follow-up work (repository layout and #46
+addressed by follow-up work (repository layout and
+[ADR-0002](0002-ears-specification-record-schema.md)
 respectively).
 
 ---
@@ -204,7 +205,9 @@ because:
   generated header comment (e.g.,
   `# managed by ears-manager — do not edit by hand`) and
   preserves it across rewrites. Comments carry no semantics;
-  `ears-manager check` and the #46 schema ignore them.
+  `ears-manager check` and the
+  [ADR-0002](0002-ears-specification-record-schema.md) schema
+  ignore them.
 - **Ecosystem.** Go is the implementation language for
   `ears-manager`. The YAML library must support deterministic
   emit: explicit control over key order, indentation, scalar
@@ -314,27 +317,33 @@ relationship vocabulary from the architecture docs:
 
 - `depends-on` — must be acyclic; `ears-manager` validates
   this on every write
-- `conflicts-with` — stored in the declaring file only;
-  `ears-manager check` derives and validates the inverse
-  (symmetric-storage enforcement is a schema decision
-  for #46)
+- `conflicts-with` — stored in both files;
+  `ears-manager check` validates symmetry
+  ([ADR-0002](0002-ears-specification-record-schema.md)
+  decided bidirectional storage)
 - `supersedes` — directional; the superseding requirement
   references the superseded one
-- `related-to` — informational; no validation constraints
-  beyond target existence
+- `related-to` — stored in both files;
+  `ears-manager check` validates symmetry.
+  Informational; no validation constraints beyond target
+  existence and symmetry
+  ([ADR-0002](0002-ears-specification-record-schema.md)
+  decided bidirectional storage)
 
 Each relationship is stored as a list entry in the source
 requirement's file, containing the relationship type and the
 target requirement's stable ID. The exact field structure is
-defined by the schema (#46); the storage format treats it as
+defined by [ADR-0002](0002-ears-specification-record-schema.md);
+the storage format treats it as
 a list of typed string references.
 
 `ears-manager check` validates all cross-references:
 
 - Every target ID resolves to an existing record
 - `depends-on` relationships form a DAG (no cycles)
-- `conflicts-with` inverses are derived and validated
-  (symmetric storage, if adopted, is defined by #46)
+- `supersedes` relationships form a DAG (no cycles)
+- `conflicts-with` and `related-to` symmetry is validated
+  ([ADR-0002](0002-ears-specification-record-schema.md))
 
 ---
 
@@ -397,13 +406,14 @@ Callers continue to use subcommands (`add`, `list`, `show`,
 The format can be changed in a future ADR without breaking
 any caller.
 
-### Relationship to #46 (schema)
+### Relationship to ADR-0002 (schema)
 
 This ADR decides the physical format (one-file-per-record
-YAML). Issue #46 decides the logical schema (field names,
-types, enums, validation rules). The two are independent:
-the schema defines what goes in each file; this ADR defines
-how those files are serialized and organized on disk.
+YAML). [ADR-0002](0002-ears-specification-record-schema.md)
+defines the logical schema (field names, types, enums,
+validation rules). The two are independent: the schema defines
+what goes in each file; this ADR defines how those files are
+serialized and organized on disk.
 
 ---
 
@@ -417,8 +427,8 @@ how those files are serialized and organized on disk.
   format
 - [Content Storage Model][csm] — the repository layout
   this format fits into
-- #46 — logical schema for specification records
-  (independent, can proceed in parallel)
+- [ADR-0002](0002-ears-specification-record-schema.md) —
+  logical schema for specification records (resolved)
 - #30 — `ears-manager` CLI integration (unchanged by
   this decision)
 - #34 — Git and project-repository integration (the PR
