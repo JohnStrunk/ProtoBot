@@ -15,16 +15,20 @@
   // review-agent re-runs on busy days.
   "rebaseWhen": "conflicted",
   "dependencyDashboard": true,
-  // Give newly released dependencies time to receive initial security review.
-  "minimumReleaseAge": "10 days",
-  "lockFileMaintenance": {
-    "enabled": true,
-    // Lock file maintenance creates virtual entries without releaseTimestamp.
-    // Inheriting the top-level minimumReleaseAge blocks these PRs indefinitely
-    // under Renovate 42+'s default timestamp-required behaviour.
-    "minimumReleaseAge": null,
-  },
+  // Keep the Skillsaw ruleset version in .skillsaw.yaml updateable.
   "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/(^|/)\\.skillsaw\\.yaml$/",
+      ],
+      "matchStrings": [
+        "version:\\s*[\"']?(?<currentValue>[^\"'\\s]+)[\"']?",
+      ],
+      "depNameTemplate": "skillsaw",
+      "datasourceTemplate": "pypi",
+      "versioningTemplate": "pep440",
+    },
     {
       // Track fullsend-ai/agents version pins in harness base: URLs.
       // SHA256 hashes are updated automatically by postUpgradeTasks
@@ -40,6 +44,15 @@
       "extractVersionTemplate": "^v(?<version>.*)$",
     },
   ],
+  // Give newly released dependencies time to receive initial security review.
+  "minimumReleaseAge": "10 days",
+  "lockFileMaintenance": {
+    "enabled": true,
+    // Lock file maintenance creates virtual entries without releaseTimestamp.
+    // Inheriting the top-level minimumReleaseAge blocks these PRs indefinitely
+    // under Renovate 42+'s default timestamp-required behaviour.
+    "minimumReleaseAge": null,
+  },
   "packageRules": [
     {
       // After fullsend-ai/agents version bump, recompute SHA256 hashes in
@@ -80,6 +93,15 @@
         "pre-commit",
       ],
       "pinDigests": true,
+    },
+    {
+      // Keep the Skillsaw hook and its config version in sync.
+      "description": "Group Skillsaw hook and config updates",
+      "groupName": "skillsaw",
+      "matchPackageNames": [
+        "skillsaw",
+        "stbenjam/skillsaw",
+      ],
     },
   ],
   // Security fixes should be proposed immediately.

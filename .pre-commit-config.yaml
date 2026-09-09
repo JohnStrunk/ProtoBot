@@ -61,6 +61,11 @@ repos:
     hooks:
       - id: uv-lock
 
+  - repo: https://github.com/stbenjam/skillsaw
+    rev: ec30cf07c9a00cf5ea5e7bfe0c351366f99d09a1  # frozen: v0.20.0
+    hooks:
+      - id: skillsaw
+
   - repo: https://github.com/DavidAnson/markdownlint-cli2
     rev: b82a6c8896e491b9cb377a99ff3412131920681b  # frozen: v0.23.2
     hooks:
@@ -92,6 +97,7 @@ repos:
         exclude: |
           (?x)^(
                 .fullsend/config\.yaml |
+                \.skillsaw-baseline\.json |
                 \.pre-commit-config\.yaml
             )$
 

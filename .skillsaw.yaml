@@ -1,0 +1,9 @@
+---
+version: "0.20.0"
+content-paths:
+  - "docs/vision.md"
+  - "docs/architecture.md"
+strict: true
+fail-on: info
+exclude:
+  - ".worktrees/**"
