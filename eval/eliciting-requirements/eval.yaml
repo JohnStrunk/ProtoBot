@@ -36,7 +36,8 @@ dataset:
     - input.yaml with a prompt field containing the source request and an
       instruction to return the package and write artifacts/result.md.
     - annotations.yaml with category, difficulty, provenance, expected
-      templates, readiness, required findings, and disallowed behaviors.
+      templates or alternatives, readiness (`needs_clarification`, `mixed`, or
+      `ready_for_review`), required findings, and disallowed behaviors.
     - reference.md describing semantic properties and acceptable variants for
       human calibration. It is a property-based reference, not an exact gold
       wording requirement.
@@ -122,6 +123,29 @@ judges:
                   "A clarification case contains a ready-for-review status"
               )
           return True, "Material uncertainty remains gated"
+      if expected == "mixed":
+          statuses_lower = [status.lower() for status in statuses]
+          if not statuses or not any(
+              "ready for review" in status for status in statuses_lower
+          ):
+              return False, "Mixed case has no ready candidate"
+          if not any(
+              "needs clarification" in status for status in statuses_lower
+          ):
+              return False, "Mixed case has no clarification candidate"
+          if (
+              candidate.lower().count(
+                  "implementability contract"
+              ) < len(statuses)
+          ):
+              return False, (
+                  "Not every mixed candidate has an implementability contract"
+              )
+          if candidate.lower().count("verification contract") < len(statuses):
+              return False, (
+                  "Not every mixed candidate has a verification contract"
+              )
+          return True, "Mixed candidate readiness is represented"
       if not statuses:
           return False, "No candidate status was found"
       if any("ready for review" not in status.lower() for status in statuses):
@@ -163,13 +187,16 @@ judges:
       )[-1]
       candidate = re.split(r"(?im)^##\s+[^#]", candidate, maxsplit=1)[0]
       flat = " ".join(candidate.lower().split())
-      requirement_text = []
+      requirement_blocks = []
+      current_requirement = []
       in_requirement = False
       for line in candidate.splitlines():
           marker = re.search(r"(?i)\bRequirement\b[^:\n]*:\s*(.*)$", line)
           if marker:
+              if current_requirement:
+                  requirement_blocks.append(current_requirement)
+              current_requirement = [marker.group(1)]
               in_requirement = True
-              requirement_text.append(marker.group(1))
               continue
           if in_requirement and re.search(
               r"^\s*(?:#{2,6}\s|[-*]\s+(?:\*\*)?"
@@ -177,9 +204,17 @@ judges:
               r"Verification)\b)",
               line,
           ):
+              if current_requirement:
+                  requirement_blocks.append(current_requirement)
+                  current_requirement = []
               in_requirement = False
           elif in_requirement:
-              requirement_text.append(line)
+              current_requirement.append(line)
+      if current_requirement:
+          requirement_blocks.append(current_requirement)
+      requirement_text = [
+          line for block in requirement_blocks for line in block
+      ]
       requirement_lines = [
           line for line in requirement_text
           if re.search(r"\bshall\b", line, re.IGNORECASE)
@@ -190,15 +225,27 @@ judges:
               and "unresolved" in candidate.lower()
           ):
               return True, "Pattern selection is explicitly unresolved"
+          if (
+              "needs clarification" in candidate.lower()
+              and any(
+                  marker in candidate.lower()
+                  for marker in (
+                      "drafting blocked", "unresolved", "pattern selection"
+                  )
+              )
+          ):
+              return True, "Normative drafting is explicitly blocked"
           if not expected and (
               "unresolved" in candidate.lower()
               or "pattern selection" in candidate.lower()
           ):
               return True, "Pattern selection is explicitly unresolved"
           return False, "No normative requirement sentence contains shall"
+      requirement_bodies = [" ".join(block) for block in requirement_blocks]
       if any(
-          len(re.findall(r"\bshall\b", line, re.IGNORECASE)) != 1
-          for line in requirement_lines
+          len(re.findall(r"\bshall\b", body, re.IGNORECASE)) != 1
+          for body in requirement_bodies
+          if re.search(r"\bshall\b", body, re.IGNORECASE)
       ):
           return False, "A normative sentence contains more than one shall"
       if not expected and not alternatives:

@@ -17,7 +17,7 @@ model:
   settings: default, parallelism 3
 corpus:
   development_cases: 13
-  regression_cases: 10
+  regression_cases: 11
   independent_held_out_cases: 0
   development_config: eval/eliciting-requirements/eval.yaml
   regression_config: eval/eliciting-requirements/eval-regression.yaml

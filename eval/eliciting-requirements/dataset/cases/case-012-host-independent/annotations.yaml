@@ -3,7 +3,7 @@ partition: development
 category: host-independence
 difficulty: medium
 provenance: authored host-metadata case
-readiness: needs_clarification
+readiness: mixed
 expected_templates:
   - complex
 required_findings:

@@ -3,7 +3,7 @@ partition: development
 category: supporting-requirements
 difficulty: hard
 provenance: authored normal-path case
-readiness: needs_clarification
+readiness: mixed
 expected_templates:
   - event-driven
 required_findings:
