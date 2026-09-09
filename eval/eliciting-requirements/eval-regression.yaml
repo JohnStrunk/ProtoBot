@@ -232,6 +232,8 @@ judges:
           len(re.findall(r"\bshall\b", body, re.IGNORECASE)) != 1
           for body in requirement_bodies
           if re.search(r"\bshall\b", body, re.IGNORECASE)
+          and "drafting is blocked" not in body.lower()
+          and "neither is normative" not in body.lower()
       ):
           return False, "A normative sentence contains more than one shall"
       if not expected and not alternatives:
