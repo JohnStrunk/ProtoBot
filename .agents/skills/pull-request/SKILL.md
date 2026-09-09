@@ -10,7 +10,7 @@ description: >
 When asked to "make a PR" or "create a pull request", follow this structured
 process:
 
-- Rebase your branch on the latest upstream main to ensure it is up to date
+- Rebase your branch on the latest `upstream/main` to ensure it is up to date
 - Ensure all tests pass and the code is ready for review
 - Create the Pull Request on GitHub in a draft state
 - Monitor CI checks and address any issues
@@ -23,8 +23,10 @@ process:
 - Also address feedback from `fullsend-ai-review[bot]` if applicable, and
   respond to their comments in the same manner.
 - Once all checks and reviews are passed, perform a final rebase of the branch
-  on the latest main
+  on the latest `upstream/main`
 - Ensure CI checks pass after rebasing
 - Mark the PR as ready for review: `gh pr ready <id>`
+- Wait for the post-rebase CodeRabbit and `fullsend-ai-review[bot]` checks,
+  addressing and responding to any feedback as described above.
 - Enable auto-merge: `gh pr merge <id> --auto`
 - STOP. You have completed the pull request process.
