@@ -1,6 +1,6 @@
 # ADR-0002: EARS Specification Record Schema
 
-> Status: **Accepted** --- September 2026
+> Status: **Accepted** — September 2026
 
 **Contents:**
 
@@ -133,11 +133,20 @@ case-insensitive regex matching:
 - **`state-driven`**: text matches `^While .+, the .+ shall .+`
 - **`unwanted-behavior`**: text matches `^If .+, then the .+ shall .+`
 - **`optional-feature`**: text matches `^Where .+, the .+ shall .+`
-- **`complex`**: text must contain `shall` AND at least two of the
-  following keywords (case-insensitive): `When`, `While`, `If`
-  followed later by `then`, `Where`. The exact validation rule for
-  `complex` is intentionally looser than the single-pattern rules
-  to accommodate the variety of combined patterns.
+- **`complex`**: text must satisfy both of the following conditions
+  (case-insensitive):
+  1. Contains the keyword `shall`.
+  2. Contains at least two distinct EARS trigger keywords from
+     this set:
+     - `When`
+     - `While`
+     - `Where`
+     - The pair `If` ... `then` (both words must appear, with
+       `If` preceding `then`; the pair counts as one keyword)
+
+  The exact validation rule for `complex` is intentionally looser
+  than the single-pattern rules to accommodate the variety of
+  combined patterns.
 
 Validation is intentionally keyword-based rather than structurally
 parsed. The full EARS text is stored as-is, preserving human
@@ -243,7 +252,7 @@ intent, the operations performed, and the impact assessment.
 | `affected_scopes` | list\[string\] | no | Narrower scopes affected, using the same vocabulary as `applies_to.scopes` in requirements. |
 | `implementation_required` | boolean | yes | Whether this change set requires implementation work (a build work item). |
 | `implementation_rationale` | string | conditional | Required when `implementation_required` is `false`. Explains why no implementation work is needed (e.g., documentation-only change). |
-| `impact_assessment` | list\[object\] | no | Impact assessment for unchanged requirements. See [Impact Assessment](#impact-assessment). Required before approval when any candidate exists. |
+| `impact_assessment` | list\[object\] | conditional | Impact assessment for unchanged requirements. See [Impact Assessment](#impact-assessment). Required when `status` is `approved` and any candidate unchanged requirement exists (i.e., `ears-manager impact` identified at least one candidate). |
 | `created` | string (ISO 8601) | yes | Timestamp when the change set was created. |
 
 #### Change-Set Operations

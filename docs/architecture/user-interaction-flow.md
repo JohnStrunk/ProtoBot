@@ -294,6 +294,10 @@ not in `.feature` files):
 
 ```yaml
 id: REQ-AUTH-001
+type: event-driven
+text: >-
+  When a user submits valid credentials, the system shall
+  return a JWT token within 500ms.
 applies_to:
   interfaces:
     - api-gateway
@@ -301,10 +305,6 @@ applies_to:
     - authentication
 verification:
   mode: isolated-interface
-type: event-driven
-text: >-
-  When a user submits valid credentials, the system shall
-  return a JWT token within 500ms.
 provenance: user-authored
 created: "2026-08-01T14:30:00Z"
 ```

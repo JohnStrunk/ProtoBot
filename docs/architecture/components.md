@@ -390,8 +390,8 @@ It is used by three callers:
 - **EARS formatting.** Each requirement statement must match one of
   the six EARS patterns (ubiquitous, event-driven, state-driven,
    unwanted behavior, optional feature, and complex/combined). The
-   tool parses the statement and rejects free-form text that doesn't
-   fit a pattern.
+   tool validates the statement against its declared pattern type
+   via keyword-based regex and rejects text that does not match.
 - **Required metadata.** Each requirement must have a stable ID, at
   least one machine-queryable applicability selector, an EARS pattern
   type, and provenance. Most selectors name interfaces; project-wide
