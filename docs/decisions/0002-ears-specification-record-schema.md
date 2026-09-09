@@ -29,7 +29,7 @@ exists.
 physical storage format (one-file-per-record YAML) independently of
 the logical schema. This ADR defines the logical schema: field
 names, types, optionality, enums, and validation rules for each
-record type. The schema is format-agnostic --- it defines what
+record type. The schema is format-agnostic — it defines what
 `ears-manager` validates, not how records are serialized.
 
 ### Open questions resolved by this ADR
@@ -58,15 +58,15 @@ record type. The schema is format-agnostic --- it defines what
 The following schemas define the logical structure for each record
 type managed by `ears-manager`. Field types use these conventions:
 
-- **string** --- UTF-8 text
-- **string (enum)** --- one of the listed values
-- **string (ID)** --- a stable identifier matching the pattern for
+- **string** — UTF-8 text
+- **string (enum)** — one of the listed values
+- **string (ID)** — a stable identifier matching the pattern for
   its record type
-- **string (ISO 8601)** --- a timestamp in `YYYY-MM-DDTHH:MM:SSZ`
+- **string (ISO 8601)** — a timestamp in `YYYY-MM-DDTHH:MM:SSZ`
   format
-- **list\[T\]** --- an ordered list of values of type T
-- **object** --- a nested structure with its own fields
-- **boolean** --- `true` or `false`
+- **list\[T\]** — an ordered list of values of type T
+- **object** — a nested structure with its own fields
+- **boolean** — `true` or `false`
 
 ### Schema Versioning
 
@@ -85,7 +85,8 @@ entries in `.protobot/project.yaml`. Each store carries one
 version key; the initial version for both is `1`. The version
 number is a monotonically increasing integer. Any change to a
 store's field names, types, required constraints, or enum
-values increments its version. Additive changes (new optional
+values increments its version. This ADR establishes the
+following increment policy: additive changes (new optional
 fields, new enum values) and breaking changes both increment
 the version; `ears-manager` uses the version to decide
 whether migration is needed.
@@ -413,7 +414,7 @@ vocabulary is project-specific and cannot be fully enumerated in
 advance. Interface selectors are validated against the interface
 registry. Apart from the reserved `project` value, scope strings
 are not validated against a controlled vocabulary by
-`ears-manager` --- projects may enforce their own vocabulary via
+`ears-manager` — projects may enforce their own vocabulary via
 project policy or CI rules.
 
 **Trade-off:** free-form scopes risk inconsistent naming across
@@ -604,18 +605,18 @@ artifacts:
 ## Related Documents
 
 - [ADR-0001: One-File-Per-Record YAML Storage Format](0001-requirements-storage-format.md)
-  --- the physical format this schema populates
+  — the physical format this schema populates
 - [ears-manager](../architecture/components.md#ears-manager)
-  --- the component that enforces this schema
+  — the component that enforces this schema
 - [Phase 2: Dimensioning](../architecture/user-interaction-flow.md#phase-2-dimensioning)
-  --- the workflow that produces requirement records
+  — the workflow that produces requirement records
 - [Q19: Applicability metadata](../architecture/open-questions.md#q19-applicability-metadata-and-semantic-impact-coverage)
-  --- the open question about scope vocabulary
+  — the open question about scope vocabulary
 - [Content Storage Model](../architecture/components.md#content-storage-model)
-  --- where artifact-registry entries are stored
-- #46 --- the issue this ADR resolves
-- #45 --- storage format (resolved by ADR-0001, independent of
+  — where artifact-registry entries are stored
+- #46 — the issue this ADR resolves
+- #45 — storage format (resolved by ADR-0001, independent of
   this schema)
-- #30 --- `ears-manager` CLI integration (unchanged by this
+- #30 — `ears-manager` CLI integration (unchanged by this
   schema)
-- #34 --- Git and project-repository integration
+- #34 — Git and project-repository integration

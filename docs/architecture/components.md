@@ -404,8 +404,8 @@ It is used by three callers:
   references interfaces defined in the Architecture. Explicit
   requirement relationships and change-set references must resolve.
   The minimum relationship vocabulary is `depends-on`, `conflicts-with`,
-  `supersedes`, and `related-to`; `depends-on` must be acyclic. Dangling
-  references are flagged.
+  `supersedes`, and `related-to`; `depends-on` and `supersedes` must be
+  acyclic. Dangling references are flagged.
 - **Artifact governance.** Every Vision, Architecture, interface IDL,
   requirement store, and change-set file is registered by kind, path,
   digest, owner, and validator. Opaque prose and external IDLs still pass

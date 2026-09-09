@@ -341,6 +341,7 @@ a list of typed string references.
 
 - Every target ID resolves to an existing record
 - `depends-on` relationships form a DAG (no cycles)
+- `supersedes` relationships form a DAG (no cycles)
 - `conflicts-with` and `related-to` symmetry is validated
   ([ADR-0002](0002-ears-specification-record-schema.md))
 

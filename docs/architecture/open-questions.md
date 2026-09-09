@@ -203,7 +203,7 @@ The multi-player workflow places the
 Resolved → [ADR-0001](../decisions/0001-requirements-storage-format.md).
 One-file-per-record YAML.
 
-### EARS template strictness
+### Q16: EARS template strictness
 
 Resolved → [ADR-0002](../decisions/0002-ears-specification-record-schema.md).
 Full EARS text stored as a free-form string tagged with a pattern
