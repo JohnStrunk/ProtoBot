@@ -28,5 +28,5 @@ process:
 - Mark the PR as ready for review: `gh pr ready <id>`
 - Wait for the post-rebase CodeRabbit and `fullsend-ai-review[bot]` checks,
   addressing and responding to any feedback as described above.
-- Enable auto-merge: `gh pr merge <id> --auto`
+- Enable auto-merge: `gh pr merge <id> --auto --merge`
 - STOP. You have completed the pull request process.
