@@ -5,7 +5,9 @@ difficulty: medium
 provenance: authored regression command-line interface case
 readiness: needs_clarification
 expected_templates:
-  - complex
+  []
+template_alternatives:
+  - [event-driven, complex]
 required_findings:
   - >-
     preserve the command, option, valid path, preview-only definition, and

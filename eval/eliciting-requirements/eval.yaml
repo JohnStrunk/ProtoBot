@@ -148,7 +148,11 @@ judges:
       expected = [
           str(item).lower() for item in ann.get("expected_templates", [])
       ]
-      if not expected:
+      alternatives = [
+          [str(item).lower() for item in group]
+          for group in ann.get("template_alternatives", [])
+      ]
+      if not expected and not alternatives:
           return True, "The case has no required EARS template"
       text = (
           outputs.get("artifacts_content", "")
@@ -197,7 +201,7 @@ judges:
           for line in requirement_lines
       ):
           return False, "A normative sentence contains more than one shall"
-      if not expected:
+      if not expected and not alternatives:
           return True, "No specific EARS template is required"
       normalize = lambda value: re.sub(r"[\s_-]+", "", value.lower())
       labels = normalize(flat)
@@ -211,14 +215,21 @@ judges:
           "complex": r"\bwhile\b.+?,\s*when\b.+?,.+?\bshall\b",
       }
       requirement_body = " ".join(requirement_text)
-      for template in expected:
+      def valid_template(template):
           if normalize(template) not in labels:
-              return False, "Missing template label: " + template
+              return False
           pattern = patterns.get(template)
-          if pattern and not re.search(
+          return not pattern or re.search(
               pattern, requirement_body, re.IGNORECASE
-          ):
-              return False, "Missing canonical syntax for: " + template
+          )
+      for template in expected:
+          if not valid_template(template):
+              return False, "Missing template label: " + template
+      for group in alternatives:
+          if not any(valid_template(template) for template in group):
+              return False, (
+                  "No acceptable template alternative: " + ", ".join(group)
+              )
       return True, "Expected EARS syntax is present"
 
   - name: ears_template_coverage
@@ -230,19 +241,28 @@ judges:
       expected = [
           str(item).lower() for item in ann.get("expected_templates", [])
       ]
+      alternatives = [
+          [str(item).lower() for item in group]
+          for group in ann.get("template_alternatives", [])
+      ]
       text = (
           outputs.get("artifacts_content", "")
           or outputs.get("conversation", "")
       )
       normalize = lambda value: re.sub(r"[\s_-]+", "", value.lower())
       text = normalize(text)
-      if not expected:
+      if not expected and not alternatives:
           return True, "The case intentionally has no expected template"
       missing = [item for item in expected if normalize(item) not in text]
       if missing:
           return False, (
               "Expected template labels not found: " + ", ".join(missing)
           )
+      for group in alternatives:
+          if not any(normalize(item) in text for item in group):
+              return False, (
+                  "No acceptable template alternative: " + ", ".join(group)
+              )
       return True, "Expected EARS template labels are present"
 
   - name: category_critical_gate
