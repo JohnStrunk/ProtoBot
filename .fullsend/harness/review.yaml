@@ -1,0 +1,14 @@
+---
+base: "https://raw.githubusercontent.com/fullsend-ai/agents/v0.43.0/harness/review.yaml#sha256=c259d94e7c50e5e01cb0fa38df2b70765f8e35beb7ad8bf006c9193a05589917"
+
+# Lock the review budget at the upstream default so spec-document PRs
+# are not killed mid-synthesis. TIMEOUT_SECONDS must equal
+# timeout_minutes * 60.
+timeout_minutes: 45
+
+env:
+    sandbox:
+        TIMEOUT_SECONDS: "2700"
+        # Spec-document paths from AGENTS.md. Structured input for
+        # cross-document consistency checks during review.
+        REVIEW_SPEC_HIERARCHY: "docs/vision.md,docs/architecture.md,docs/architecture/overview.md,docs/architecture/components.md,docs/architecture/user-interaction-flow.md,docs/architecture/related-work.md,docs/architecture/open-questions.md,docs/decisions/"

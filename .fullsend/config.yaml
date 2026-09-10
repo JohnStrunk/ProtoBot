@@ -42,6 +42,7 @@ agents:
     - name: review
       runtime: pi
       model: sonnet
+      source: harness/review.yaml
       subagents:
           challenger: xai/grok-4.6
           correctness: xai/grok-4.6
