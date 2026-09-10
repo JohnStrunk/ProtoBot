@@ -216,9 +216,23 @@ def _ensure_tool(
         # to prevent running an outdated or attacker-placed binary.
         if installer == "pip" and package and version:
             try:
-                from importlib.metadata import version as pkg_version
+                from importlib.metadata import (
+                    PackageNotFoundError,
+                )
+                from importlib.metadata import (
+                    version as pkg_version,
+                )
 
-                installed = pkg_version(package)
+                try:
+                    installed = pkg_version(package)
+                except PackageNotFoundError:
+                    print(
+                        f"  REJECTED: cannot verify version for {package} on PATH"
+                        f" (package not found in pip metadata; expected {version})",
+                        file=sys.stderr,
+                    )
+                    return False
+
                 if installed != version:
                     print(
                         f"  REJECTED: {package} {installed} on PATH"
@@ -227,13 +241,13 @@ def _ensure_tool(
                     )
                     return False
             except ImportError:
-                # importlib.metadata unavailable or package not found
-                # in metadata — cannot verify, accept the PATH tool.
+                # importlib.metadata module itself unavailable
                 print(
-                    f"WARNING: cannot verify version for {package} on PATH"
-                    f" (no package metadata found; expected {version})",
+                    f"  REJECTED: cannot verify version for {package} on PATH"
+                    f" (importlib.metadata unavailable; expected {version})",
                     file=sys.stderr,
                 )
+                return False
         return True
     if installer == "pip" and package:
         if version is None:
@@ -257,6 +271,12 @@ def _ensure_tool(
 # Cross-reference with .pre-commit-config.yaml:
 #   - json5: runtime dependency for check-json5
 #     (repo: https://gitlab.com/bmares/check-json5)
+#
+# NOTE: _BUILTIN_DEP_VERSIONS is intentionally decoupled from the repo
+# revision in .pre-commit-config.yaml. The YAML entry's frozen comment
+# (e.g. v1.0.1) records the Git tag of the upstream check-json5 wrapper
+# repository, whereas the 'json5' package installed here is an independent
+# PyPI parser library with its own semantic versioning (0.15.0).
 _BUILTIN_DEP_VERSIONS: dict[str, str] = {
     "json5": "0.15.0",
 }
