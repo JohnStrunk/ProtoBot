@@ -12,3 +12,11 @@ env:
         # Spec-document paths from AGENTS.md. Structured input for
         # cross-document consistency checks during review.
         REVIEW_SPEC_HIERARCHY: "docs/vision.md,docs/architecture.md,docs/architecture/overview.md,docs/architecture/components.md,docs/architecture/user-interaction-flow.md,docs/architecture/related-work.md,docs/architecture/open-questions.md,docs/decisions/"
+        # Restate the upstream default plus .fullsend/. env keys replace
+        # wholesale under base: composition, so listing only the addition
+        # would drop the default prefixes (harness/, .github/, ...).
+        # .fullsend/ is a path prefix covering config.yaml and harness/.
+        REVIEW_PROTECTED_PATHS: ".claude/,.cursor/,.pi/,.gitattributes,.github/,.pre-commit-config.yaml,AGENTS.md,agents/,api-servers/,CLAUDE.md,CODEOWNERS,Containerfile,Dockerfile,harness/,images/,plugins/,policies/,profiles/,providers/,scripts/,skills/,.fullsend/"
+    # Keep in sync with sandbox: post-review.sh enforces independently.
+    runner:
+        REVIEW_PROTECTED_PATHS: ".claude/,.cursor/,.pi/,.gitattributes,.github/,.pre-commit-config.yaml,AGENTS.md,agents/,api-servers/,CLAUDE.md,CODEOWNERS,Containerfile,Dockerfile,harness/,images/,plugins/,policies/,profiles/,providers/,scripts/,skills/,.fullsend/"
