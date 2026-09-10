@@ -16,9 +16,6 @@ roles:
     - fix
     - retro
     - prioritize
-agents:
-    - name: triage
-      source: harness/triage.yaml
 allowed_remote_resources:
     - https://raw.githubusercontent.com/fullsend-ai/fullsend/
     - https://raw.githubusercontent.com/fullsend-ai/agents/
@@ -28,6 +25,34 @@ create_issues:
             - redhat-et/ProtoBot
             - fullsend-ai/fullsend
             - fullsend-ai/agents
+# Fullsend itself is pinned to sonnet 4.6. This changes what the `sonnet` alias means.
+models:
+    aliases:
+        sonnet: claude-sonnet-5
+agents:
+    - name: code
+      runtime: pi
+      model: xai/grok-4.6
+    - name: fix
+      runtime: pi
+      model: google-vertex/gemini-3.8-flash
+    - name: prioritize
+      runtime: pi
+      model: google-vertex/gemini-3.8-flash
+    - name: review
+      runtime: pi
+      model: sonnet
+      subagents:
+          challenger: xai/grok-4.6
+          correctness: xai/grok-4.6
+          docs-currency: google-vertex/gemini-3.8-flash
+          security: xai/grok-4.6
+          style-conventions: google-vertex/gemini-3.8-flash
+    - name: retro
+      model: sonnet
+    - name: triage
+      model: sonnet
+      source: harness/triage.yaml
 inference:
     project: it-gcp-octo-fullsend
     wif_provider: projects/554959098399/locations/global/workloadIdentityPools/fullsend-inference/providers/gh-redhat-et-protobot
