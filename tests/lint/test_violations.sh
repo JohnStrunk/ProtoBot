@@ -14,7 +14,6 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 LINT="${REPO_ROOT}/scripts/lint.py"
-TMPDIR_BASE="$(mktemp -d)"
 PASS=0
 FAIL=0
 # Track test fixture files created in the repo so they can be
@@ -25,7 +24,6 @@ cleanup() {
     for f in "${CREATED_FILES[@]}"; do
         rm -f "${f}"
     done
-    rm -rf "${TMPDIR_BASE}"
 }
 trap cleanup EXIT
 
@@ -62,11 +60,27 @@ assert_lint() {
         ok=false
     fi
 
-    if [[ -n "${expect_str}" ]] && ! echo "${output}" | grep -qF "${expect_str}"; then
+    # Strip ANSI colour codes for reliable substring matching.
+    local clean_output
+    # shellcheck disable=SC2001  # regex substitution requires sed
+    clean_output="$(echo "${output}" | sed 's/\x1b\[[0-9;]*m//g')"
+
+    if [[ -n "${expect_str}" ]] && ! echo "${clean_output}" | grep -qF "${expect_str}"; then
         echo "FAIL  ${label}: expected output to contain '${expect_str}'"
         echo "  actual output (last 5 lines):"
         echo "${output}" | tail -5 | sed 's/^/    /'
         ok=false
+    fi
+
+    # When expecting a failure, verify the expected hook was the one
+    # that actually failed (not just that the name appears somewhere).
+    if [[ "${expect_rc}" != "0" ]] && [[ -n "${expect_str}" ]]; then
+        if ! echo "${clean_output}" | grep -qF "✗ ${expect_str}"; then
+            echo "FAIL  ${label}: expected '${expect_str}' to be the failing hook"
+            echo "  actual output (last 5 lines):"
+            echo "${output}" | tail -5 | sed 's/^/    /'
+            ok=false
+        fi
     fi
 
     if ${ok}; then

@@ -198,6 +198,13 @@ def _ensure_tool(
 
 # ── Built-in hook implementations ─────────────────────────────
 
+# Pinned versions for builtin dependencies that are installed at runtime.
+# These are Python library packages used by builtin hook implementations,
+# not the hook tools themselves (which are pinned via .pre-commit-config.yaml).
+_BUILTIN_DEP_VERSIONS: dict[str, str] = {
+    "json5": "0.15.0",
+}
+
 
 def _builtin_unicode_replacement(files: list[str]) -> int:
     """Detect the UTF-8 replacement character U+FFFD."""
@@ -219,7 +226,7 @@ def _builtin_check_json5(files: list[str]) -> int:
     try:
         import json5  # type: ignore[import-untyped]
     except ImportError:
-        if not _pip_install("json5", None):
+        if not _pip_install("json5", _BUILTIN_DEP_VERSIONS["json5"]):
             print("  Cannot install json5 package")
             return 1
         import json5  # type: ignore[import-untyped]
@@ -469,11 +476,19 @@ def _run_hook(
         if version is None:
             return "unavailable", f"no frozen version for {pkg}"
         pkg_spec = f"{pkg}@{version}"
-        base_cmd: list[str] = ["npx", "--yes", pkg_spec]
-        # When the hook command differs from the package name
-        # (e.g. renovate-config-validator from renovate), append it.
         if cmd != pkg:
-            base_cmd.append(cmd)
+            # When the hook command differs from the package name
+            # (e.g. renovate-config-validator from renovate), use
+            # --package to specify the package and then the command.
+            base_cmd: list[str] = [
+                "npx",
+                "--yes",
+                "--package",
+                pkg_spec,
+                cmd,
+            ]
+        else:
+            base_cmd = ["npx", "--yes", pkg_spec]
     else:
         if not _ensure_tool(cmd, installer, package, version):
             return "unavailable", f"{cmd} is not installed"
@@ -521,7 +536,13 @@ def _run_hook(
 # ── File collection ────────────────────────────────────────────
 
 
-def _git(*args: str) -> str:
+def _git(*args: str, critical: bool = False) -> str:
+    """Run a git command and return its stdout.
+
+    When *critical* is ``True`` and the command fails, the script exits
+    non-zero instead of silently returning empty output — preventing a
+    broken git from masking lint violations.
+    """
     r = subprocess.run(
         ["git", *args],
         capture_output=True,
@@ -531,11 +552,12 @@ def _git(*args: str) -> str:
     )
     if r.returncode != 0:
         stderr = r.stderr.strip()
-        print(
-            f"WARNING: git {' '.join(args)} exited {r.returncode}"
-            + (f": {stderr}" if stderr else ""),
-            file=sys.stderr,
+        msg = f"git {' '.join(args)} exited {r.returncode}" + (
+            f": {stderr}" if stderr else ""
         )
+        if critical:
+            sys.exit(f"ERROR: {msg}")
+        print(f"WARNING: {msg}", file=sys.stderr)
     return r.stdout.strip()
 
 
@@ -544,22 +566,29 @@ def _get_files(args: argparse.Namespace) -> list[str]:
         validated: list[str] = []
         for f in args.files:
             resolved = (REPO_ROOT / f).resolve()
-            if not str(resolved).startswith(str(REPO_ROOT)):
+            if not resolved.is_relative_to(REPO_ROOT):
                 print(f"WARNING: skipping path outside repo root: {f}")
                 continue
             validated.append(str(f))
         return validated
 
     if args.all_files:
-        raw = [f for f in _git("ls-files").splitlines() if f]
+        raw = [f for f in _git("ls-files", critical=True).splitlines() if f]
     else:
         # Changed + staged files vs HEAD
-        changed = _git("diff", "--name-only", "--diff-filter=ACMR", "HEAD")
+        changed = _git(
+            "diff",
+            "--name-only",
+            "--diff-filter=ACMR",
+            "HEAD",
+            critical=True,
+        )
         staged = _git(
             "diff",
             "--name-only",
             "--cached",
             "--diff-filter=ACMR",
+            critical=True,
         )
         combined: set[str] = set()
         for line in (changed + "\n" + staged).splitlines():
