@@ -16,6 +16,7 @@ REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 LINT="${REPO_ROOT}/scripts/lint.py"
 PASS=0
 FAIL=0
+SKIPPED=0
 # Track test fixture files created in the repo so they can be
 # cleaned up even if the script is interrupted.
 CREATED_FILES=()
@@ -74,7 +75,15 @@ assert_lint() {
 
     # When expecting a failure, verify the expected hook was the one
     # that actually failed (not just that the name appears somewhere).
+    # If the hook is unavailable (tool not installed), treat the test
+    # as skipped — violation detection can only be verified when the
+    # tool is present.
     if [[ "${expect_rc}" != "0" ]] && [[ -n "${expect_str}" ]]; then
+        if echo "${clean_output}" | grep -qF "! ${expect_str}"; then
+            echo "SKIP  ${label}: ${expect_str} tool not available"
+            SKIPPED=$((SKIPPED + 1))
+            return
+        fi
         if ! echo "${clean_output}" | grep -qF "✗ ${expect_str}"; then
             echo "FAIL  ${label}: expected '${expect_str}' to be the failing hook"
             echo "  actual output (last 5 lines):"
@@ -215,11 +224,41 @@ assert_lint \
     nonzero \
     "end-of-file-fixer"
 
+# ── Secrets violations ───────────────────────────────────
+
+echo ""
+echo "── Secrets ─────────────────────────────────────────────"
+
+# detect-secrets should flag a private key header regardless of
+# baseline contents — PrivateKeyDetector matches the PEM marker.
+# Content stored in a variable so the pragma can sit on the same line.
+_secret_fixture=$'# Test file\n-----BEGIN RSA PRIVATE KEY-----\nMIIBog\n-----END RSA PRIVATE KEY-----\n'  # pragma: allowlist secret
+assert_lint \
+    "secrets-private-key" \
+    "_test_lint_secret.py" \
+    "${_secret_fixture}" \
+    nonzero \
+    "detect-secrets"
+
+# ── Workflow violations ──────────────────────────────────
+
+echo ""
+echo "── Workflow (zizmor) ─────────────────────────────────────"
+
+# zizmor should flag template injection: an untrusted input from
+# pull_request_target used directly in a run: step.
+assert_lint \
+    "workflow-template-injection" \
+    ".github/workflows/_test_lint_bad.yml" \
+    $'name: Test\non:\n  pull_request_target:\n    types: [opened]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo "${{ github.event.pull_request.title }}"\n' \
+    nonzero \
+    "zizmor"
+
 # ── Summary ──────────────────────────────────────────────────
 
 echo ""
 echo "════════════════════════════════════════════════════════"
-echo "Results: ${PASS} passed, ${FAIL} failed"
+echo "Results: ${PASS} passed, ${FAIL} failed, ${SKIPPED} skipped"
 
 if [[ "${FAIL}" -gt 0 ]]; then
     exit 1

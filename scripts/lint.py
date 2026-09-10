@@ -14,8 +14,11 @@ Usage::
 
 Tool provenance
 ---------------
-Tools are installed on first use via ``pip`` or ``npx``, pinned to the
-version recorded in the frozen comment of ``.pre-commit-config.yaml``.
+Tools are resolved from ``PATH`` first (with version verification for
+pip-installed packages); when absent, they are installed via ``pip`` or
+``npx``, pinned to the version recorded in the frozen comment of
+``.pre-commit-config.yaml``.  Installation requires network access —
+in a fully offline sandbox, all tools must be pre-installed.
 The YAML config is the **single source of truth** for which hooks run
 and with what arguments; this script only provides the *how* — a
 registry mapping each repo URL to an installation method and command
@@ -33,6 +36,7 @@ import re
 import shutil
 import subprocess
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +130,7 @@ def _filter_by_regex(
         pat = re.compile(include)
         result = [f for f in result if pat.search(f)]
     if exclude:
-        pat = re.compile(exclude, re.VERBOSE)
+        pat = re.compile(exclude)
         result = [f for f in result if not pat.search(f)]
     return result
 
@@ -182,6 +186,23 @@ def _ensure_tool(
 ) -> bool:
     """Return *True* when *cmd* is (or becomes) available on ``PATH``."""
     if shutil.which(cmd):
+        # Verify the installed version matches the frozen pin for
+        # pip-installed packages.  Other installers (system, npx)
+        # either specify the version at invocation time or lack a
+        # reliable version query.
+        if installer == "pip" and package and version:
+            try:
+                from importlib.metadata import version as pkg_version
+
+                installed = pkg_version(package)
+                if installed != version:
+                    print(
+                        f"  WARNING: {package} {installed} found on PATH"
+                        f" but frozen version is {version}",
+                        file=sys.stderr,
+                    )
+            except Exception:  # noqa: BLE001, S110 – best-effort check
+                pass
         return True
     if installer == "pip" and package:
         if version is None:
@@ -242,7 +263,7 @@ def _builtin_check_json5(files: list[str]) -> int:
     return 1 if bad else 0
 
 
-_BUILTINS: dict[str, Any] = {
+_BUILTINS: dict[str, Callable[[list[str]], int]] = {
     "check_unicode_replacement": _builtin_unicode_replacement,
     "check_json5": _builtin_check_json5,
 }
