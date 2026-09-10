@@ -1,7 +1,13 @@
 # AGENTS
 
 - Create worktrees in `.worktrees/`
-- All pre-commit tests must pass before committing changes.
+- All pre-commit tests must pass before committing changes. In sandboxed
+  environments without network access, use `python scripts/lint.py` as a
+  network-independent alternative to `pre-commit run`.
+  Key flags: `--all-files` (check every tracked file),
+  `--files FILE [FILE ...]` (check specific files),
+  `--check-parity` (verify registry covers all configured hooks).
+  Tools must be pre-installed when running without network access.
 - The upstream repository is `redhat-et/protobot`. Ensure that pull requests
   are made against this repository.
 - Agent skills live in `.agents/skills/`. `.claude/skills` is a symlink to
