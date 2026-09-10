@@ -63,3 +63,29 @@ must follow these rules:
    interfaces, and constraints from `components.md` and
    `overview.md`. Findings should include coverage gaps, not
    only formatting and cross-reference text matching.
+
+## Agent skills
+
+### Rules for creating or modifying skill files
+
+When creating or modifying any skill file under `.agents/skills/`,
+agents must follow these rules:
+
+1. **Read all sibling skill files first.** Before writing or
+   revising a skill file, read every other skill file under
+   `.agents/skills/`. Cross-skill consistency cannot be verified
+   without knowing what the sibling skills say.
+
+2. **Follow the formatting conventions observed in sibling files.**
+   Match backtick-quoting of refs, command syntax style, and
+   structural patterns used by sibling skills. For example, quote
+   git refs as `` `upstream/main` `` rather than leaving them
+   unquoted. Inconsistent formatting with sibling skills is a
+   defect.
+
+3. **Match structural conventions, not behavioral fields.**
+   Structural formatting conventions should be matched to siblings,
+   but behavioral fields like dispatch parameters must be determined
+   by the skill's own requirements, not copied from siblings.
+   Blindly copying behavioral configuration from a sibling can
+   produce incorrect dispatch or workflow behavior.
