@@ -26,7 +26,7 @@ cleanup() {
         rm -f "${f}"
     done
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM HUP
 
 # ── Helpers ────────────────────────────────────────────────────
 

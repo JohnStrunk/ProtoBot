@@ -20,9 +20,9 @@ pip-installed packages); when absent, they are installed via ``pip`` or
 ``.pre-commit-config.yaml``.  Installation requires network access —
 in a fully offline sandbox, all tools must be pre-installed.
 The YAML config is the **single source of truth** for which hooks run
-and with what arguments; this script only provides the *how* — a
-registry mapping each repo URL to an installation method and command
-template.
+and with what arguments (except for hooks with ``fixed_args`` in the
+registry); this script only provides the *how* — a registry mapping
+each repo URL to an installation method and command template.
 
 When a hook has no registered handler the script reports it as
 **UNSUPPORTED** and exits non-zero, ensuring silent coverage reduction
@@ -114,7 +114,9 @@ def _filter_by_types(
     semantics via the ``identify`` library (where files carry multiple
     tags), but this script assigns a single tag per file, making AND
     over multiple tags impractical.  Prefer single-element ``types``
-    lists in the registry to avoid semantic surprises.
+    lists in the registry to avoid semantic surprises; combining
+    ``"text"`` with specific types is rejected to prevent silent
+    misfiltering.
     """
     if not types:
         return files
@@ -122,6 +124,11 @@ def _filter_by_types(
     if "all" in ts:
         return files
     if "text" in ts:
+        if len(ts) > 1:
+            raise ValueError(
+                f"Cannot combine 'text' with specific types in types list: {types}. "
+                "Use single-element types or separate hooks."
+            )
         # "text" matches every recognised extension *except* binary files.
         # Pre-commit uses the ``identify`` library to make this distinction;
         # we approximate it by checking for null bytes in the first 8 KB.
@@ -134,6 +141,11 @@ def _filter_by_regex(
     include: str | None = None,
     exclude: str | None = None,
 ) -> list[str]:
+    """Filter *files* using include and exclude regular expressions.
+
+    Applies *include* first (retaining files matching via ``re.search``),
+    then filters out files matching *exclude* (also via ``re.search``).
+    """
     result = files
     if include:
         pat = re.compile(include)
@@ -217,7 +229,11 @@ def _ensure_tool(
             except ImportError:
                 # importlib.metadata unavailable or package not found
                 # in metadata — cannot verify, accept the PATH tool.
-                pass
+                print(
+                    f"WARNING: cannot verify version for {package} on PATH"
+                    f" (no package metadata found; expected {version})",
+                    file=sys.stderr,
+                )
         return True
     if installer == "pip" and package:
         if version is None:
@@ -237,6 +253,10 @@ def _ensure_tool(
 # Pinned versions for builtin dependencies that are installed at runtime.
 # These are Python library packages used by builtin hook implementations,
 # not the hook tools themselves (which are pinned via .pre-commit-config.yaml).
+#
+# Cross-reference with .pre-commit-config.yaml:
+#   - json5: runtime dependency for check-json5
+#     (repo: https://gitlab.com/bmares/check-json5)
 _BUILTIN_DEP_VERSIONS: dict[str, str] = {
     "json5": "0.15.0",
 }
@@ -538,6 +558,12 @@ def _run_hook(
 
     # Fixed args replace the YAML-configured args entirely
     if "fixed_args" in hook_info:
+        if "args" in hook_yaml:
+            print(
+                f"WARNING: {hook_id}: YAML args {hook_yaml['args']} "
+                f"discarded in favor of fixed_args {hook_info['fixed_args']}",
+                file=sys.stderr,
+            )
         full_cmd.extend(hook_info["fixed_args"])
     elif "args" in hook_yaml:
         full_cmd.extend(hook_yaml["args"])
@@ -642,8 +668,9 @@ def _get_files(args: argparse.Namespace) -> list[str]:
 
 
 def _check_parity(config: dict[str, Any]) -> bool:
-    """Verify every configured hook has a registered handler."""
+    """Verify bidirectional parity between config and registry."""
     ok = True
+    config_hooks: set[tuple[str, str]] = set()
     for repo in config.get("repos", []):
         key = _normalize_url(repo["repo"])
         reg = _REGISTRY.get(key)
@@ -654,25 +681,45 @@ def _check_parity(config: dict[str, Any]) -> bool:
             ok = False
             continue
         for h in repo.get("hooks", []):
+            config_hooks.add((key, h["id"]))
             if h["id"] not in reg.get("hooks", {}):
                 print(f"MISSING HOOK: {h['id']} (from {repo['repo']})")
+                ok = False
+
+    # Reverse parity: detect registry entries not in config
+    for repo_url, reg in _REGISTRY.items():
+        for hid, hinfo in reg.get("hooks", {}).items():
+            if (repo_url, hid) not in config_hooks:
+                print(
+                    f"ORPHANED REGISTRY ENTRY: {hid} "
+                    f"(in {repo_url}, not configured in .pre-commit-config.yaml)"
+                )
+                ok = False
+            # Also validate that 'text' is not mixed with other types
+            htypes = hinfo.get("types", [])
+            if "text" in htypes and len(htypes) > 1:
+                print(
+                    f"INVALID HOOK TYPES in {repo_url} / {hid}: "
+                    f"'text' cannot be combined with other types"
+                )
                 ok = False
 
     if ok:
         print(
             "PARITY CHECK PASSED: all hooks in "
-            ".pre-commit-config.yaml have registered handlers."
+            ".pre-commit-config.yaml have registered handlers "
+            "and no orphaned registry entries exist."
         )
     else:
         print(
-            "\nPARITY CHECK FAILED: some hooks have no registered handler — see above."
+            "\nPARITY CHECK FAILED: parity mismatch between config and registry — see above."
         )
     return ok
 
 
 # ── Entrypoint ─────────────────────────────────────────────────
 
-_STATUS_ICON = {
+_STATUS_ICON: dict[str, str] = {
     "pass": "\033[32m✓\033[0m",
     "fail": "\033[31m✗\033[0m",
     "skip": "\033[33m○\033[0m",
