@@ -64,7 +64,9 @@ must follow these rules:
    `overview.md`. Findings should include coverage gaps, not
    only formatting and cross-reference text matching.
 
-## Rules for creating or modifying skill files
+## Agent skills
+
+### Rules for creating or modifying skill files
 
 When creating or modifying any skill file under `.agents/skills/`,
 agents must follow these rules:
