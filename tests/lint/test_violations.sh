@@ -66,7 +66,7 @@ assert_lint() {
     # shellcheck disable=SC2001  # regex substitution requires sed
     clean_output="$(echo "${output}" | sed 's/\x1b\[[0-9;]*m//g')"
 
-    if [[ -n "${expect_str}" ]] && ! echo "${clean_output}" | grep -qF "${expect_str}"; then
+    if [[ -n "${expect_str}" ]] && ! echo "${clean_output}" | grep -qE "(✓|✗|○|\?|!) ${expect_str}( |$)"; then
         echo "FAIL  ${label}: expected output to contain '${expect_str}'"
         echo "  actual output (last 5 lines):"
         echo "${output}" | tail -5 | sed 's/^/    /'
@@ -79,12 +79,12 @@ assert_lint() {
     # as skipped — violation detection can only be verified when the
     # tool is present.
     if [[ "${expect_rc}" != "0" ]] && [[ -n "${expect_str}" ]]; then
-        if echo "${clean_output}" | grep -qF "! ${expect_str}"; then
+        if echo "${clean_output}" | grep -qE "! ${expect_str}( |$)"; then
             echo "SKIP  ${label}: ${expect_str} tool not available"
             SKIPPED=$((SKIPPED + 1))
             return
         fi
-        if ! echo "${clean_output}" | grep -qF "✗ ${expect_str}"; then
+        if ! echo "${clean_output}" | grep -qE "✗ ${expect_str}( |$)"; then
             echo "FAIL  ${label}: expected '${expect_str}' to be the failing hook"
             echo "  actual output (last 5 lines):"
             echo "${output}" | tail -5 | sed 's/^/    /'
@@ -261,5 +261,13 @@ echo "════════════════════════�
 echo "Results: ${PASS} passed, ${FAIL} failed, ${SKIPPED} skipped"
 
 if [[ "${FAIL}" -gt 0 ]]; then
+    exit 1
+fi
+
+# Guard against vacuous success: if no tests passed and some were
+# skipped (all tools unavailable), the suite provides no regression
+# value — fail so the environment issue is surfaced.
+if [[ "${PASS}" -eq 0 ]] && [[ "${SKIPPED}" -gt 0 ]]; then
+    echo "ERROR: no tests passed (${SKIPPED} skipped) — tools may be missing"
     exit 1
 fi

@@ -1,2 +1,7 @@
 /.worktrees/
 /review-*.md
+
+# Leftover test fixtures from tests/lint/test_violations.sh
+# (cleanup trap handles normal exit, but SIGKILL can leave these behind)
+_test_lint_*
+.github/workflows/_test_lint_*

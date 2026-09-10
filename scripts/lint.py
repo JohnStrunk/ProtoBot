@@ -107,6 +107,15 @@ def _filter_by_types(
     files: list[str],
     types: list[str] | None,
 ) -> list[str]:
+    """Filter *files* to those matching any type in *types* (OR semantics).
+
+    This intentionally uses OR semantics — a file matches if its type
+    is any of the listed types.  Pre-commit's ``types`` field uses AND
+    semantics via the ``identify`` library (where files carry multiple
+    tags), but this script assigns a single tag per file, making AND
+    over multiple tags impractical.  Prefer single-element ``types``
+    lists in the registry to avoid semantic surprises.
+    """
     if not types:
         return files
     ts = set(types)
@@ -190,6 +199,9 @@ def _ensure_tool(
         # pip-installed packages.  Other installers (system, npx)
         # either specify the version at invocation time or lack a
         # reliable version query.
+        #
+        # Fail-closed: a definite version mismatch rejects the tool
+        # to prevent running an outdated or attacker-placed binary.
         if installer == "pip" and package and version:
             try:
                 from importlib.metadata import version as pkg_version
@@ -197,11 +209,14 @@ def _ensure_tool(
                 installed = pkg_version(package)
                 if installed != version:
                     print(
-                        f"  WARNING: {package} {installed} found on PATH"
-                        f" but frozen version is {version}",
+                        f"  REJECTED: {package} {installed} on PATH"
+                        f" does not match frozen version {version}",
                         file=sys.stderr,
                     )
-            except Exception:  # noqa: BLE001, S110 – best-effort check
+                    return False
+            except ImportError:
+                # importlib.metadata unavailable or package not found
+                # in metadata — cannot verify, accept the PATH tool.
                 pass
         return True
     if installer == "pip" and package:
@@ -292,7 +307,7 @@ _BUILTINS: dict[str, Callable[[list[str]], int]] = {
 #      ``fixed_args`` is absent.  This is the normal per-repo
 #      configuration from ``.pre-commit-config.yaml``.
 
-REGISTRY: dict[str, dict[str, Any]] = {
+_REGISTRY: dict[str, dict[str, Any]] = {
     # ── Python: pre-commit-hooks ───────────────────────────────
     "github.com/pre-commit/pre-commit-hooks": {
         "installer": "pip",
@@ -631,7 +646,7 @@ def _check_parity(config: dict[str, Any]) -> bool:
     ok = True
     for repo in config.get("repos", []):
         key = _normalize_url(repo["repo"])
-        reg = REGISTRY.get(key)
+        reg = _REGISTRY.get(key)
         if reg is None:
             print(f"MISSING REPO: {repo['repo']}")
             for h in repo.get("hooks", []):
@@ -709,7 +724,7 @@ def main() -> int:
         rev = repo.get("rev", "")
         version = frozen.get(rev)
 
-        reg = REGISTRY.get(repo_url)
+        reg = _REGISTRY.get(repo_url)
         if reg is None:
             for h in repo.get("hooks", []):
                 hid = h["id"]
