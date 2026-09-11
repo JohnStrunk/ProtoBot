@@ -1,7 +1,10 @@
 # Board Mutation Templates
 
 Before each mutation, rerun the Step 1 status/milestone queries and the Step 2
-item query. Stop if the target option changed or the milestone is closed.
+item query. Set `STATUS_OPTIONS_JSON` to the Step 1 `.statuses` object and
+`ACTIVE_MILESTONES_JSON` to the current open-milestone array. Set
+`MILESTONE_DEPENDENT=true` only for Backlog-to-Ready moves; use `false` for
+closed-to-Done moves, which remain valid on closed milestones.
 
 ## Freshness Check
 
@@ -42,7 +45,7 @@ if ! jq -e --arg name "$TARGET_STATUS" --arg id "$TARGET_OPTION_ID" \
 fi
 if [ "$MILESTONE_DEPENDENT" = "true" ] && ! jq -e \
   --argjson number "$EXPECTED_MILESTONE_NUMBER" \
-  'index($number) != null' <<<"$ACTIVE_MILESTONES_JSON" >/dev/null; then
+  'any(.[]; .number == $number)' <<<"$ACTIVE_MILESTONES_JSON" >/dev/null; then
   printf 'milestone is no longer active; refresh the proposal\n' >&2
   exit 1
 fi
@@ -91,9 +94,11 @@ jq -e \
        or ($item.milestone_state != "OPEN" and $milestoneDependent)
        or ($milestoneDependent
          and ($item.milestone_number == null
-           or ($activeMilestones | index($item.milestone_number)) == null))
+        or ($activeMilestones
+          | any(.[]; .number == $item.milestone_number) | not)))
        or ($item.blocked_by | length) != ($expectedBlockers | length)
-       or $item.blocked_by != $expectedBlockers
+        or ($item.blocked_by | sort_by(.number))
+          != ($expectedBlockers | sort_by(.number))
        or $item.open_blocker_count != $expectedOpenBlockerCount
        or $item.blockers_complete != $expectedBlockersComplete
        or ($blockerDependent and $item.blockers_complete != true)

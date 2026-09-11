@@ -35,7 +35,7 @@ operations. Without MCP, use `gh` throughout.
    Obtain `PROJECT_OWNER` from the user's project context or ask for it; never
    substitute `REPO_OWNER` without confirmation.
 
-   Select one project and record its owner, name, and number. If the requested
+    Select one project and record its owner, name, number. If the requested
    project is not uniquely identified, stop until the project selection is
    unambiguous. Do not assume the first project in the response is the target.
    If the response
@@ -113,8 +113,7 @@ operations. Without MCP, use `gh` throughout.
      end' <<<"$MILESTONES"
    ```
 
-    The standard MCP server has no milestone-list operation; keep this `gh`
-    query for the complete list.
+     Use this `gh` query for the complete list.
 
 ## Step 2: Query all project items
 
@@ -173,6 +172,8 @@ query($projectOwner: String!, $number: Int!, $endCursor: String) {
       or ((.data.organization.projectV2.items.pageInfo.hasNextPage
         and (.data.organization.projectV2.items.pageInfo.endCursor | type)
           != "string")))
+    or length == 0
+    or .[-1].data.organization.projectV2.items.pageInfo.hasNextPage != false
     or any(.[]; any(.data.organization.projectV2.items.nodes[];
       .content.__typename == "Issue"
       and ((.id | type) != "string"
@@ -180,7 +181,8 @@ query($projectOwner: String!, $number: Int!, $endCursor: String) {
         or (.content.title | type) != "string"
         or (.content.state as $state
           | ($state != "OPEN" and $state != "CLOSED"))
-        or (.content.author.login | type) != "string"
+        or (.content.author != null
+          and (.content.author.login | type) != "string")
         or (.content.repository.name | type) != "string"
         or (.content.repository.owner.login | type) != "string"
         or (.content.milestone != null
@@ -288,8 +290,8 @@ Present the following:
 2. **Move to Ready** - issue number, title, milestone, and reason.
 3. **Stale statuses** - issue number, title, current status, and suggested
    status or review reason.
- 4. **Excluded items** - cross-repository and non-issue project items with the
-    reason they were not considered.
+4. **Excluded items** - cross-repository and non-issue project items with the
+   reason they were not considered.
 
 Require explicit approval and apply any item exclusions.
 

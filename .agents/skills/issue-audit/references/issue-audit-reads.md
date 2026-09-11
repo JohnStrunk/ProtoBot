@@ -85,6 +85,8 @@ jq -e 'if type != "array"
       (.number | type) != "number"
       or (.title | type) != "string"
       or (.body != null and (.body | type) != "string")))
+  or length == 0
+  or .[-1].data.repository.pullRequests.pageInfo.hasNextPage != false
   then error("pull request response is incomplete or has GraphQL errors")
   else [.[].data.repository.pullRequests.nodes[]]
   end' <<<"$PRS"
@@ -93,6 +95,7 @@ jq -e 'if type != "array"
 Read every PR's description and files:
 
 ```bash
+set -euo pipefail
 PR_FILES="$(gh api graphql --paginate --slurp \
   -F owner="<OWNER>" \
   -F repo="<REPO>" \
@@ -129,8 +132,10 @@ jq -e 'if type != "array"
       or (.additions | type) != "number"
       or (.deletions | type) != "number"
       or (.changeType | type) != "string"))
+  or length == 0
+  or .[-1].data.repository.pullRequest.files.pageInfo.hasNextPage != false
   then error("pull request file response is incomplete or has GraphQL errors")
-  else .
+  else [.[].data.repository.pullRequest.files.nodes[]]
   end' <<<"$PR_FILES"
 ```
 
