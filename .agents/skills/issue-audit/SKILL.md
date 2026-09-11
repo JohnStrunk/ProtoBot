@@ -70,10 +70,10 @@ the MCP response cannot be validated.
    )
    ```
 
-     This MCP operation is issue-only; discard any PR-shaped result if a server
-     returns one. Follow `pageInfo.endCursor`, passing it as `after` on the next call, until
-     `hasNextPage` is false. The next call is the same operation with
-    `after: "<END_CURSOR>"`. Enrich every result with
+      This MCP operation is issue-only; discard any PR-shaped result if a server
+      returns one. Continue with `after: "<END_CURSOR>"` whenever
+      `hasNextPage` is true, even for an empty page. Treat an empty page as
+      terminal only when the schema has no continuation metadata. Enrich every result with
    `github_issue_read(method: "get", owner: "<OWNER>", repo: "<REPO>",
    issue_number: <ISSUE_NUMBER>)` for grouping and scope filtering.
 
@@ -89,7 +89,9 @@ the MCP response cannot be validated.
    With MCP, call `github_list_pull_requests` with `owner: "<OWNER>"`,
    `repo: "<REPO>"`, `state: "open"`, `page: 1`, `perPage: 100`, and fields
    `number`, `title`, `body`, `head`, `changed_files`, and `updated_at`.
-   Increment `page` until a page is empty or short. Then call
+    Follow the tool's continuation metadata until its terminal page; only use
+    an empty/short page as the stopping rule when the schema has no such field.
+    Then call
     `github_pull_request_read(method: "get", owner: "<OWNER>",
     repo: "<REPO>", pullNumber: <PR_NUMBER>)` and fetch changed files with:
     `github_pull_request_read(method: "get_files", owner: "<OWNER>",
@@ -104,9 +106,10 @@ the MCP response cannot be validated.
    The fail-closed closed-issue template is in
    [references/issue-audit-reads.md](references/issue-audit-reads.md).
 
-     With MCP, inspect the tool schema first. If it supports `milestone` and
-     `pull_request` fields, request those plus `number` and `title`, filter PRs
-     and nonmatching milestones before enrichment, then call
+      With MCP, inspect the tool schema first. If it supports `milestone`,
+      `pull_request`, and `state` fields, call it with `state: "CLOSED"` and
+      request those plus `number` and `title`; validate `state == "CLOSED"`,
+      filter PRs and nonmatching milestones before enrichment, then call
      `github_issue_read` only for remaining issues. If those fields are
      unavailable, use the fail-closed `gh` template instead.
 
@@ -153,7 +156,10 @@ For each open issue in the selected milestone set:
 1. Read the issue body and acceptance criteria:
 
     ```bash
-    gh issue view <ISSUE_NUMBER> \
+    set -euo pipefail
+    : "${ISSUE_NUMBER:?set the issue number}"
+    [[ "$ISSUE_NUMBER" =~ ^[0-9]+$ ]] || exit 1
+    gh issue view "$ISSUE_NUMBER" \
       --repo "<OWNER>/<REPO>" \
       --json body,title,labels,milestone
    ```

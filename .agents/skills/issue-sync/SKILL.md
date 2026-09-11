@@ -171,6 +171,10 @@ duplicate:
 ```bash
 set -euo pipefail
 : "${PLAN_ID:?set the stable plan ID}"
+[[ "$PLAN_ID" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$ ]] || {
+  printf 'plan ID must use a safe identifier format\n' >&2
+  exit 1
+}
 MATCHES="$(gh issue list --repo "$REPO_OWNER/$REPO_NAME" --state all \
   --search "\"$PLAN_ID\" in:title,body" --limit 20 \
   --json number,title)"

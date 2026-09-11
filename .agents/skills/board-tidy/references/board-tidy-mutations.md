@@ -4,7 +4,9 @@ Before each mutation, rerun the Step 1 status/milestone queries and the Step 2
 item query. Set `STATUS_OPTIONS_JSON` to the Step 1 `.statuses` object and
 `ACTIVE_MILESTONES_JSON` to the current open-milestone array. Set
 `MILESTONE_DEPENDENT=true` only for Backlog-to-Ready moves; use `false` for
-closed-to-Done moves, which remain valid on closed milestones.
+closed-to-Done moves, which remain valid on closed milestones. Set
+`BLOCKER_DEPENDENT=true` only for Backlog-to-Ready and Ready-to-Backlog moves;
+use `false` for closed-to-Done moves.
 
 ## Freshness Check
 
@@ -28,7 +30,7 @@ set -euo pipefail
 : "${MILESTONE_DEPENDENT:?}"
 : "${BLOCKER_DEPENDENT:?}"
 : "${EXPECTED_TITLE:?}"
-: "${EXPECTED_AUTHOR_LOGIN:?}"
+: "${EXPECTED_AUTHOR_LOGIN_JSON:?}"
 : "${EXPECTED_MILESTONE_NUMBER:?}"
 : "${EXPECTED_MILESTONE_STATE_JSON:?}"
 if [ "$PROJECT_NODE_ID" != "$APPROVED_PROJECT_NODE_ID" ] \
@@ -52,8 +54,8 @@ fi
 
 : "${EXPECTED_ITEM_ID:?}"
 : "${EXPECTED_ISSUE_NUMBER:?}"
-: "${EXPECTED_STATUS:?}"
-: "${EXPECTED_STATUS_OPTION_ID:?}"
+: "${EXPECTED_STATUS_JSON:?}"
+: "${EXPECTED_STATUS_OPTION_ID_JSON:?}"
 : "${EXPECTED_STATE:?}"
 : "${EXPECTED_MILESTONE_NUMBER:?}"
 : "${EXPECTED_BLOCKERS_JSON:?}"
@@ -63,8 +65,8 @@ fi
 jq -e \
   --arg itemId "$EXPECTED_ITEM_ID" \
   --argjson expectedIssueNumber "$EXPECTED_ISSUE_NUMBER" \
-  --arg expectedStatus "$EXPECTED_STATUS" \
-  --arg expectedStatusOptionId "$EXPECTED_STATUS_OPTION_ID" \
+  --argjson expectedStatus "$EXPECTED_STATUS_JSON" \
+  --argjson expectedStatusOptionId "$EXPECTED_STATUS_OPTION_ID_JSON" \
   --arg expectedState "$EXPECTED_STATE" \
   --argjson expectedMilestoneNumber "$EXPECTED_MILESTONE_NUMBER" \
   --argjson expectedMilestoneState "$EXPECTED_MILESTONE_STATE_JSON" \
@@ -76,7 +78,7 @@ jq -e \
   --argjson blockerDependent "$BLOCKER_DEPENDENT" \
   --arg targetStatus "$TARGET_STATUS" \
   --arg expectedTitle "$EXPECTED_TITLE" \
-  --arg expectedAuthorLogin "$EXPECTED_AUTHOR_LOGIN" \
+  --argjson expectedAuthorLogin "$EXPECTED_AUTHOR_LOGIN_JSON" \
   --arg repoOwner "$REPO_OWNER" \
   --arg repoName "$REPO_NAME" '
    .items[] | select(.item_id == $itemId) as $item

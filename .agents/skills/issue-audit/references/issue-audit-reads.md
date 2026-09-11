@@ -121,6 +121,9 @@ query(
 jq -e 'if type != "array"
   or any(.[]; ((.errors // []) | length) > 0
     or .data.repository.pullRequest.files == null
+    or (.data.repository.pullRequest.title | type) != "string"
+    or (.data.repository.pullRequest.body != null
+      and (.data.repository.pullRequest.body | type) != "string")
     or (.data.repository.pullRequest.files.nodes | type) != "array"
     or (.data.repository.pullRequest.files.pageInfo.hasNextPage | type)
       != "boolean"
@@ -135,7 +138,11 @@ jq -e 'if type != "array"
   or length == 0
   or .[-1].data.repository.pullRequest.files.pageInfo.hasNextPage != false
   then error("pull request file response is incomplete or has GraphQL errors")
-  else [.[].data.repository.pullRequest.files.nodes[]]
+  else {
+    title: .[-1].data.repository.pullRequest.title,
+    body: .[-1].data.repository.pullRequest.body,
+    files: [.[].data.repository.pullRequest.files.nodes[]]
+  }
   end' <<<"$PR_FILES"
 ```
 
