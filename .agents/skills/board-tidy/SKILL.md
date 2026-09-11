@@ -198,7 +198,7 @@ query($projectOwner: String!, $number: Int!, $endCursor: String) {
         or (.content.blockedBy.totalCount | type) != "number"
         or any(.content.blockedBy.nodes[];
           (.number | type) != "number"
-          or (.state != "OPEN" and .state != "CLOSED"))))))
+          or (.state != "OPEN" and .state != "CLOSED")))))
   then error("project response is incomplete or contains GraphQL errors")
   else
   [.[].data.organization.projectV2.items.nodes[]
