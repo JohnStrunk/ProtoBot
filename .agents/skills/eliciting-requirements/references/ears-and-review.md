@@ -9,8 +9,9 @@ analysis, or response formatting.
 Choose an EARS pattern for its meaning, not for a keyword in the source.
 
 - Use `When` for a discrete boundary event, not an enduring state.
-- Use `While` or `During` for an ongoing state or precondition, not a one-time
-  event.
+- Use `While` for a state-driven requirement. Interpret `During` as an ongoing
+  state or precondition in source material, but normalize it to `While` in the
+  drafted requirement.
 - Use `Where` only for an optional capability included in the product, not an
   ordinary runtime branch.
 - Use `If ... then` for an unwanted failure, error, disturbance, deviation, or
@@ -54,7 +55,10 @@ unresolved condition or value explicitly marked and use `needs clarification`.
 
 Check:
 
-- Responsible system, actor, and affected interface.
+- System boundary.
+- Responsible system.
+- Actor.
+- Affected interfaces.
 - Explicit trigger, state, feature scope, or unwanted condition.
 - Observable response with a concrete verb.
 - Defined or questioned inputs, identities, data, domain, and lifecycle terms.
@@ -83,7 +87,10 @@ approval.
 
 Record, or explicitly mark not applicable:
 
-- System boundary, responsible system, actor, and affected interface.
+- System boundary.
+- Responsible system.
+- Actor.
+- Affected interfaces.
 - Inputs and data definitions.
 - Preconditions, state, feature scope, and trigger.
 - Observable normal, alternate, and failure response.
@@ -104,9 +111,14 @@ Record:
 - Explicit pass/fail criteria, including scope, thresholds, units, and timing.
 - Boundary, negative, and failure cases when material.
 - Required data, instrumentation, assessment, or external evidence.
+- Whether the requirement is observable at the named boundary alone; if not,
+  the internal evidence needed and why.
 
 The contract fails when an evaluator cannot tell what to observe, what result
 is expected, or what counts as pass or fail.
+
+Describe observability without choosing a host-specific verification mode. A
+host may map the answer to its own verification metadata.
 
 Use exactly these statuses:
 
@@ -116,6 +128,9 @@ Use exactly these statuses:
   draft.
 - `ready for review`: both contracts pass and no material finding blocks
   review; this is not approval.
+
+These statuses describe the elicitation response. They are not persisted
+requirement lifecycle states.
 
 Use `needs clarification` for an incomplete contract. These claims fail the
 gate until refined:
@@ -135,6 +150,13 @@ agreed measure. Preserve the source rationale separately.
 
 Suggestions must name the source behavior, missing behavior, relationship, and
 reason. Keep them outside the candidate list until accepted.
+
+The relationship labels below describe the role of a suggested companion in
+this response. They are not a persistent requirements-store relationship
+vocabulary. Do not invent stable IDs or persisted edges; preserve host-supplied
+metadata and let the host map these labels when it defines a mapping. When
+revising an identified requirement, show its source and proposed revision
+rather than inferring a relationship that the host did not provide.
 
 Use these relationship labels:
 
@@ -199,7 +221,24 @@ Use these exact headings unless the host supplies a compatible format:
 - Requirement: EARS sentence, or explicit blocked-drafting note
 - Source intent and rationale
 - Implementability contract
+  - System boundary:
+  - Responsible system:
+  - Actor:
+  - Affected interfaces:
+  - Inputs and data definitions:
+  - Preconditions, state, feature scope, and trigger:
+  - Observable normal, alternate, and failure response:
+  - Quantities, units, limits, timing, ordering, and tolerances:
+  - Domain terms, dependencies, and unresolved decisions:
 - Verification contract
+  - Setup, state, input data, and stimulus:
+  - Observable evidence or oracle:
+  - Expected result:
+  - Pass/fail criteria, including scope, thresholds, units, and timing:
+  - Boundary, negative, and failure cases:
+  - Required data, instrumentation, assessment, or external evidence:
+  - Observable at the named boundary alone: yes | no
+  - If no, internal evidence needed and rationale:
 ## Suggested Supporting Requirements
 ## Consistency Findings
 ## Assumptions
