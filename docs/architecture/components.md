@@ -193,9 +193,9 @@ to the WMS via MCP or API.
 ### Open design questions
 
 - **Async escalation UX.** The web implementation can push; the TUI
-  MVP pulls on session start, which is sufficient for that local
-  contract. Which external channel (email, Slack, webhook, or web push)
-  hosted deployments require remains open. See [open question Q2][q2].
+  MVP pulls on session start or resume, which is sufficient for that
+  local contract. Which external channel (email, Slack, webhook, or
+  web push) hosted deployments require remains open. See [open question Q2][q2].
 - **Session continuity across implementations.** A user might start
   Dimensioning in the TUI and continue in the web UI (or vice
   versa). The TUI MVP resumes from the proposed change set and

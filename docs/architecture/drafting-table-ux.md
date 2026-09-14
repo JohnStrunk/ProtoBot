@@ -648,12 +648,18 @@ It may continue independent specification drafting, but cannot claim
 blocked-work review is complete, submit lifecycle mutations, or approve
 change sets whose dependencies require WMS verification.
 
-### Git approval failure
+### Git approval and registration failure
 
-If commit, push, PR creation, merge, or registration fails, the specification
-remains unapproved. The Drafting Table reports the last confirmed Git state and
-offers safe retry or reconciliation paths without submitting premature WMS
+If commit, push, PR creation, or merge fails, the specification remains
+unapproved. The Drafting Table reports the last confirmed Git state and offers
+safe retry or reconciliation paths without submitting premature WMS
 transitions.
+
+If registration fails after a successful merge, the specification remains
+approved at the recorded `main` commit, but WMS materialization is incomplete.
+The Drafting Table reports the registration failure and retries the same
+idempotent registration call using the change-set ID and merge commit; another
+merge or specification approval is not required.
 
 ---
 
@@ -785,14 +791,17 @@ Agent: Validation passed. Impact unchanged.
        Draft revision updated to e8f29ab.
        Approve change set CS-005 at revision e8f29ab?
 
-User:  Approved.
+       User:  Approved.
 
-Agent: Approval recorded for revision e8f29ab.
+       Agent: Approval recorded for revision e8f29ab.
        Staging artifacts and committing to branch cs/add-cli-help-requirements.
        Committed revision e8f29ab.
+       Pushing branch and opening a PR against main.
+       PR merged to main as commit f4a21c7.
        Running single-player registration hook...
-       Change set CS-005 registered. Work item WI-078 materialized in WMS
-       with status 'ready-for-building'.
+       Change set CS-005 registered against main commit f4a21c7.
+       Work item WI-078 materialized in WMS with status
+       'ready-for-building'.
 ```
 
 ---

@@ -533,15 +533,15 @@ clarifying questions, and approve artifacts. The agent's role
 is to structure, suggest, validate, and persist through
 governed tool integrations.
 
-On session start, the TUI Drafting Table pulls blocked work
-items from the WMS and presents them so the user can resolve
+On session start or resume, the TUI Drafting Table pulls blocked
+work items from the WMS and presents them so the user can resolve
 them (add a requirement or approve an out-of-scope
 declaration). The Web Drafting Table pushes these
 notifications via a persistent browser connection or an
-external channel (Q2). The TUI MVP treats pull-on-start as
-sufficient and lets the user resolve an item or continue unrelated
-work; hosted push-channel selection remains open. See the [Drafting Table
-UX][dt-blocked].
+external channel (Q2). The TUI MVP treats pull-on-start-or-resume
+as sufficient and lets the user resolve an item or continue
+unrelated work; hosted push-channel selection remains open. See
+the [Drafting Table UX][dt-blocked].
 
 ### OpenCode-plus-skill strawman
 
