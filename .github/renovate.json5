@@ -101,6 +101,7 @@
       "description": "Weekly-only updates for the Renovate pre-commit hook",
       "matchPackageNames": ["renovatebot/pre-commit-hooks"],
       "schedule": ["before 4am on Monday"],
+      "updateNotScheduled": false,
     },
     {
       // Keep the Skillsaw hook and its config version in sync.
