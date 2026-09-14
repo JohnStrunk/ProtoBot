@@ -486,11 +486,11 @@ Before approval, the Drafting Table presents one coherent final summary:
 1. **Explicit approval:** The user approves the exact presented revision.
    Approval cannot be inferred from silence or partial acceptances.
 2. **Commit and PR:** The agent commits artifacts via `ears-manager` and Git
-   (#30, #34). In multi-player mode, it opens a PR for reviewer merge. In
-   single-player mode, the user may push directly or open a PR.
-3. **Single-player registration:** Direct push alone does not materialize work.
-   A local registration command or hook is executed to trigger the Job Site
-   Materializer.
+   (#30, #34), then prepares a PR against `main`. Multi-player and web modes
+   require reviewer merge; single-player mode permits the contributor to merge
+   their own PR without a separate reviewer.
+3. **Single-player registration:** A self-merged PR still requires the local
+   registration command or hook to trigger the Job Site Materializer.
 4. **Post-merge materialization:** When the change set lands on `main`, the
    Job Site Materializer resolves the manifest, reruns deterministic impact
    checks, and calls the WMS Adapter to create build work items.
@@ -583,7 +583,7 @@ The Drafting Table provides visibility, not orchestration:
 | **Update Vision/Arch** | Updates draft change set | `ears-manager` | Final change set + Git commit. |
 | **Set impact status** | Updates impact assessment | `ears-manager` | Included in final change set. |
 | **Declare out of scope** | Creates draft exclusion | `ears-manager` | Included in final change set. |
-| **Approve change set** | Authorizes Git operation | Git integration | Direct push or PR merge (#34). |
+| **Approve change set** | Authorizes Git operation | Git integration | PR merge, including a self-merge in single-player mode (#34). |
 | **Reject / revise** | Returns to prior checkpoint | Local harness | None; approved state intact. |
 | **Select block fix** | Links draft change set | WMS Adapter | Spec approval + WMS validation. |
 | **Materialize work item** | Creates build work item | Job Site Materializer | Registration hook post-merge. |
