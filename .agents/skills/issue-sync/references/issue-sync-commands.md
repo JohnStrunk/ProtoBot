@@ -20,7 +20,14 @@ RELATIONSHIPS
 ISSUE_NUMBERS=()
 declare -A SEEN_ISSUES=()
 while read -r BLOCKED_ISSUE_NUMBER BLOCKING_ISSUE_NUMBER; do
-  [ -n "$BLOCKED_ISSUE_NUMBER" ] || continue
+  if [ -z "$BLOCKED_ISSUE_NUMBER" ] && [ -z "$BLOCKING_ISSUE_NUMBER" ]; then
+    continue
+  fi
+  if ! [[ "$BLOCKED_ISSUE_NUMBER" =~ ^[0-9]+$ \
+      && "$BLOCKING_ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+    printf 'relationship issue numbers must be numeric\n' >&2
+    exit 1
+  fi
   for ISSUE in "$BLOCKED_ISSUE_NUMBER" "$BLOCKING_ISSUE_NUMBER"; do
     if [[ -z "${SEEN_ISSUES[$ISSUE]+x}" ]]; then
       ISSUE_NUMBERS+=("$ISSUE")
@@ -87,6 +94,14 @@ ERROR_FILE="$(mktemp)"
 trap 'rm -f "$RELATIONSHIPS_FILE" "$RESULT_FILE" "$ERROR_FILE"' EXIT
 
 while read -r BLOCKED_ISSUE_NUMBER BLOCKING_ISSUE_NUMBER; do
+  if [ -z "$BLOCKED_ISSUE_NUMBER" ] && [ -z "$BLOCKING_ISSUE_NUMBER" ]; then
+    continue
+  fi
+  if ! [[ "$BLOCKED_ISSUE_NUMBER" =~ ^[0-9]+$ \
+      && "$BLOCKING_ISSUE_NUMBER" =~ ^[0-9]+$ ]]; then
+    printf 'relationship issue numbers must be numeric\n' >&2
+    exit 1
+  fi
   if [ "$BLOCKED_ISSUE_NUMBER" = "$BLOCKING_ISSUE_NUMBER" ]; then
     printf 'refusing self-blocking relationship: #%s\n' \
       "$BLOCKED_ISSUE_NUMBER" >&2

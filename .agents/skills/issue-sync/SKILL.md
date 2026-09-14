@@ -63,7 +63,7 @@ owners separate.
 
 ### Labels
 
- 3. **Labels** - fetch every existing label:
+3. **Labels** - fetch every existing label:
 
    ```bash
    set -euo pipefail
@@ -79,7 +79,7 @@ owners separate.
 
 ### GitHub Project Metadata
 
- 4. **GitHub Project** - find the project number:
+4. **GitHub Project** - find the project number:
 
    ```bash
    gh project list --owner <PROJECT_OWNER> --format json --limit 1000
@@ -177,8 +177,8 @@ Use this command template for each approved issue. Populate these variables
 from structured approved input or safe files; never paste approved text into
 shell source. This keeps quotes, backticks, and `$()` literal:
 
-Recheck existence immediately before creation using a stable plan ID or exact
-title. If a match exists, stop and obtain fresh approval instead of creating a
+Recheck existence immediately before creation using the approved stable plan ID.
+If a match exists, stop and obtain fresh approval instead of creating a
 duplicate:
 
 ```bash
@@ -202,7 +202,10 @@ set -euo pipefail
 
 : "${TITLE:?set the approved title}"
 : "${BODY:?set the approved body}"
-ARGS=(--repo "$REPO_OWNER/$REPO_NAME" --title "$TITLE" --body "$BODY")
+BODY_FILE="$(mktemp)"
+trap 'rm -f "$BODY_FILE"' EXIT
+printf '%s\n' "$BODY" >"$BODY_FILE"
+ARGS=(--repo "$REPO_OWNER/$REPO_NAME" --title "$TITLE" --body-file "$BODY_FILE")
 [ -n "${LABELS:-}" ] && ARGS+=(--label "$LABELS")
 [ -n "${MILESTONE_NAME:-}" ] && ARGS+=(--milestone "$MILESTONE_NAME")
 gh issue create "${ARGS[@]}"

@@ -35,22 +35,22 @@ out of shell source and require explicit approval before writes.
    Obtain `PROJECT_OWNER` from the user's project context or ask for it; never
    substitute `REPO_OWNER` without confirmation.
 
-    Select one project and record its owner, name, number. If the requested
+   Select one project and record its owner, name, number. If the requested
    project is not uniquely identified, stop until the project selection is
    unambiguous. Do not assume the first project in the response is the target.
-   If the response
-   reaches the `--limit` value, rerun with a higher limit or ask the user for
-   the exact project number before treating the list as complete.
+   If the response reaches the `--limit` value, rerun with a higher limit or
+   ask the user for the exact project number before treating the list as
+   complete.
 
-    Fetch the project node ID, Status field ID, and option IDs for Backlog,
-    Ready, In progress, In review, and Done:
+   Fetch the project node ID, Status field ID, and option IDs for Backlog,
+   Ready, In progress, In review, and Done:
 
-    ```bash
+   ```bash
    set -euo pipefail
    PROJECT_RESPONSE="$(gh api graphql \
-       -F projectOwner="<PROJECT_OWNER>" \
-      -F number="<PROJECT_NUMBER>" \
-      -f query='
+     -F projectOwner="<PROJECT_OWNER>" \
+     -F number="<PROJECT_NUMBER>" \
+     -f query='
    query($projectOwner: String!, $number: Int!) {
      organization(login: $projectOwner) {
        projectV2(number: $number) {
@@ -90,39 +90,39 @@ out of shell source and require explicit approval before writes.
       end'
    ```
 
-    For a user-owned project, replace the GraphQL root and every
-    `.data.organization` jq path with the corresponding `user`/`.data.user`
-    form. If a required status name differs, ask for an explicit mapping.
+   For a user-owned project, replace the GraphQL root and every
+   `.data.organization` jq path with the corresponding `user`/`.data.user`
+   form. If a required status name differs, ask for an explicit mapping.
 
 3. **Milestones and mode** - identify active milestones. Milestones are
    optional metadata, so an empty result is valid and must not stop the
    workflow:
 
-    ```bash
+   ```bash
    set -euo pipefail
    MILESTONES="$(gh api --method GET --paginate --slurp \
      "repos/<REPO_OWNER>/<REPO_NAME>/milestones?state=all&per_page=100")"
    jq -e 'if type != "array" or any(.[]; type != "array")
      then error("milestone response is not a paginated array")
-      else (add // []) as $milestones
+     else (add // []) as $milestones
        | if any($milestones[];
            (.number | type) != "number"
            or (.title | type) != "string"
-            or (.state != "open" and .state != "closed"))
+           or (.state != "open" and .state != "closed"))
          then error("milestone response contains malformed records")
          else [$milestones[] | select(.state == "open")]
          end
      end' <<<"$MILESTONES"
    ```
 
-     Use this `gh` query for the complete list. Set `MILESTONE_MODE` to
-     `active` when the open-milestone array is non-empty. Set it to `none`
-     when the user explicitly requests unmilestoned work or when no open
-     milestones exist. In `none` mode, a Backlog item is eligible for Ready
-     only when `milestone_number == null`; do not invent or create a
-     milestone. Record the selected mode in the proposal. The mode affects
-     Backlog-to-Ready eligibility; stale-status rules below remain valid for
-     closed or unmilestoned items.
+   Use this `gh` query for the complete list. Set `MILESTONE_MODE` to `active`
+   when the open-milestone array is non-empty. Set it to `none` when the user
+   explicitly requests unmilestoned work or when no open milestones exist. In
+   `none` mode, a Backlog item is eligible for Ready only when
+   `milestone_number == null`; do not invent or create a milestone. Record the
+   selected mode in the proposal. The mode affects Backlog-to-Ready
+   eligibility; stale-status rules below remain valid for closed or
+   unmilestoned items.
 
 ## Step 2: Query all project items
 
