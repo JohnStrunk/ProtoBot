@@ -37,9 +37,28 @@ the MCP response cannot be validated.
    and record the explicit owner and repository name. Include both in every
    MCP call.
 
-2. **Audit scope** - ask the user which milestone or milestones to audit. If
-   they do not specify a scope, use open milestones. Resolve explicit selections
-   from all milestone states and report closed selections explicitly:
+2. **Audit scope** - ask the user which scope to audit. Support all of these
+   modes:
+
+   - **Named milestones** - one or more exact milestone numbers or unique
+     titles, including closed milestones.
+   - **Unmilestoned** - issues whose milestone is `null`; use this when the
+     repository does not use milestones or the user explicitly requests no
+     milestone.
+   - **All issues** - ignore milestone assignment and audit the complete issue
+     set.
+
+   If the user does not specify a scope, use open milestones when at least one
+   exists. If there are no open milestones, use **unmilestoned** scope instead
+   of failing or treating an empty milestone list as an error. Record the
+   selected scope as `milestones`, `unmilestoned`, or `all` and carry it
+   through every following step. Resolve explicit named selections from all
+   milestone states and report closed selections explicitly:
+
+   Set `MILESTONE_NUMBERS_JSON` to the selected numeric milestone array in
+   `milestones` mode and to `[]` in `unmilestoned` or `all` mode. This keeps
+   the closed-issue filter explicit and prevents an empty selection from
+   silently becoming an all-issues audit.
 
    Use the complete, fail-closed milestone template in
    [references/issue-audit-reads.md](references/issue-audit-reads.md).
@@ -47,9 +66,10 @@ the MCP response cannot be validated.
    Use the exact milestone numbers, titles, and states recorded in scope
    throughout the audit; the same scope applies to every following step.
 
-   Resolve each explicit selection by exact milestone number or one unique
-   title match. Reject zero matches and ambiguous titles, report the unresolved
-   selection, and stop before reading tracker content.
+   Resolve each explicit named selection by exact milestone number or one
+   unique title match. Reject zero matches and ambiguous titles, report the
+   unresolved selection, and stop before reading tracker content. The
+   `unmilestoned` and `all` modes do not require a milestone record.
 
 ## Step 2: Gather tracker context
 
@@ -58,7 +78,7 @@ the MCP response cannot be validated.
    Use the complete, fail-closed open-issue template in
    [references/issue-audit-reads.md](references/issue-audit-reads.md).
 
-    Group by Step 1 milestones. With MCP, call:
+    Group by the Step 1 scope. With MCP, call:
 
    ```text
    github_list_issues(
@@ -98,10 +118,12 @@ the MCP response cannot be validated.
     repo: "<REPO>", pullNumber: <PR_NUMBER>, page: 1, perPage: 100)`.
    Increment the file-list `page` until it is empty or short.
 
-## Step 3: Complete milestone context
+## Step 3: Complete historical issue context
 
-1. **Closed issues** - for each Step 1 milestone, fetch all closed issues and
-   filter out PRs:
+1. **Closed issues** - fetch all closed issues, filter out PRs, and apply the
+   Step 1 scope. For named milestone scope, retain only selected milestone
+   numbers; for `unmilestoned`, retain only `milestone == null`; for `all`,
+   retain every non-PR issue:
 
    The fail-closed closed-issue template is in
    [references/issue-audit-reads.md](references/issue-audit-reads.md).
@@ -113,8 +135,9 @@ the MCP response cannot be validated.
      `github_issue_read` only for remaining issues. If those fields are
      unavailable, use the fail-closed `gh` template instead.
 
-2. **Pinned tracking issue** - ask the user which issue is the milestone
-   tracker, if any. Read its body before using it as the plan source:
+2. **Pinned tracking issue** - ask the user which issue is the tracking issue,
+   if any. It may be unmilestoned. Read its body before using it as the plan
+   source:
 
     ```bash
     set -euo pipefail
@@ -131,8 +154,9 @@ the MCP response cannot be validated.
    `github_issue_read(method: "get", owner: "<OWNER>", repo: "<REPO>",
    issue_number: <TRACKING_ISSUE>)`.
 
-Filter issues to the selected milestones before cross-reference. PRs are global
-context; count one as scoped coverage only when it addresses a selected issue.
+Filter issues to the selected scope before cross-reference. PRs are global
+context; count one as scoped coverage only when it addresses an issue in the
+selected scope.
 
 ## Step 4: Explore the repository
 
@@ -151,7 +175,7 @@ create branches, or modify generated artifacts.
 
 ## Step 5: Cross-reference
 
-For each open issue in the selected milestone set:
+For each open issue in the selected scope:
 
 1. Read the issue body and acceptance criteria:
 
@@ -206,8 +230,9 @@ them.
 
 Present findings in this order:
 
-1. **Scope** - repository owner/name, milestone numbers/titles/states, and the
-   inclusion rule for global PR context.
+1. **Scope** - repository owner/name, the scope mode, any milestone
+   numbers/titles/states, and the inclusion rule for global PR context. Report
+   `unmilestoned` explicitly when no milestone is in scope.
 2. **Current state** - table of areas such as frontend, backend, and
    infrastructure with status: done, partial, or not started.
 3. **PR coverage** - what each open PR delivers and what it does not.

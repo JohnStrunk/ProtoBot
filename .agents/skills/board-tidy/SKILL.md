@@ -94,7 +94,9 @@ out of shell source and require explicit approval before writes.
     `.data.organization` jq path with the corresponding `user`/`.data.user`
     form. If a required status name differs, ask for an explicit mapping.
 
-3. **Milestones** - identify active milestones:
+3. **Milestones and mode** - identify active milestones. Milestones are
+   optional metadata, so an empty result is valid and must not stop the
+   workflow:
 
     ```bash
    set -euo pipefail
@@ -102,7 +104,7 @@ out of shell source and require explicit approval before writes.
      "repos/<REPO_OWNER>/<REPO_NAME>/milestones?state=all&per_page=100")"
    jq -e 'if type != "array" or any(.[]; type != "array")
      then error("milestone response is not a paginated array")
-     else (add) as $milestones
+      else (add // []) as $milestones
        | if any($milestones[];
            (.number | type) != "number"
            or (.title | type) != "string"
@@ -113,144 +115,20 @@ out of shell source and require explicit approval before writes.
      end' <<<"$MILESTONES"
    ```
 
-     Use this `gh` query for the complete list.
+     Use this `gh` query for the complete list. Set `MILESTONE_MODE` to
+     `active` when the open-milestone array is non-empty. Set it to `none`
+     when the user explicitly requests unmilestoned work or when no open
+     milestones exist. In `none` mode, a Backlog item is eligible for Ready
+     only when `milestone_number == null`; do not invent or create a
+     milestone. Record the selected mode in the proposal. The mode affects
+     Backlog-to-Ready eligibility; stale-status rules below remain valid for
+     closed or unmilestoned items.
 
 ## Step 2: Query all project items
 
-Fetch all project items and blockers with `--paginate --slurp`:
-
-```bash
-set -euo pipefail
-
-gh api graphql --paginate --slurp \
-  -F projectOwner="<PROJECT_OWNER>" \
-  -F number="<PROJECT_NUMBER>" \
-  -f query='
-query($projectOwner: String!, $number: Int!, $endCursor: String) {
-  organization(login: $projectOwner) {
-    projectV2(number: $number) {
-      items(first: 100, after: $endCursor) {
-        nodes {
-          id
-          fieldValueByName(name: "Status") {
-            ... on ProjectV2ItemFieldSingleSelectValue {
-              name
-              optionId
-            }
-           }
-           content {
-             __typename
-             ... on Issue {
-              number
-              title
-              state
-              author { login }
-              repository {
-                name
-                owner { login }
-              }
-              milestone { number title state }
-              parent { number title }
-              blockedBy(first: 100) {
-                nodes { number state }
-                totalCount
-              }
-            }
-          }
-        }
-        pageInfo { hasNextPage endCursor }
-      }
-    }
-  }
-}' | jq -e --arg repoOwner "<REPO_OWNER>" --arg repoName "<REPO_NAME>" '
-  if type != "array"
-    or any(.[]; ((.errors // []) | length) > 0)
-    or any(.[]; .data.organization.projectV2 == null)
-    or any(.[]; (.data.organization.projectV2.items.nodes | type) != "array"
-      or (.data.organization.projectV2.items.pageInfo.hasNextPage | type)
-        != "boolean"
-      or ((.data.organization.projectV2.items.pageInfo.hasNextPage
-        and (.data.organization.projectV2.items.pageInfo.endCursor | type)
-          != "string")))
-    or length == 0
-    or .[-1].data.organization.projectV2.items.pageInfo.hasNextPage != false
-    or any(.[]; any(.data.organization.projectV2.items.nodes[];
-      .content.__typename == "Issue"
-      and ((.id | type) != "string"
-        or (.content.number | type) != "number"
-        or (.content.title | type) != "string"
-        or (.content.state as $state
-          | ($state != "OPEN" and $state != "CLOSED"))
-        or (.content.author != null
-          and (.content.author.login | type) != "string")
-        or (.content.repository.name | type) != "string"
-        or (.content.repository.owner.login | type) != "string"
-        or (.content.milestone != null
-          and ((.content.milestone.number | type) != "number"
-            or (.content.milestone.title | type) != "string"
-            or (.content.milestone.state != "OPEN" and
-              .content.milestone.state != "CLOSED")))
-        or (.content.parent != null
-          and ((.content.parent.number | type) != "number"
-            or (.content.parent.title | type) != "string"))
-        or (.content.blockedBy | type) != "object"
-        or (.content.blockedBy.nodes | type) != "array"
-        or (.content.blockedBy.totalCount | type) != "number"
-        or any(.content.blockedBy.nodes[];
-          (.number | type) != "number"
-          or (.state != "OPEN" and .state != "CLOSED")))))
-  then error("project response is incomplete or contains GraphQL errors")
-  else
-  [.[].data.organization.projectV2.items.nodes[]
-    | select(.content.__typename != "Issue")
-    | {item_id: .id, content_type: (.content.__typename // "unknown")}
-  ] as $nonIssues
-  | [.[].data.organization.projectV2.items.nodes[]
-    | select(.content.number != null)
-    | {
-        item_id: .id,
-        repository_owner: (.content.repository.owner.login // ""),
-        repository_name: (.content.repository.name // ""),
-        status: (.fieldValueByName // {}).name,
-        status_option_id: (.fieldValueByName // {}).optionId,
-        number: .content.number,
-        title: .content.title,
-        state: .content.state,
-        author_login: (.content.author.login // null),
-        milestone: (.content.milestone // {}).title,
-        milestone_number: (.content.milestone // {}).number,
-        milestone_state: (.content.milestone // {}).state,
-        parent: (.content.parent // null),
-        blocked_by: [(.content.blockedBy.nodes // [])[]
-          | {number, state}],
-        open_blocker_count: ([.content.blockedBy.nodes[]
-          | select(.state == "OPEN")] | length),
-        blockers_complete: (.content.blockedBy.totalCount
-          == (.content.blockedBy.nodes | length)
-          and all(.content.blockedBy.nodes[];
-            .number != null
-            and (.state == "OPEN" or .state == "CLOSED")))
-      }
-  ] as $items
-  | {
-      items: [$items[]
-        | select(.repository_owner == $repoOwner
-          and .repository_name == $repoName)],
-      excluded_cross_repository: [$items[]
-        | select(.repository_owner != $repoOwner
-          or .repository_name != $repoName)],
-      excluded_non_issue: $nonIssues
-     }
-  end'
-```
-
-   As in the metadata query, replace the GraphQL root with
-   `user(login: $projectOwner)` and every `.data.organization` jq path with
-   `.data.user`.
-
-   Use `github_issue_read(owner: "<REPO_OWNER>", repo: "<REPO_NAME>",
-   issue_number: <ISSUE_NUMBER>, method: "get")` only for follow-up details.
-   Report `excluded_cross_repository`; do not inspect or mutate those items.
+Read [references/board-tidy-reads.md](references/board-tidy-reads.md) and run
+its complete paginated query. It validates project items and blockers before
+returning `items`, `excluded_cross_repository`, and `excluded_non_issue`.
 
 ## Step 3: Identify items to move to Ready
 
@@ -259,8 +137,9 @@ Filter the `items` array for entries meeting all of these criteria:
 - Current status is **Backlog**.
 - `open_blocker_count == 0` and `blockers_complete == true`.
 - `parent == null`; sub-issues inherit status from their parent.
-- `milestone_number` is present in the open milestone set from Step 1.
-- `milestone_state == "OPEN"`.
+- In `active` milestone mode, `milestone_number` is present in the open
+  milestone set from Step 1 and `milestone_state == "OPEN"`.
+- In `none` milestone mode, `milestone_number == null`.
 - The issue is open.
 - `author_login` is known and is not `renovate[bot]`; exclude the exact title
   **Renovate Dependency Dashboard**.
@@ -287,6 +166,8 @@ order:
 Present the following:
 
 1. **Repository and project** - owner/name and project owner/name/number.
+   Include `MILESTONE_MODE` and explain whether it was selected explicitly or
+   inferred because no open milestones exist.
 2. **Move to Ready** - issue number, title, milestone, and reason.
 3. **Stale statuses** - issue number, title, current status, and suggested
    status or review reason.
@@ -300,7 +181,8 @@ After the decision, apply any item exclusions.
 Read [references/board-tidy-mutations.md](references/board-tidy-mutations.md)
 for the freshness check, mutation,
 response validation, and post-mutation target check. Use the option IDs from
-Step 1, rerun Steps 1 and 2 immediately before each change, and report applied,
+Step 1, pass the selected `MILESTONE_MODE`, rerun Steps 1 and 2 immediately
+before each change, and report applied,
 failed, skipped, and review-only items separately. The standard MCP surface has
 no Project v2 mutation; use the reference's `gh` fallback.
 

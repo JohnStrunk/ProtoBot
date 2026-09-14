@@ -5,13 +5,16 @@ other placeholders with values from the repository and audit scope.
 
 ## Milestones
 
+An empty milestone list is valid. It represents a repository that currently
+has no milestones; use `unmilestoned` scope rather than failing.
+
 ```bash
 set -euo pipefail
 MILESTONES="$(gh api --method GET --paginate --slurp \
   "repos/<OWNER>/<REPO>/milestones?state=all&per_page=100")"
 jq -e 'if type != "array" or any(.[]; type != "array")
   then error("milestone response is not a paginated array")
-  else (add) as $milestones
+   else (add // []) as $milestones
     | if any($milestones[];
         (.number | type) != "number"
         or (.title | type) != "string"
@@ -31,7 +34,7 @@ ISSUES="$(gh api --method GET --paginate --slurp \
   "repos/<OWNER>/<REPO>/issues?state=open&per_page=100")"
 jq -e 'if type != "array" or any(.[]; type != "array")
   then error("issue response is not a paginated array")
-  else (add) as $issues
+  else (add // []) as $issues
     | if any($issues[];
         (.number | type) != "number"
         or (.title | type) != "string"
@@ -47,12 +50,23 @@ jq -e 'if type != "array" or any(.[]; type != "array")
         number,
         title,
         labels: [(.labels // [])[] | .name],
-        body,
-        milestone: (.milestone // {} | {number, title})
-      }]
-      end
-  end' <<<"$ISSUES"
+         body,
+         milestone: (if .milestone == null
+           then null
+           else {number: .milestone.number, title: .milestone.title}
+           end)
+       }]
+       end
+   end' <<<"$ISSUES"
 ```
+
+## Scope filtering
+
+After collecting and enriching open issues, apply the recorded scope before
+cross-reference: for `milestones`, keep only issues whose milestone number is
+in `MILESTONE_NUMBERS_JSON`; for `unmilestoned`, keep only issues with a null
+milestone; for `all`, keep every non-PR issue. Do not silently treat an empty
+milestone selection as `all`.
 
 ## Open Pull Requests
 
@@ -150,12 +164,17 @@ jq -e 'if type != "array"
 
 ```bash
 set -euo pipefail
+: "${AUDIT_SCOPE_MODE:?set to milestones, unmilestoned, or all}"
+: "${MILESTONE_NUMBERS_JSON:?set to a JSON array; use [] outside milestone scope}"
 CLOSED_ISSUES="$(gh api --method GET --paginate --slurp \
   "repos/<OWNER>/<REPO>/issues?state=closed&per_page=100")"
-jq -e --argjson milestoneNumber "<MILESTONE_NUMBER>" \
-  'if type != "array" or any(.[]; type != "array")
-    then error("closed-issue response is not a paginated array")
-    else (add) as $issues
+jq -e --arg mode "$AUDIT_SCOPE_MODE" \
+  --argjson milestoneNumbers "$MILESTONE_NUMBERS_JSON" \
+  'if ($mode != "milestones" and $mode != "unmilestoned" and $mode != "all")
+     then error("invalid audit scope mode")
+   elif type != "array" or any(.[]; type != "array")
+     then error("closed-issue response is not a paginated array")
+   else (add // []) as $issues
       | if any($issues[];
           (.number | type) != "number"
           or (.title | type) != "string"
@@ -165,11 +184,18 @@ jq -e --argjson milestoneNumber "<MILESTONE_NUMBER>" \
           or (.milestone != null
             and ((.milestone.number | type) != "number"
               or (.milestone.title | type) != "string")))
-        then error("closed-issue response contains malformed records")
-        else [$issues[]
-          | select(.pull_request == null)
-          | select((.milestone // {}).number == $milestoneNumber)
-          | {number, title}]
-        end
-    end' <<<"$CLOSED_ISSUES"
+         then error("closed-issue response contains malformed records")
+         else [$issues[]
+           | select(.pull_request == null)
+           | (.milestone.number // null) as $issueMilestone
+           | select(
+               $mode == "all"
+               or ($mode == "unmilestoned" and .milestone == null)
+               or ($mode == "milestones"
+                 and any($milestoneNumbers[];
+                   . == $issueMilestone))
+             )
+           | {number, title}]
+       end
+   end' <<<"$CLOSED_ISSUES"
 ```

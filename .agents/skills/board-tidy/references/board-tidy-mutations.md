@@ -3,10 +3,13 @@
 Before each mutation, rerun the Step 1 status/milestone queries and the Step 2
 item query. Set `STATUS_OPTIONS_JSON` to the Step 1 `.statuses` object and
 `ACTIVE_MILESTONES_JSON` to the current open-milestone array. Set
-`MILESTONE_DEPENDENT=true` only for Backlog-to-Ready moves; use `false` for
-closed-to-Done moves, which remain valid on closed milestones. Set
-`BLOCKER_DEPENDENT=true` only for Backlog-to-Ready and Ready-to-Backlog moves;
-use `false` for closed-to-Done moves.
+`MILESTONE_MODE` to `active` or `none`, matching the approved proposal. Set
+`MILESTONE_DEPENDENT=true` only for Backlog-to-Ready moves; in `active` mode
+that move must still have an open milestone, while in `none` mode it must have
+no milestone. Use `false` for moves such as closed-to-Done, which remain valid
+on closed or unmilestoned items. Set `BLOCKER_DEPENDENT=true` only for
+Backlog-to-Ready and Ready-to-Backlog moves; use `false` for closed-to-Done
+moves.
 
 ## Freshness Check
 
@@ -27,6 +30,7 @@ set -euo pipefail
 : "${APPROVED_TARGET_STATUS:?}"
 : "${STATUS_OPTIONS_JSON:?}"
 : "${ACTIVE_MILESTONES_JSON:?}"
+: "${MILESTONE_MODE:?}"
 : "${MILESTONE_DEPENDENT:?}"
 : "${BLOCKER_DEPENDENT:?}"
 : "${EXPECTED_TITLE:?}"
@@ -45,11 +49,30 @@ if ! jq -e --arg name "$TARGET_STATUS" --arg id "$TARGET_OPTION_ID" \
   printf 'target status option changed; refresh the proposal\n' >&2
   exit 1
 fi
-if [ "$MILESTONE_DEPENDENT" = "true" ] && ! jq -e \
-  --argjson number "$EXPECTED_MILESTONE_NUMBER" \
-  'any(.[]; .number == $number)' <<<"$ACTIVE_MILESTONES_JSON" >/dev/null; then
-  printf 'milestone is no longer active; refresh the proposal\n' >&2
-  exit 1
+case "$MILESTONE_MODE" in
+  active|none) ;;
+  *)
+    printf 'invalid milestone mode; refresh the proposal\n' >&2
+    exit 1
+    ;;
+esac
+if [ "$MILESTONE_DEPENDENT" = "true" ]; then
+  case "$MILESTONE_MODE" in
+    active)
+      if ! jq -e \
+        --argjson number "$EXPECTED_MILESTONE_NUMBER" \
+        'any(.[]; .number == $number)' <<<"$ACTIVE_MILESTONES_JSON" >/dev/null; then
+        printf 'milestone is no longer active; refresh the proposal\n' >&2
+        exit 1
+      fi
+      ;;
+    none)
+      if ! jq -e '. == null' <<<"$EXPECTED_MILESTONE_NUMBER" >/dev/null; then
+        printf 'item is no longer unmilestoned; refresh the proposal\n' >&2
+        exit 1
+      fi
+      ;;
+  esac
 fi
 
 : "${EXPECTED_ITEM_ID:?}"
@@ -74,6 +97,7 @@ jq -e \
   --argjson expectedOpenBlockerCount "$EXPECTED_OPEN_BLOCKER_COUNT" \
   --argjson expectedBlockersComplete "$EXPECTED_BLOCKERS_COMPLETE" \
   --argjson activeMilestones "$ACTIVE_MILESTONES_JSON" \
+  --arg milestoneMode "$MILESTONE_MODE" \
   --argjson milestoneDependent "$MILESTONE_DEPENDENT" \
   --argjson blockerDependent "$BLOCKER_DEPENDENT" \
   --arg targetStatus "$TARGET_STATUS" \
@@ -93,11 +117,17 @@ jq -e \
        or $item.author_login != $expectedAuthorLogin
        or $item.milestone_number != $expectedMilestoneNumber
        or $item.milestone_state != $expectedMilestoneState
-       or ($item.milestone_state != "OPEN" and $milestoneDependent)
-       or ($milestoneDependent
-         and ($item.milestone_number == null
-        or ($activeMilestones
-          | any(.[]; .number == $item.milestone_number) | not)))
+        or ($milestoneDependent
+          and (
+            if $milestoneMode == "none" then
+              $item.milestone_number != null
+            else
+              ($item.milestone_number == null
+                or $item.milestone_state != "OPEN"
+                or ($activeMilestones
+                  | any(.[]; .number == $item.milestone_number) | not))
+            end
+          ))
        or ($item.blocked_by | length) != ($expectedBlockers | length)
         or ($item.blocked_by | sort_by(.number))
           != ($expectedBlockers | sort_by(.number))
