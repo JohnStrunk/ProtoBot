@@ -1,7 +1,7 @@
 {
   "version": "1",
   "generated_by": "skillsaw 0.20.0",
-  "generated_at": "2026-09-09T14:26:32.124702+00:00",
+  "generated_at": "2026-09-14T16:43:22.603446+00:00",
   "violations": [
     {
       "fingerprint": "d0aa041aff2100fd",
@@ -23,7 +23,7 @@
       "fingerprint": "04e16e57d177ffa0",
       "rule_id": "content-inconsistent-terminology",
       "file_path": "AGENTS.md",
-      "line": 5,
+      "line": 11,
       "message": "Inconsistent terminology: PR/pull request/merge request \u2014 multiple variants used across files. Pick one and use it consistently.",
       "severity": "info"
     },
@@ -40,7 +40,7 @@
       "rule_id": "content-section-length",
       "file_path": "docs/architecture.md",
       "line": 215,
-      "message": "Section '`ears-manager` CLI' is ~704 tokens (max recommended: 500)",
+      "message": "Section '`ears-manager` CLI' is ~703 tokens (max recommended: 500)",
       "severity": "info"
     },
     {
@@ -79,7 +79,7 @@
       "fingerprint": "d03d5a34ac818422",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 16,
+      "line": 22,
       "message": "Unlinked path reference: 'docs/vision.md' \u2014 consider wrapping in link syntax [docs/vision.md](docs/vision.md)",
       "severity": "info"
     },
@@ -87,7 +87,7 @@
       "fingerprint": "517491998fa8cb38",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 17,
+      "line": 23,
       "message": "Unlinked path reference: 'docs/architecture.md' \u2014 consider wrapping in link syntax [docs/architecture.md](docs/architecture.md)",
       "severity": "info"
     },
@@ -95,7 +95,7 @@
       "fingerprint": "54f428cdc6d515d2",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 19,
+      "line": 25,
       "message": "Unlinked path reference: 'docs/architecture/overview.md' \u2014 consider wrapping in link syntax [docs/architecture/overview.md](docs/architecture/overview.md)",
       "severity": "info"
     },
@@ -103,7 +103,7 @@
       "fingerprint": "ebe6f96b1ce209bd",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 21,
+      "line": 27,
       "message": "Unlinked path reference: 'docs/architecture/components.md' \u2014 consider wrapping in link syntax [docs/architecture/components.md](docs/architecture/components.md)",
       "severity": "info"
     },
@@ -111,7 +111,7 @@
       "fingerprint": "26f8f76319c9adfd",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 23,
+      "line": 29,
       "message": "Unlinked path reference: 'docs/architecture/user-interaction-flow.md' \u2014 consider wrapping in link syntax [docs/architecture/user-interaction-flow.md](docs/architecture/user-interaction-flow.md)",
       "severity": "info"
     },
@@ -119,7 +119,7 @@
       "fingerprint": "dfe8e903debd7a70",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 25,
+      "line": 31,
       "message": "Unlinked path reference: 'docs/architecture/related-work.md' \u2014 consider wrapping in link syntax [docs/architecture/related-work.md](docs/architecture/related-work.md)",
       "severity": "info"
     },
@@ -127,7 +127,7 @@
       "fingerprint": "fac138a385b101b2",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 27,
+      "line": 33,
       "message": "Unlinked path reference: 'docs/architecture/open-questions.md' \u2014 consider wrapping in link syntax [docs/architecture/open-questions.md](docs/architecture/open-questions.md)",
       "severity": "info"
     },
@@ -135,7 +135,7 @@
       "fingerprint": "61dde6b158f12c87",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 45,
+      "line": 51,
       "message": "Unlinked path reference: 'docs/architecture/components.md' \u2014 consider wrapping in link syntax [docs/architecture/components.md](docs/architecture/components.md)",
       "severity": "info"
     },
@@ -143,7 +143,7 @@
       "fingerprint": "85e506936b75ec55",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 46,
+      "line": 52,
       "message": "Unlinked path reference: 'docs/architecture/overview.md' \u2014 consider wrapping in link syntax [docs/architecture/overview.md](docs/architecture/overview.md)",
       "severity": "info"
     },
@@ -151,7 +151,7 @@
       "fingerprint": "dfb22c7918b88aef",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 53,
+      "line": 59,
       "message": "Unlinked path reference: 'docs/architecture/overview.md' \u2014 consider wrapping in link syntax [docs/architecture/overview.md](docs/architecture/overview.md)",
       "severity": "info"
     },
@@ -159,16 +159,8 @@
       "fingerprint": "bcc45982044b09c4",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 54,
+      "line": 60,
       "message": "Unlinked path reference: 'docs/architecture.md' \u2014 consider wrapping in link syntax [docs/architecture.md](docs/architecture.md)",
-      "severity": "info"
-    },
-    {
-      "fingerprint": "cc82115000a84fe8",
-      "rule_id": "content-weak-language",
-      "file_path": ".agents/skills/pull-request/SKILL.md",
-      "line": 21,
-      "message": "Weak language (hedging): 'if possible' \u2014 Remove 'if possible' \u2014 state conditions explicitly",
       "severity": "info"
     },
     {
