@@ -76,7 +76,8 @@ Git history_. Adjacent contracts define the surfaces around it:
 - **#30** (`ears-manager` CLI integration) defines the governed
   command and result boundary for specification reads and writes.
   This document names `ears-manager` operations; #30 defines their
-  request and result shapes.
+  request and result shapes in the
+  [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
 - **#33** (OpenCode Specification Toolkit adapter) defines skill
   discovery and harness tool permissions, including the optional
   early enforcement layer that denies direct writes to registered
@@ -649,7 +650,7 @@ ceremony and the credential path differ.
 | Who owns specification artifacts | `ears-manager` | `ears-manager` |
 | Branch naming and creation | `cs/<nnn>-<slug>` from the default branch | Identical |
 | Commit content, message, trailer | As above | Identical |
-| Pull-request body | Rendered from `compare` and `impact` | Identical |
+| Pull-request body | Rendered from `change-set compare` and `impact` | Identical |
 | How a change reaches the default branch | Pull request | Pull request |
 | Who approves | The author merges their own pull request. No reviewer is required. | A reviewer merges; CODEOWNERS and required reviews apply |
 | Registration trigger | Local `register-approved-change-set` | Merge hook on the default branch |
@@ -748,7 +749,7 @@ operations at the harness permission layer.
 | Stage | Registered artifact paths, the change-set manifest, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
-| Open or update a pull request | Against `repository.default_branch`, body rendered from `compare` and `impact` |
+| Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |
 | Merge the default branch into the change-set branch | Merge commit; followed by `change-set update` |
 | Merge one's own pull request | Single-player only, merge commit, followed by registration |
 | Delete a merged change-set branch | Only after the merge commit exists on the default branch |
@@ -896,7 +897,7 @@ resurface.
 | Merge queue or batching | Concurrent change sets follow the standard refresh-before-merge model. A Bors-style queue is [related work](related-work.md#gas-town--beads-steve-yegge), not a decision here. |
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
 | Directory layout inside the requirement store | Open with `ears-manager` ([`ears-manager`](components.md#ears-manager)). This document constrains which paths may be committed, not how the store organizes them. |
-| `ears-manager` command and result shapes | Defined by #30. |
+| `ears-manager` command and result shapes | Defined by the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
 | Harness tool permission rules | Defined by #33. This document names the layer and its effect, not its configuration. |
 | Kit import commits | Kit packaging is open ([Kits](components.md#kits)). The imported specification content arrives as a proposed change set and follows this contract. The lock file `.protobot/kits.lock` is a separate matter: no document names its writer, so this contract does not stage it. Whoever settles Kit packaging must name that owner. |
 | Conflict-resolution UX | The failure table states the deterministic diagnostic and the safe retry. How the Drafting Table presents a conflict to the user is UX (#28). |

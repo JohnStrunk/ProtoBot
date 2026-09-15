@@ -225,7 +225,7 @@ Architecture change:
 | Value | Description |
 | --- | --- |
 | `network-service` | Network service (REST API, gRPC service). Specification approach: Smithy or OpenAPI. |
-| `cli` | Command-line interface. Specification approach: `usage` (jdx.dev) / docopt / `wasi:cli` (evaluation pending, [Q18](../architecture/open-questions.md#q18-cli-interface-spec-evaluation)). |
+| `cli` | Command-line interface. Specification approach: command grammar and result contract in the [`ears-manager` CLI Integration Contract](../architecture/ears-manager-cli.md). |
 | `repl` | Read-eval-print loop. Specification approach: skills and prompts define the interaction protocol. |
 | `linkable-library` | Linkable library or SDK. Specification approach: WIT (Wasm Interface Types). |
 | `web-gui` | Web GUI (HTML/CSS). Specification approach: open gap — not yet established. |
@@ -270,8 +270,8 @@ change:
 #### Interface Operations
 
 Each operation in the `interface_operations` list describes one
-interface change within the change set. `ears-manager add interface`
-and `ears-manager update` write these entries
+interface change within the change set. `ears-manager interface add`
+and `ears-manager interface update` write these entries
 ([components.md](../architecture/components.md#subcommands)).
 Interface retirement is recorded as a `revise` operation that
 sets `status: retired` on the interface record.

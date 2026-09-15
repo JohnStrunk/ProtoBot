@@ -174,11 +174,13 @@ The multi-player workflow places the
 
 ### Q18: CLI interface spec evaluation
 
-`usage` (jdx.dev), docopt,
-    and `wasi:cli` are listed as candidates for CLI interface
-    specification. Need to evaluate which (if any) is suitable for
-    ProtoBot's needs. See the interface-type taxonomy in
-    [Specification Hierarchy](user-interaction-flow.md#specification-hierarchy).
+Resolved for the first implementation: the stable interface is the
+command grammar, typed request fields, JSON result envelope, human
+diagnostic form, and exit-status table in the
+[`ears-manager` CLI Integration Contract](ears-manager-cli.md). No
+third-party CLI IDL is a runtime dependency. `usage` (jdx.dev), docopt,
+and `wasi:cli` may be evaluated later as implementation or documentation
+aids, but they are not prerequisites for the caller contract.
 
 ---
 

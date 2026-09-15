@@ -56,7 +56,8 @@ This document defines _what the user sees and decides_. Adjacent contracts
 define _how_ the underlying systems respond:
 
 - **#30** (`ears-manager` CLI integration) defines the governed command and
-  result boundary for specification reads and writes.
+  result boundary for specification reads and writes. See the
+  [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
 - **#31** (Drafting Table WMS operations) defines the exact WMS Adapter
   operations and result shapes for Drafting Table use.
 - **#32** (Validation Rules) defines lifecycle validation and rejection
@@ -879,7 +880,7 @@ OAuth tokens, hosted session manager, or live cloud services.
 | :--- | :--- |
 | **Web Drafting Table UX** | Web hosting, multi-tenant auth, and browser sessions belong to future contracts. |
 | **Push notifications in TUI** | TUI uses pull-on-start. External push (Slack, email) is a hosted concern (Q2). |
-| **`ears-manager` CLI schemas** | Exact command syntax, JSON payloads, and exit codes belong to #30. |
+| **`ears-manager` CLI schemas** | Exact command syntax, JSON payloads, and exit codes belong to the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
 | **Specification Toolkit internals** | Adapter hooks, prompt construction, and skill packaging belong to #33. |
 | **Git integration internals** | Branch naming conventions, commit layouts, and PR mechanics belong to #34. |
 | **Backlog refinement UX** | Request intake and backlog prioritization precede change-set creation. |
@@ -901,6 +902,8 @@ OAuth tokens, hosted session manager, or live cloud services.
   constraints
 - [System Components](components.md) — Component architecture,
   interfaces, and cross-cutting concerns
+- [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
+  command grammar, results, diagnostics, and impact review
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Open Design Questions](open-questions.md) — Unresolved design
