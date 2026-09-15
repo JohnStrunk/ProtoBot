@@ -58,20 +58,26 @@ commit-scoped conformance evidence are recorded separately.
 
 ## Repository Layout
 
-ProtoBot is a monorepo with one root Go module. Each Go executable has a
-dedicated `cmd/<tool>/` entry point, while private implementation packages are
-grouped by domain under `internal/`. The current foundation is organized as:
+ProtoBot is a language-agnostic monorepo. Each independently buildable
+component owns its native module and toolchain. The current Go component is
+organized as:
 
 ```text
-cmd/ears-manager/
-internal/earsmanager/{project,records,schema,storage}/
+components/ears-manager/
+  go.mod
+  cmd/ears-manager/
+  internal/{project,records,schema,storage}/
 ```
 
-Future ProtoBot tools, including WMS adapters, can add sibling command and
-domain packages without changing the existing `ears-manager` install target:
+Other implementations can use their native layout under the same monorepo,
+for example `components/wms/github/`, `components/wms/jira/`, or
+`components/drafting-table/web/`. The root `go.work` makes local Go component
+development convenient without coupling other languages to Go.
+
+The `ears-manager` install target is:
 
 ```text
-go install github.com/redhat-et/protobot/cmd/ears-manager@latest
+go install github.com/redhat-et/protobot/components/ears-manager/cmd/ears-manager@latest
 ```
 
 ## Documentation

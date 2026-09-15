@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/redhat-et/protobot/internal/earsmanager/records"
-	"github.com/redhat-et/protobot/internal/earsmanager/schema"
-	"github.com/redhat-et/protobot/internal/earsmanager/storage"
+	"github.com/redhat-et/protobot/components/ears-manager/internal/records"
+	"github.com/redhat-et/protobot/components/ears-manager/internal/schema"
+	"github.com/redhat-et/protobot/components/ears-manager/internal/storage"
 )
 
 func TestDiscoverFromNestedDirectory(t *testing.T) {

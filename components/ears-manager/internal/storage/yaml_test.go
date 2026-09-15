@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/redhat-et/protobot/internal/earsmanager/records"
+	"github.com/redhat-et/protobot/components/ears-manager/internal/records"
 )
 
 func TestDecodeRejectsUnsafeYAML(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/redhat-et/protobot/internal/earsmanager/records"
+	"github.com/redhat-et/protobot/components/ears-manager/internal/records"
 )
 
 func TestStoreSaveLoadAndList(t *testing.T) {

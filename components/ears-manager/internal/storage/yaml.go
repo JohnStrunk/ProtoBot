@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"unicode/utf8"
 
-	"github.com/redhat-et/protobot/internal/earsmanager/records"
+	"github.com/redhat-et/protobot/components/ears-manager/internal/records"
 	"gopkg.in/yaml.v3"
 )
 
