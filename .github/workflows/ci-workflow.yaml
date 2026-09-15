@@ -73,11 +73,11 @@ jobs:
         # zizmor: ignore[cache-poisoning]
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
-          go-version-file: components/ears-manager/go.mod
+          go-version-file: ears-manager/go.mod
 
       - name: Check formatting
         run: |
-          files="$(gofmt -l components/ears-manager)" || exit $?
+          files="$(gofmt -l ears-manager)" || exit $?
           test -z "$files"
 
       - name: Run golangci-lint
@@ -87,23 +87,23 @@ jobs:
           version: v2.13.2
           args: --timeout=5m
           skip-cache: true
-          working-directory: components/ears-manager
+          working-directory: ears-manager
 
       - name: Run vet
         run: go vet ./...
-        working-directory: components/ears-manager
+        working-directory: ears-manager
 
       - name: Run tests
         run: go test ./...
-        working-directory: components/ears-manager
+        working-directory: ears-manager
 
       - name: Build static binary
         run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -o ears-manager ./cmd/ears-manager
-        working-directory: components/ears-manager
+        working-directory: ears-manager
 
       - name: Verify install target
         run: go install ./cmd/ears-manager
-        working-directory: components/ears-manager
+        working-directory: ears-manager
 
   # This job provides a single status check for merge gates.
   ci-success:

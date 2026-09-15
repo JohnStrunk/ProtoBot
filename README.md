@@ -63,7 +63,7 @@ component owns its native module and toolchain. The current Go component is
 organized as:
 
 ```text
-components/ears-manager/
+ears-manager/
   go.mod
   cmd/ears-manager/
   internal/{project,records,schema,storage}/
@@ -77,7 +77,7 @@ development convenient without coupling other languages to Go.
 The `ears-manager` install target is:
 
 ```text
-go install github.com/redhat-et/protobot/components/ears-manager/cmd/ears-manager@latest
+go install github.com/redhat-et/protobot/ears-manager/cmd/ears-manager@latest
 ```
 
 ## Documentation

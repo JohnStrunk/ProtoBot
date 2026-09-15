@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/redhat-et/protobot/components/ears-manager/internal/records"
-	"github.com/redhat-et/protobot/components/ears-manager/internal/schema"
-	"github.com/redhat-et/protobot/components/ears-manager/internal/storage"
+	"github.com/redhat-et/protobot/ears-manager/internal/records"
+	"github.com/redhat-et/protobot/ears-manager/internal/schema"
+	"github.com/redhat-et/protobot/ears-manager/internal/storage"
 )
 
 type GitRootFunc func(string) (string, error)
