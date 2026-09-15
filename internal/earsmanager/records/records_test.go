@@ -9,9 +9,9 @@ func TestFilenameFor(t *testing.T) {
 		id   string
 		want string
 	}{
-		{name: "requirement", kind: RequirementStore, id: "REQ-AUTH-001", want: "REQ-AUTH-001.yaml"},
+		{name: "requirement", kind: RequirementStore, id: "REQ-AUTH-00001", want: "REQ-AUTH-00001.yaml"},
 		{name: "interface", kind: InterfaceStore, id: "api-gateway", want: "api-gateway.yaml"},
-		{name: "change set", kind: ChangeSetStore, id: "CS-007", want: "cs-007.yaml"},
+		{name: "change set", kind: ChangeSetStore, id: "CS-00007", want: "cs-00007.yaml"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -34,7 +34,7 @@ func TestFilenameForRejectsUnsafeIDs(t *testing.T) {
 	}{
 		{name: "requirement traversal", kind: RequirementStore, id: "REQ-../001"},
 		{name: "interface traversal", kind: InterfaceStore, id: "../outside"},
-		{name: "change set wrong case", kind: ChangeSetStore, id: "cs-001"},
+		{name: "change set wrong case", kind: ChangeSetStore, id: "cs-00001"},
 		{name: "unknown store", kind: StoreKind("unknown"), id: "value"},
 	}
 	for _, test := range tests {

@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/redhat-et/protobot/internal/records"
+	"github.com/redhat-et/protobot/internal/earsmanager/records"
 )
 
 func TestStoreSaveLoadAndList(t *testing.T) {
@@ -17,8 +17,8 @@ func TestStoreSaveLoadAndList(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 	defer func() { _ = store.Close() }()
-	first := records.Requirement{ID: "REQ-Z-001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
-	second := records.Requirement{ID: "REQ-A-001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
+	first := records.Requirement{ID: "REQ-Z-00001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
+	second := records.Requirement{ID: "REQ-A-00001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
 	if err := store.Save(first); err != nil {
 		t.Fatalf("Save(first) returned error: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestStoreSaveLoadAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PathForID returned error: %v", err)
 	}
-	if filepath.Base(path) != "REQ-Z-001.yaml" {
+	if filepath.Base(path) != "REQ-Z-00001.yaml" {
 		t.Fatalf("PathForID = %q, want stable filename", path)
 	}
 	loaded, err := store.Load(first.ID)
@@ -72,7 +72,7 @@ func TestStoreListRejectsRecordSymlinkEscape(t *testing.T) {
 		t.Fatalf("New returned error: %v", err)
 	}
 	defer func() { _ = store.Close() }()
-	value := records.Requirement{ID: "REQ-A-001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
+	value := records.Requirement{ID: "REQ-A-00001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
 	if err := store.Save(value); err != nil {
 		t.Fatalf("Save returned error: %v", err)
 	}

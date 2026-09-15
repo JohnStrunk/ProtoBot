@@ -207,9 +207,9 @@ type ChangeSet struct {
 }
 
 var (
-	requirementIDPattern = regexp.MustCompile(`^REQ-[A-Z][A-Z0-9-]*-[0-9]{3}$`)
+	requirementIDPattern = regexp.MustCompile(`^REQ-[A-Z][A-Z0-9-]*-[0-9]{5}$`)
 	interfaceIDPattern   = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
-	changeSetIDPattern   = regexp.MustCompile(`^CS-[0-9]{3}$`)
+	changeSetIDPattern   = regexp.MustCompile(`^CS-[0-9]{5}$`)
 	artifactIDPattern    = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 )
 

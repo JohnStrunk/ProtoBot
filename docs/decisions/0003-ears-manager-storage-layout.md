@@ -31,9 +31,9 @@ The default store paths are:
 
 | Store | Default path | Record filename |
 | --- | --- | --- |
-| Requirements | `.protobot/requirements/` | `REQ-<SCOPE>-<NNN>.yaml` |
+| Requirements | `.protobot/requirements/` | `REQ-<SCOPE>-<NNNNN>.yaml` |
 | Interfaces | `.protobot/interfaces/` | `<lower-kebab-id>.yaml` |
-| Change sets | `.protobot/change-sets/` | `cs-<nnn>.yaml` for `CS-<NNN>` |
+| Change sets | `.protobot/change-sets/` | `cs-<nnnnn>.yaml` for `CS-<NNNNN>` |
 
 Projects may register different relative paths in `stores`. Every path
 must remain inside the project root after symlink resolution. Absolute
@@ -50,9 +50,9 @@ not silently interpreted as version `1`.
 
 The stable filename mapping is owned by `ears-manager`:
 
-- Requirement IDs match `REQ-[A-Z][A-Z0-9-]*-[0-9]{3}`.
+- Requirement IDs match `REQ-[A-Z][A-Z0-9-]*-[0-9]{5}`.
 - Interface IDs use lowercase kebab-case.
-- Change-set IDs match `CS-[0-9]{3}` and use lowercase `cs-` in filenames.
+- Change-set IDs match `CS-[0-9]{5}` and use lowercase `cs-` in filenames.
 
 Canonical serialization uses schema field order, stable scalar styles,
 sorted set-like lists, LF endings, no trailing whitespace, and one final

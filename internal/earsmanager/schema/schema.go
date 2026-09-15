@@ -3,7 +3,7 @@ package schema
 import (
 	"fmt"
 
-	"github.com/redhat-et/protobot/internal/records"
+	"github.com/redhat-et/protobot/internal/earsmanager/records"
 )
 
 type VersionError struct {

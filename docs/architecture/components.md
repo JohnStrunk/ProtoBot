@@ -737,7 +737,7 @@ language/source/test layout:
 | `.protobot/policy.yaml` | Required Inspectors, WIP/scheduling policy, sandbox profile, and other reviewed project policy. |
 | `.protobot/kits.lock` | Optional Kit source/version/digest/provenance locks. |
 | `.protobot/interfaces/` | One YAML file per structured interface record, unless a project registers another relative path in `project.yaml`. |
-| `.protobot/change-sets/` | Immutable approved change-set manifests, one flat file per change set, named `cs-<nnn>.yaml` ([git-integration.md](git-integration.md#one-change-set-one-file)). |
+| `.protobot/change-sets/` | Immutable approved change-set manifests, one flat file per change set, named `cs-<nnnnn>.yaml` ([git-integration.md](git-integration.md#one-change-set-one-file)). |
 | `.protobot/test-catalog.jsonl` | Stable test IDs, requirement links, verification modes, control surfaces, and validity metadata. |
 | `.protobot/attestations/` | Finding snapshots/reports, conformance metadata, and canonical demo manifests; always `attestation-only`. |
 
@@ -919,7 +919,7 @@ and a new Inspection Run. A path-disjoint result never waives these gates.
   [ADR-0003](../decisions/0003-ears-manager-storage-layout.md).
 - **Branch naming and lifecycle.** The change-set half is resolved:
   [Git and Project-Repository Integration](git-integration.md#change-set-branches)
-  decides `cs/<nnn>-<slug>`, creation at `change-set create`, and
+  decides `cs/<nnnnn>-<slug>`, creation at `change-set create`, and
   deletion after merge. Still open for build work items: the
   convention for `wi/` branch names (e.g., `wi/<id>-<slug>`), when
   the Job Site creates them (on work item creation or on first

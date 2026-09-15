@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/redhat-et/protobot/internal/records"
-	"github.com/redhat-et/protobot/internal/schema"
-	"github.com/redhat-et/protobot/internal/storage"
+	"github.com/redhat-et/protobot/internal/earsmanager/records"
+	"github.com/redhat-et/protobot/internal/earsmanager/schema"
+	"github.com/redhat-et/protobot/internal/earsmanager/storage"
 )
 
 func TestDiscoverFromNestedDirectory(t *testing.T) {
@@ -221,7 +221,7 @@ func TestProjectProvidesTypedInterfaceAndChangeSetStores(t *testing.T) {
 	}
 	defer func() { _ = changeSets.Close() }()
 	changeSet := records.ChangeSet{
-		ID:                     "CS-001",
+		ID:                     "CS-00001",
 		BaseCommit:             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Intent:                 "Initial change set",
 		Operations:             []records.RequirementOperation{},
@@ -236,8 +236,8 @@ func TestProjectProvidesTypedInterfaceAndChangeSetStores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChangeSetStore.PathForID returned error: %v", err)
 	}
-	if filepath.Base(changeSetPath) != "cs-001.yaml" {
-		t.Fatalf("change-set filename = %q, want cs-001.yaml", filepath.Base(changeSetPath))
+	if filepath.Base(changeSetPath) != "cs-00001.yaml" {
+		t.Fatalf("change-set filename = %q, want cs-00001.yaml", filepath.Base(changeSetPath))
 	}
 }
 

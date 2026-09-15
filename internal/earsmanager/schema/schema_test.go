@@ -4,7 +4,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/redhat-et/protobot/internal/records"
+	"github.com/redhat-et/protobot/internal/earsmanager/records"
 )
 
 func TestValidateAcceptsCurrentVersions(t *testing.T) {

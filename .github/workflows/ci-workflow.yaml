@@ -97,6 +97,9 @@ jobs:
       - name: Build static binary
         run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -o ears-manager ./cmd/ears-manager
 
+      - name: Verify install target
+        run: go install ./cmd/ears-manager
+
   # This job provides a single status check for merge gates.
   ci-success:
     name: CI Workflow - Success

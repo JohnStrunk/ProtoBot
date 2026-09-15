@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/redhat-et/protobot/internal/records"
+	"github.com/redhat-et/protobot/internal/earsmanager/records"
 )
 
 func TestDecodeRejectsUnsafeYAML(t *testing.T) {
@@ -19,31 +19,31 @@ func TestDecodeRejectsUnsafeYAML(t *testing.T) {
 		},
 		{
 			name: "duplicate key",
-			data: "id: REQ-AUTH-001\nid: REQ-AUTH-002\n",
+			data: "id: REQ-AUTH-00001\nid: REQ-AUTH-00002\n",
 		},
 		{
 			name: "alias",
-			data: "id: &id REQ-AUTH-001\ntype: ubiquitous\ntext: *id\n",
+			data: "id: &id REQ-AUTH-00001\ntype: ubiquitous\ntext: *id\n",
 		},
 		{
 			name: "custom tag",
-			data: "id: !secret REQ-AUTH-001\n",
+			data: "id: !secret REQ-AUTH-00001\n",
 		},
 		{
 			name: "merge key",
-			data: "defaults: &defaults\n  id: REQ-AUTH-001\n<<: *defaults\n",
+			data: "defaults: &defaults\n  id: REQ-AUTH-00001\n<<: *defaults\n",
 		},
 		{
 			name: "multiple documents",
-			data: "id: REQ-AUTH-001\n---\nid: REQ-AUTH-002\n",
+			data: "id: REQ-AUTH-00001\n---\nid: REQ-AUTH-00002\n",
 		},
 		{
 			name: "unknown field",
-			data: "id: REQ-AUTH-001\nunknown: value\n",
+			data: "id: REQ-AUTH-00001\nunknown: value\n",
 		},
 		{
 			name: "BOM",
-			data: "\ufeffid: REQ-AUTH-001\n",
+			data: "\ufeffid: REQ-AUTH-00001\n",
 		},
 	}
 	for _, test := range tests {
@@ -58,7 +58,7 @@ func TestDecodeRejectsUnsafeYAML(t *testing.T) {
 
 func TestCanonicalEncodingIsStable(t *testing.T) {
 	first := records.Requirement{
-		ID:        "REQ-AUTH-001",
+		ID:        "REQ-AUTH-00001",
 		Type:      records.EARSEventDriven,
 		Text:      "When a user logs in, the system shall issue a token.",
 		AppliesTo: records.Applicability{Interfaces: []string{"api-gateway", "cli"}, Scopes: []string{"security", "authentication"}},
@@ -68,16 +68,16 @@ func TestCanonicalEncodingIsStable(t *testing.T) {
 		Provenance: records.ProvenanceUserAuthored,
 		Created:    "2026-09-15T10:00:00Z",
 		Relationships: []records.Relationship{
-			{Type: "related-to", Target: "REQ-Z-001"},
-			{Type: "depends-on", Target: "REQ-A-001"},
+			{Type: "related-to", Target: "REQ-Z-00001"},
+			{Type: "depends-on", Target: "REQ-A-00001"},
 		},
 	}
 	second := first
 	second.AppliesTo.Interfaces = []string{"cli", "api-gateway"}
 	second.AppliesTo.Scopes = []string{"authentication", "security"}
 	second.Relationships = []records.Relationship{
-		{Type: "depends-on", Target: "REQ-A-001"},
-		{Type: "related-to", Target: "REQ-Z-001"},
+			{Type: "depends-on", Target: "REQ-A-00001"},
+			{Type: "related-to", Target: "REQ-Z-00001"},
 	}
 	second.Verification.Mode = records.VerificationIsolatedInterface
 	second.Status = records.StatusActive
@@ -134,16 +134,16 @@ func TestCanonicalEncodingNormalizesAllRecordTypes(t *testing.T) {
 	}
 
 	changeSetFirst := records.ChangeSet{
-		ID:                     "CS-001",
+		ID:                     "CS-00001",
 		BaseCommit:             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Intent:                 "Add requirements",
-		Operations:             []records.RequirementOperation{{Action: "revise", RequirementID: "REQ-Z-001"}, {Action: "add", RequirementID: "REQ-A-001"}},
+		Operations:             []records.RequirementOperation{{Action: "revise", RequirementID: "REQ-Z-00001"}, {Action: "add", RequirementID: "REQ-A-00001"}},
 		AffectedInterfaces:     []string{"cli-main", "api-gateway"},
 		ImplementationRequired: true,
 		Created:                "2026-09-15T10:00:00Z",
 	}
 	changeSetSecond := changeSetFirst
-	changeSetSecond.Operations = []records.RequirementOperation{{Action: "add", RequirementID: "REQ-A-001"}, {Action: "revise", RequirementID: "REQ-Z-001"}}
+	changeSetSecond.Operations = []records.RequirementOperation{{Action: "add", RequirementID: "REQ-A-00001"}, {Action: "revise", RequirementID: "REQ-Z-00001"}}
 	changeSetSecond.AffectedInterfaces = []string{"api-gateway", "cli-main"}
 	left, err = Encode(changeSetFirst)
 	if err != nil {
@@ -158,8 +158,8 @@ func TestCanonicalEncodingNormalizesAllRecordTypes(t *testing.T) {
 	}
 	collisionFirst := changeSetFirst
 	collisionFirst.Operations = []records.RequirementOperation{
-		{Action: "add", RequirementID: "REQ-A-001", Rationale: "z"},
-		{Action: "add", RequirementID: "REQ-A-001", Rationale: "a"},
+		{Action: "add", RequirementID: "REQ-A-00001", Rationale: "z"},
+		{Action: "add", RequirementID: "REQ-A-00001", Rationale: "a"},
 	}
 	collisionFirst.InterfaceOperations = []records.InterfaceOperation{
 		{Action: "add", InterfaceID: "api-gateway", Rationale: "z"},
@@ -170,8 +170,8 @@ func TestCanonicalEncodingNormalizesAllRecordTypes(t *testing.T) {
 		{Action: "add", ArtifactID: "architecture", Rationale: "a"},
 	}
 	collisionFirst.ImpactAssessment = []records.ImpactAssessment{
-		{RequirementID: "REQ-A-001", Disposition: "applicable", Rationale: "z", Origin: "semantic"},
-		{RequirementID: "REQ-A-001", Disposition: "applicable", Rationale: "a", Origin: "mechanical"},
+		{RequirementID: "REQ-A-00001", Disposition: "applicable", Rationale: "z", Origin: "semantic"},
+		{RequirementID: "REQ-A-00001", Disposition: "applicable", Rationale: "a", Origin: "mechanical"},
 	}
 	collisionSecond := collisionFirst
 	collisionSecond.Operations = append([]records.RequirementOperation(nil), collisionFirst.Operations[1], collisionFirst.Operations[0])
