@@ -1,7 +1,7 @@
 {
   "version": "1",
   "generated_by": "skillsaw 0.20.0",
-  "generated_at": "2026-09-14T16:43:22.603446+00:00",
+  "generated_at": "2026-09-15T13:45:23.276039+00:00",
   "violations": [
     {
       "fingerprint": "d0aa041aff2100fd",
@@ -55,23 +55,23 @@
       "fingerprint": "39bd5528950f9ce2",
       "rule_id": "content-section-length",
       "file_path": "docs/architecture.md",
-      "line": 415,
-      "message": "Section 'Job Site Handoff Boundary' is ~803 tokens (max recommended: 500)",
+      "line": 418,
+      "message": "Section 'Job Site Handoff Boundary' is ~800 tokens (max recommended: 500)",
       "severity": "info"
     },
     {
       "fingerprint": "7a47180e53e905ba",
       "rule_id": "content-section-length",
       "file_path": "docs/architecture.md",
-      "line": 583,
-      "message": "Section 'Governed tool integrations' is ~659 tokens (max recommended: 500)",
+      "line": 589,
+      "message": "Section 'Governed tool integrations' is ~686 tokens (max recommended: 500)",
       "severity": "info"
     },
     {
       "fingerprint": "118f4daf88827566",
       "rule_id": "content-section-length",
       "file_path": "docs/architecture.md",
-      "line": 782,
+      "line": 793,
       "message": "Section 'Environmental Constraints' is ~516 tokens (max recommended: 500)",
       "severity": "info"
     },
@@ -116,10 +116,18 @@
       "severity": "info"
     },
     {
-      "fingerprint": "dfe8e903debd7a70",
+      "fingerprint": "c4cf96f3ec3152a2",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
       "line": 31,
+      "message": "Unlinked path reference: 'docs/architecture/drafting-table-ux.md' \u2014 consider wrapping in link syntax [docs/architecture/drafting-table-ux.md](docs/architecture/drafting-table-ux.md)",
+      "severity": "info"
+    },
+    {
+      "fingerprint": "dfe8e903debd7a70",
+      "rule_id": "content-unlinked-internal-reference",
+      "file_path": "AGENTS.md",
+      "line": 33,
       "message": "Unlinked path reference: 'docs/architecture/related-work.md' \u2014 consider wrapping in link syntax [docs/architecture/related-work.md](docs/architecture/related-work.md)",
       "severity": "info"
     },
@@ -127,7 +135,7 @@
       "fingerprint": "fac138a385b101b2",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 33,
+      "line": 35,
       "message": "Unlinked path reference: 'docs/architecture/open-questions.md' \u2014 consider wrapping in link syntax [docs/architecture/open-questions.md](docs/architecture/open-questions.md)",
       "severity": "info"
     },
@@ -135,7 +143,7 @@
       "fingerprint": "61dde6b158f12c87",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 51,
+      "line": 53,
       "message": "Unlinked path reference: 'docs/architecture/components.md' \u2014 consider wrapping in link syntax [docs/architecture/components.md](docs/architecture/components.md)",
       "severity": "info"
     },
@@ -143,7 +151,7 @@
       "fingerprint": "85e506936b75ec55",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 52,
+      "line": 54,
       "message": "Unlinked path reference: 'docs/architecture/overview.md' \u2014 consider wrapping in link syntax [docs/architecture/overview.md](docs/architecture/overview.md)",
       "severity": "info"
     },
@@ -151,7 +159,7 @@
       "fingerprint": "dfb22c7918b88aef",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 59,
+      "line": 61,
       "message": "Unlinked path reference: 'docs/architecture/overview.md' \u2014 consider wrapping in link syntax [docs/architecture/overview.md](docs/architecture/overview.md)",
       "severity": "info"
     },
@@ -159,7 +167,7 @@
       "fingerprint": "bcc45982044b09c4",
       "rule_id": "content-unlinked-internal-reference",
       "file_path": "AGENTS.md",
-      "line": 60,
+      "line": 62,
       "message": "Unlinked path reference: 'docs/architecture.md' \u2014 consider wrapping in link syntax [docs/architecture.md](docs/architecture.md)",
       "severity": "info"
     },
@@ -167,7 +175,7 @@
       "fingerprint": "c7c574a4623b9f21",
       "rule_id": "content-weak-language",
       "file_path": "docs/vision.md",
-      "line": 253,
+      "line": 254,
       "message": "Weak language (vagueness): 'correctly' \u2014 Remove 'correctly' \u2014 describe what correct behavior looks like",
       "severity": "info"
     }
