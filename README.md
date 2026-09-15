@@ -70,9 +70,9 @@ ears-manager/
 ```
 
 Other implementations can use their native layout under the same monorepo,
-for example `components/wms/github/`, `components/wms/jira/`, or
-`components/drafting-table/web/`. The root `go.work` makes local Go component
-development convenient without coupling other languages to Go.
+for example `wms/github/`, `wms/jira/`, or `drafting-table/web/`. The root
+`go.work` makes local Go component development convenient without coupling
+other languages to Go.
 
 The `ears-manager` install target is:
 
