@@ -396,7 +396,7 @@ It is used by these callers:
 | `ears-manager interface list/show` | Read interfaces at the working tree or an immutable `--at` revision. |
 | `ears-manager interface update` | Modify interfaces through a proposed change set. |
 | `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest and invokes its configured validator without requiring `ears-manager` to understand every format. |
-| `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by kind or ID through the governed path registry. |
+| `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by ID or unique kind through the governed path registry. |
 | `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, and requirement operations. Approved change sets are immutable. |
 | `ears-manager change-set compare` | Compare a proposed change set with the current Schematic and open deltas. Reports exact duplicates, stable-ID before/after changes, declared conflicts/supersession, and dependency cycles for agent/user review. |
 | `ears-manager impact` | Read-only comparison of a proposed change set with the Schematic that produces potentially applicable requirements from scope intersections and explicit relationships. Reviewed dispositions are written by `change-set update`. |

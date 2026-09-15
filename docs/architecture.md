@@ -833,7 +833,7 @@ approach.
 
 | Interface | Type | Specification approach |
 | --- | --- | --- |
-| `ears-manager` CLI | CLI | This document's command grammar, typed result envelope, and exit-status contract ([CLI Integration Contract](architecture/ears-manager-cli.md)) |
+| `ears-manager` CLI | CLI | Command grammar, typed result envelope, and exit-status contract defined in the [CLI Integration Contract](architecture/ears-manager-cli.md) |
 | WMS Adapter API | Network service | Smithy or OpenAPI |
 | Specification Toolkit | Agent skill package | Skill manifest + MCP tool schemas (JSON Schema) |
 | Validation Rules | Linkable library or declarative rule set | WIT or declarative state-machine schema _(open — see [components.md](architecture/components.md#validation-rules))_ |

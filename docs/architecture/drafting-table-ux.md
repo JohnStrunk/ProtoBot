@@ -155,7 +155,8 @@ Git repository:
   requirements, interface changes, and draft change-set manifests that have
   not yet been reviewed and merged.
 
-Every mutation to this state goes through `ears-manager` (governed by #30).
+Every mutation to this state goes through
+[`ears-manager`](ears-manager-cli.md).
 The Drafting Table never writes specification files directly.
 `ears-manager check` validates well-formedness as a CI gate before merge.
 
@@ -255,9 +256,8 @@ The user starts a new project by providing an initial description or IdeaBot
 artifacts. The Drafting Table:
 
 1. Identifies or initializes the `.protobot/` control namespace through
-   `ears-manager` (project identity, artifact paths, schema version). The
-   entry point and initialization subcommand are harness details governed by
-   #30.
+   `ears-manager project init` (project identity, artifact paths, and schema
+   version). See the [project initialization grammar][project-init-grammar].
 2. Creates a contributor branch for the initial Sketch.
 3. Enters the Sketching phase.
 
@@ -486,8 +486,9 @@ Before approval, the Drafting Table presents one coherent final summary:
 
 1. **Explicit approval:** The user approves the exact presented revision.
    Approval cannot be inferred from silence or partial acceptances.
-2. **Commit and PR:** The agent commits artifacts via `ears-manager` and Git
-   (#30, #34), then prepares a PR against `main`. Multi-player and web modes
+2. **Commit and PR:** The agent commits artifacts via
+   [`ears-manager`](ears-manager-cli.md) and Git (#34), then prepares a PR
+   against `main`. Multi-player and web modes
    require reviewer merge; single-player mode permits the contributor to merge
    their own PR without a separate reviewer.
 3. **Single-player registration:** A self-merged PR still requires the local
@@ -912,3 +913,5 @@ OAuth tokens, hosted session manager, or live cloud services.
   external factory projects, and lessons learned
 - [ADR-0001](../decisions/0001-requirements-storage-format.md) — Requirements
   storage format
+
+[project-init-grammar]: ears-manager-cli.md#project-initialization-grammar

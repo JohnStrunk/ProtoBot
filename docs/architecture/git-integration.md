@@ -198,9 +198,9 @@ one before it:
    its registry.
 3. Run `change-set create`, which writes the manifest and records
    the default-branch head as `base_commit`.
-4. Commit three files — `project.yaml`, the manifest, and
-   `projection.yaml` with the `shared` class of each registered
-   path — then open the pull request and merge.
+4. Commit `.protobot/project.yaml`, `.protobot/projection.yaml`, and the
+   initial change-set manifest, with the `shared` class of each registered
+   path, then open the pull request and merge.
 
 The default branch must already have at least one commit, because
 a branch needs a base and a manifest needs a `base_commit`. A Git
@@ -257,13 +257,11 @@ an existing project points its entries at the files it already
 has.
 
 Two of these entries name a directory rather than a file. ADR-0002
-defines `requirement-store` as a directory and `change-set` as a
-single manifest file
-([ADR-0002][adr2-registry]), so the folder entry above uses a kind
-that describes one of its members. The registry needs either a
-directory kind for the folder or a rule that a `change-set` entry
-may name the folder. Whichever way ADR-0002 and #30 settle it, the
-digest rule below already covers both.
+defines `requirement-store` as a directory. This contract also defines
+the fixed `.protobot/change-sets/` entry as a `change-set` registry
+aggregate; individual `cs-<nnn>.yaml` manifests use the same kind as
+their own entries. The directory digest covers its canonical manifest
+set, so additions and deletions are integrity-visible.
 
 ### One change set, one file
 
@@ -738,7 +736,7 @@ operations at the harness permission layer.
 
 | Operation | Constraint |
 | --- | --- |
-| Initialize the control namespace | Through `ears-manager project init`; commits `.protobot/project.yaml` on a change-set branch |
+| Initialize the control namespace | `ears-manager project init` writes `.protobot/project.yaml` and `.protobot/projection.yaml` without committing; Git commits them with the initial manifest on the change-set branch |
 | Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base` |
 | Fetch | From `repository.canonical_remote` only |
 | Create a change-set branch | Named `cs/<nnn>-<slug>`, cut from `repository.default_branch` |

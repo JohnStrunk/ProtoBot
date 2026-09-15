@@ -19,7 +19,7 @@
 - [Golden fixture](#golden-fixture)
 - [Acceptance evidence](#acceptance-evidence)
 - [Decision for Q18](#decision-for-q18)
-- [Related documents](#related-documents)
+- [Related Documents](#related-documents)
 
 ## Purpose and scope
 
@@ -232,8 +232,10 @@ the binary version without reading the project.
   active change set.
 - Path containment is validated before any read or write. Absolute paths,
   `..` escapes, symlink-resolution failures, and reserved control/workflow
-  paths return `artifact.invalid_path` or `artifact.write_not_allowed`,
-  status `4`, and `mutation: "none"`; diagnostics never echo an unsafe or
+  paths in artifact operations return `artifact.invalid_path` or
+  `artifact.write_not_allowed`, status `4`, and `mutation: "none"`.
+  `project init --vision` and `--architecture` use `project.invalid_path` for
+  the same containment failures. Diagnostics never echo an unsafe or
   credential-bearing path.
 - `project init` accepts credential-free `https://` and `ssh://` remotes and
   the standard `git@host:path` SSH form. URL passwords, tokens, and other
@@ -319,7 +321,7 @@ disposition.
 ### Read and analysis grammar
 
 ```text
-artifact get --id ARTIFACT-ID [--at FULL-SHA]
+artifact get (--id ARTIFACT-ID | --kind KIND) [--at FULL-SHA]
 artifact list [--kind KIND] [--owner OWNER] [--at FULL-SHA]
 
 interface list [--type TYPE] [--status STATUS] [--at FULL-SHA]
@@ -473,14 +475,15 @@ sequence; initialization itself does not approve or commit the project.
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
 | `artifact put` | Change set, artifact ID/kind/path/owner, optional validator, and UTF-8 content | The complete registry entry, content digest, changed path, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.write_not_allowed`, or a validator diagnostic |
-| `artifact get` | Artifact ID, or kind when exactly one entry matches; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
+| `artifact get` | Exactly one of artifact ID or kind, where kind must match one entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
 `artifact put` is the only route for Vision, Architecture, interface prose,
-and external interface-IDL content. It updates the registry digest and, for a
-new registered path, the `shared` projection classification in the same
-transaction. It never executes a validator name supplied by the caller;
-validators are selected from the built-in allowlist.
+and external interface-IDL content. It updates the registry digest, records
+the artifact operation in the change-set manifest, and, for a new registered
+path, adds the `shared` projection classification in the same transaction. It
+never executes a validator name supplied by the caller; validators are
+selected from the built-in allowlist.
 
 ### Interfaces
 
@@ -517,7 +520,7 @@ explicit.
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths | `change_set.not_found` |
-| `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | Before/after manifest summary, new assessment status, and changed paths | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
+| `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
 `change-set create` allocates the next unused sequence number and records a
@@ -531,6 +534,8 @@ reuse case and corresponds to [Git and Project-Repository
 Integration](git-integration.md#project-initialization). A failed creation
 leaves neither a manifest nor a new branch.
 
+Every successful `change-set update` returns a `before` and `after` manifest
+summary, the resulting `assessment_status`, and sorted `changed_paths`.
 `change-set update --impact-file` replaces the complete impact assessment in
 one operation. The file must contain a final `applicable` or
 `not-applicable` disposition, a rationale, and an origin of `mechanical` or
@@ -569,9 +574,12 @@ Success data contains:
 }
 ```
 
-An invalid project returns the failure envelope with one or more stable
-diagnostics and status `4` (or status `3` for project discovery or
-schema-version failures). `check` never repairs files.
+An invalid specification returns the failure envelope with one or more stable
+diagnostics and status `4`; project discovery or schema-version failures use
+status `3`. When `--change-set` finds an incomplete, stale, or mismatched
+impact assessment, `check` returns status `5` so the caller refreshes and
+re-reviews state rather than revising record content. `check` never repairs
+files.
 
 ### `change-set compare`
 
@@ -614,8 +622,10 @@ intersect:
 - an explicit requirement relationship relevant to the changed set; or
 - a project-wide selector where the change affects the project boundary.
 
-Changed requirements, retired requirements, and already recorded IDs are not
-duplicated as unchanged candidates. Candidates are sorted by requirement ID.
+Changed and retired requirements are not returned as unchanged candidates.
+Every current mechanical candidate is returned, including its recorded
+disposition and rationale when an assessment already contains it. Candidates
+are sorted by requirement ID.
 The result shape is:
 
 ```json
