@@ -613,6 +613,8 @@ artifacts:
   — the open question about scope vocabulary
 - [Content Storage Model](../architecture/components.md#content-storage-model)
   — where artifact-registry entries are stored
+- [ADR-0003](0003-ears-manager-storage-layout.md)
+  — structured store layout and schema-version keys
 - #46 — the issue this ADR resolves
 - #45 — storage format (resolved by ADR-0001, independent of
   this schema)

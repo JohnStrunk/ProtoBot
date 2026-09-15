@@ -139,6 +139,7 @@ This document adds a `repository` block for the Git-facing fields:
 | `repository.review_mode` | `single-player` or `multi-player`. Declares the review ceremony. |
 | `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager check` rejects it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
 | `schema_versions` | One version per store, as decided by [ADR-0002][adr2-versioning]. |
+| `stores` | Relative paths for the requirement, interface, and change-set stores, as decided by [ADR-0003](../decisions/0003-ears-manager-storage-layout.md). |
 | `artifacts` | The artifact registry: `id`, `kind`, `path`, `digest`, `owner`, and optional `validator` per entry ([ADR-0002][adr2-registry]). |
 
 `ears-manager` owns this file and is the only writer
@@ -238,35 +239,23 @@ through the `ears-manager` initialization operation that
 [Project initialization](#project-initialization) records as a
 dependency on #30. The proposed default is:
 
-| Registry entry | `kind` | Proposed path |
+| Managed path | Role | Proposed path |
 | --- | --- | --- |
-| `vision` | `vision` | `docs/vision.md` |
-| `architecture` | `architecture` | `docs/architecture.md` |
-| `requirements` | `requirement-store` | `.protobot/requirements/` |
-| `change-sets` | `change-set` | `.protobot/change-sets/` |
+| `vision` | opaque artifact | `docs/vision.md` |
+| `architecture` | opaque artifact | `docs/architecture.md` |
+| `requirements` | structured requirement store | `.protobot/requirements/` |
+| `interfaces` | structured interface store | `.protobot/interfaces/` |
+| `change-sets` | structured change-set store | `.protobot/change-sets/` |
 
 Interface IDLs and interface prose are registered as they are
 created, one entry per artifact, with the path the user chooses.
 
-The requirement store sits inside `.protobot/` by default, because
-`ears-manager` manages every record in it and keeping those files
-together leaves the rest of the tree to the project. The path is
-still a registry entry, so a project may point it elsewhere.
-
-`.protobot/change-sets/` is fixed by the
-[Content Storage Model](components.md#content-storage-model) and
-is not a user choice. The other paths are defaults, not mandates:
-an existing project points its entries at the files it already
-has.
-
-Two of these entries name a directory rather than a file. ADR-0002
-defines `requirement-store` as a directory and `change-set` as a
-single manifest file
-([ADR-0002][adr2-registry]), so the folder entry above uses a kind
-that describes one of its members. The registry needs either a
-directory kind for the folder or a rule that a `change-set` entry
-may name the folder. Whichever way ADR-0002 and #30 settle it, the
-digest rule below already covers both.
+The three structured store paths are recorded in the `stores` block
+of `project.yaml`, with defaults and filename mapping defined by
+[ADR-0003](../decisions/0003-ears-manager-storage-layout.md). A
+project may register different relative paths that remain inside the
+working tree. The `artifacts` list remains for opaque Vision,
+Architecture, interface-IDL, and interface-prose files.
 
 ### One change set, one file
 
@@ -290,12 +279,10 @@ abandoned change set is deleted with its branch, so it never
 reaches the default branch. Every file in the folder is a
 permanent audit record of one approved specification transaction.
 
-The layout _inside_ the requirement store — flat or mirroring the
-specification levels, and the file-naming convention — stays with
-`ears-manager` and remains an open design question
-([`ears-manager` — Open design questions](components.md#ears-manager)).
-This document constrains only which paths may be committed and by
-whom.
+The minimum layout inside each structured store and the file-naming
+convention are defined by
+[ADR-0003](../decisions/0003-ears-manager-storage-layout.md). This
+document constrains which paths may be committed and by whom.
 
 ### Path rules
 
