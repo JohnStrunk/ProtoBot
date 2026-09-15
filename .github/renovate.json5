@@ -95,6 +95,15 @@
       "pinDigests": true,
     },
     {
+      // Renovate itself releases many times per day; the config-validator
+      // hook doesn't need that cadence. Limit to one update per week to
+      // avoid PR/CI churn from the renovate/pre-commit-hooks stream.
+      "description": "Weekly-only updates for the Renovate pre-commit hook",
+      "matchPackageNames": ["renovatebot/pre-commit-hooks"],
+      "schedule": ["before 4am on Monday"],
+      "updateNotScheduled": false,
+    },
+    {
       // Keep the Skillsaw hook and its config version in sync.
       "description": "Group Skillsaw hook and config updates",
       "groupName": "skillsaw",
