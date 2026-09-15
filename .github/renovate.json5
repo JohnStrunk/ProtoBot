@@ -101,6 +101,10 @@
       "description": "Weekly-only updates for the Renovate pre-commit hook",
       "matchPackageNames": ["renovatebot/pre-commit-hooks"],
       "schedule": ["before 4am on Monday"],
+      // When using schedule to throttle a package, also set
+      // updateNotScheduled: false so already-open PRs are blocked
+      // outside the window too. The default (true) otherwise keeps
+      // pushing commits to open PRs regardless of schedule.
       "updateNotScheduled": false,
     },
     {
