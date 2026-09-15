@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"unicode/utf8"
 
 	"github.com/redhat-et/protobot/internal/records"
@@ -70,7 +71,20 @@ func Encode(value any) ([]byte, error) {
 }
 
 func ReadFile(path string, target any) error {
-	data, err := os.ReadFile(path)
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", path, err)
+	}
+	root, err := os.OpenRoot(filepath.Dir(absolute))
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = root.Close() }()
+	name := filepath.Base(absolute)
+	if err := ensureRecordPath(root, name); err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
@@ -85,7 +99,16 @@ func WriteFile(path string, value any) error {
 	if err != nil {
 		return err
 	}
-	if err := atomicWrite(path, data); err != nil {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return fmt.Errorf("resolve %s: %w", path, err)
+	}
+	root, err := os.OpenRoot(filepath.Dir(absolute))
+	if err != nil {
+		return fmt.Errorf("open %s: %w", path, err)
+	}
+	defer func() { _ = root.Close() }()
+	if err := atomicWrite(root, ".", filepath.Base(absolute), data); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
@@ -158,28 +181,33 @@ func canonicalValue(value any) any {
 	}
 }
 
-func atomicWrite(path string, data []byte) error {
-	directory := filepath.Dir(path)
-	for {
-		if _, err := os.Stat(directory); err == nil {
+var temporarySequence uint64
+
+func atomicWrite(root *os.Root, directory, filename string, data []byte) error {
+	if err := ensureDirectoryPath(root, directory); err != nil {
+		return err
+	}
+	if err := ensureRecordPath(root, filepath.Join(directory, filename)); err != nil {
+		return err
+	}
+
+	var temporary *os.File
+	var temporaryName string
+	for attempt := 0; attempt < 10; attempt++ {
+		temporaryName = filepath.Join(directory, fmt.Sprintf(".ears-manager-%d-%d", os.Getpid(), atomic.AddUint64(&temporarySequence, 1)))
+		var err error
+		temporary, err = root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+		if err == nil {
 			break
 		}
-		parent := filepath.Dir(directory)
-		if parent == directory {
-			return fmt.Errorf("cannot locate parent directory for %s", path)
+		if !os.IsExist(err) {
+			return err
 		}
-		directory = parent
 	}
-	temporary, err := os.CreateTemp(directory, ".ears-manager-*")
-	if err != nil {
-		return err
+	if temporary == nil {
+		return fmt.Errorf("could not create a unique temporary file")
 	}
-	temporaryName := temporary.Name()
-	defer func() { _ = os.Remove(temporaryName) }()
-	if err := temporary.Chmod(0o644); err != nil {
-		_ = temporary.Close()
-		return err
-	}
+	defer func() { _ = root.Remove(temporaryName) }()
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
 		return err
@@ -191,5 +219,8 @@ func atomicWrite(path string, data []byte) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporaryName, path)
+	if err := root.Rename(temporaryName, filepath.Join(directory, filename)); err != nil {
+		return err
+	}
+	return syncDirectory(root, directory)
 }

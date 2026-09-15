@@ -156,6 +156,39 @@ func TestCanonicalEncodingNormalizesAllRecordTypes(t *testing.T) {
 	if !bytes.Equal(left, right) {
 		t.Fatal("change-set records with reordered lists did not canonicalize identically")
 	}
+	collisionFirst := changeSetFirst
+	collisionFirst.Operations = []records.RequirementOperation{
+		{Action: "add", RequirementID: "REQ-A-001", Rationale: "z"},
+		{Action: "add", RequirementID: "REQ-A-001", Rationale: "a"},
+	}
+	collisionFirst.InterfaceOperations = []records.InterfaceOperation{
+		{Action: "add", InterfaceID: "api-gateway", Rationale: "z"},
+		{Action: "add", InterfaceID: "api-gateway", Rationale: "a"},
+	}
+	collisionFirst.ArtifactOperations = []records.ArtifactOperation{
+		{Action: "add", ArtifactID: "architecture", Rationale: "z"},
+		{Action: "add", ArtifactID: "architecture", Rationale: "a"},
+	}
+	collisionFirst.ImpactAssessment = []records.ImpactAssessment{
+		{RequirementID: "REQ-A-001", Disposition: "applicable", Rationale: "z", Origin: "semantic"},
+		{RequirementID: "REQ-A-001", Disposition: "applicable", Rationale: "a", Origin: "mechanical"},
+	}
+	collisionSecond := collisionFirst
+	collisionSecond.Operations = append([]records.RequirementOperation(nil), collisionFirst.Operations[1], collisionFirst.Operations[0])
+	collisionSecond.InterfaceOperations = append([]records.InterfaceOperation(nil), collisionFirst.InterfaceOperations[1], collisionFirst.InterfaceOperations[0])
+	collisionSecond.ArtifactOperations = append([]records.ArtifactOperation(nil), collisionFirst.ArtifactOperations[1], collisionFirst.ArtifactOperations[0])
+	collisionSecond.ImpactAssessment = append([]records.ImpactAssessment(nil), collisionFirst.ImpactAssessment[1], collisionFirst.ImpactAssessment[0])
+	left, err = Encode(collisionFirst)
+	if err != nil {
+		t.Fatalf("Encode(collisionFirst) returned error: %v", err)
+	}
+	right, err = Encode(collisionSecond)
+	if err != nil {
+		t.Fatalf("Encode(collisionSecond) returned error: %v", err)
+	}
+	if !bytes.Equal(left, right) {
+		t.Fatal("change-set records with colliding primary keys did not canonicalize identically")
+	}
 
 	projectFirst := records.ProjectConfig{
 		SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
@@ -176,5 +209,21 @@ func TestCanonicalEncodingNormalizesAllRecordTypes(t *testing.T) {
 	}
 	if !bytes.Equal(left, right) {
 		t.Fatal("project configs with reordered artifacts did not canonicalize identically")
+	}
+	projectFirst.Artifacts = []records.ArtifactEntry{
+		{ID: "vision", Kind: records.ArtifactVision, Path: "docs/z.md", Digest: "sha256:z", Owner: "user"},
+		{ID: "vision", Kind: records.ArtifactVision, Path: "docs/a.md", Digest: "sha256:a", Owner: "user"},
+	}
+	projectSecond.Artifacts = append([]records.ArtifactEntry(nil), projectFirst.Artifacts[1], projectFirst.Artifacts[0])
+	left, err = Encode(projectFirst)
+	if err != nil {
+		t.Fatalf("Encode(projectFirst collision) returned error: %v", err)
+	}
+	right, err = Encode(projectSecond)
+	if err != nil {
+		t.Fatalf("Encode(projectSecond collision) returned error: %v", err)
+	}
+	if !bytes.Equal(left, right) {
+		t.Fatal("project configs with colliding artifact IDs did not canonicalize identically")
 	}
 }

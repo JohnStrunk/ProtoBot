@@ -16,6 +16,7 @@ func TestStoreSaveLoadAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
+	defer func() { _ = store.Close() }()
 	first := records.Requirement{ID: "REQ-Z-001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
 	second := records.Requirement{ID: "REQ-A-001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
 	if err := store.Save(first); err != nil {
@@ -70,6 +71,7 @@ func TestStoreListRejectsRecordSymlinkEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New returned error: %v", err)
 	}
+	defer func() { _ = store.Close() }()
 	value := records.Requirement{ID: "REQ-A-001", Type: records.EARSUbiquitous, Text: "The system shall work.", Provenance: records.ProvenanceUserAuthored, Created: "2026-09-15T10:00:00Z"}
 	if err := store.Save(value); err != nil {
 		t.Fatalf("Save returned error: %v", err)

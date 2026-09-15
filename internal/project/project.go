@@ -110,6 +110,7 @@ func (p *Project) SaveArtifact(artifact records.ArtifactEntry) error {
 		return err
 	}
 	config := p.Config
+	config.Artifacts = append([]records.ArtifactEntry(nil), p.Config.Artifacts...)
 	found := false
 	for i := range config.Artifacts {
 		if config.Artifacts[i].ID == artifact.ID {

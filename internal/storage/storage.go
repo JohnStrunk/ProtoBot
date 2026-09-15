@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,7 +17,8 @@ type Codec[T any] struct {
 }
 
 type Store[T any] struct {
-	root              string
+	root              *os.Root
+	rootPath          string
 	relativeDirectory string
 	directory         string
 	filename          func(string) (string, error)
@@ -36,14 +39,38 @@ func New[T any](root, relativeDirectory string, filename func(string) (string, e
 	if _, err := os.Stat(root); err != nil {
 		return nil, fmt.Errorf("store root %s: %w", root, err)
 	}
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("open store root %s: %w", root, err)
+	}
 	directory, err := ValidatePathWithin(root, relativeDirectory)
 	if err != nil {
+		_ = rootHandle.Close()
 		return nil, fmt.Errorf("store directory: %w", err)
 	}
-	if info, err := os.Stat(directory); err == nil && !info.IsDir() {
-		return nil, fmt.Errorf("store path %s is not a directory", relativeDirectory)
+	if info, err := rootHandle.Lstat(relativeDirectory); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			_ = rootHandle.Close()
+			return nil, fmt.Errorf("store path %s must not be a symlink", relativeDirectory)
+		}
+		if !info.IsDir() {
+			_ = rootHandle.Close()
+			return nil, fmt.Errorf("store path %s is not a directory", relativeDirectory)
+		}
+	} else if !os.IsNotExist(err) {
+		_ = rootHandle.Close()
+		return nil, fmt.Errorf("inspect store path %s: %w", relativeDirectory, err)
 	}
-	return &Store[T]{root: root, relativeDirectory: relativeDirectory, directory: directory, filename: filename, codec: codec}, nil
+	return &Store[T]{root: rootHandle, rootPath: root, relativeDirectory: relativeDirectory, directory: directory, filename: filename, codec: codec}, nil
+}
+
+func (s *Store[T]) Close() error {
+	if s.root == nil {
+		return nil
+	}
+	err := s.root.Close()
+	s.root = nil
+	return err
 }
 
 func ValidatePathWithin(root, relativePath string) (string, error) {
@@ -91,23 +118,34 @@ func ValidatePathWithin(root, relativePath string) (string, error) {
 }
 
 func (s *Store[T]) PathForID(id string) (string, error) {
-	filename, err := s.filename(id)
+	filename, _, err := s.relativePathForID(id)
 	if err != nil {
 		return "", err
 	}
-	if filepath.Base(filename) != filename || filepath.Ext(filename) != ".yaml" {
-		return "", fmt.Errorf("filename mapper returned unsafe filename %q", filename)
+	return ValidatePathWithin(s.rootPath, filepath.Join(s.relativeDirectory, filename))
+}
+
+func (s *Store[T]) relativePathForID(id string) (string, string, error) {
+	filename, err := s.filename(id)
+	if err != nil {
+		return "", "", err
 	}
-	return ValidatePathWithin(s.root, filepath.Join(s.relativeDirectory, filename))
+	if filepath.Base(filename) != filename || filepath.Ext(filename) != ".yaml" {
+		return "", "", fmt.Errorf("filename mapper returned unsafe filename %q", filename)
+	}
+	return filename, filepath.Join(s.relativeDirectory, filename), nil
 }
 
 func (s *Store[T]) Load(id string) (T, error) {
 	var zero T
-	path, err := s.PathForID(id)
+	_, relativePath, err := s.relativePathForID(id)
 	if err != nil {
 		return zero, err
 	}
-	data, err := os.ReadFile(path)
+	if err := ensureRecordPath(s.root, relativePath); err != nil {
+		return zero, fmt.Errorf("record %s: %w", id, err)
+	}
+	data, err := s.root.ReadFile(relativePath)
 	if err != nil {
 		return zero, fmt.Errorf("read record %s: %w", id, err)
 	}
@@ -126,7 +164,7 @@ func (s *Store[T]) Save(value T) error {
 	if id == "" {
 		return fmt.Errorf("record id must not be empty")
 	}
-	path, err := s.PathForID(id)
+	filename, relativePath, err := s.relativePathForID(id)
 	if err != nil {
 		return err
 	}
@@ -134,17 +172,37 @@ func (s *Store[T]) Save(value T) error {
 	if err != nil {
 		return fmt.Errorf("encode record %s: %w", id, err)
 	}
-	if err := os.MkdirAll(s.directory, 0o755); err != nil {
+	if err := s.root.MkdirAll(s.relativeDirectory, 0o755); err != nil {
 		return fmt.Errorf("create store directory: %w", err)
 	}
-	if err := atomicWrite(path, data); err != nil {
+	if err := ensureDirectoryPath(s.root, s.relativeDirectory); err != nil {
+		return fmt.Errorf("store directory: %w", err)
+	}
+	if err := ensureRecordPath(s.root, relativePath); err != nil {
+		return fmt.Errorf("record %s: %w", id, err)
+	}
+	if err := atomicWrite(s.root, s.relativeDirectory, filename, data); err != nil {
 		return fmt.Errorf("save record %s: %w", id, err)
 	}
 	return nil
 }
 
 func (s *Store[T]) List() ([]T, error) {
-	entries, err := os.ReadDir(s.directory)
+	if err := ensureDirectoryPath(s.root, s.relativeDirectory); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []T{}, nil
+		}
+		return nil, fmt.Errorf("store directory: %w", err)
+	}
+	directory, err := s.root.Open(s.relativeDirectory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []T{}, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read store directory: %w", err)
+	}
+	defer func() { _ = directory.Close() }()
+	entries, err := directory.ReadDir(-1)
 	if os.IsNotExist(err) {
 		return []T{}, nil
 	}
@@ -160,11 +218,15 @@ func (s *Store[T]) List() ([]T, error) {
 		if filepath.Ext(entry.Name()) != ".yaml" {
 			return nil, fmt.Errorf("unexpected file %q in store", entry.Name())
 		}
-		recordPath, err := ValidatePathWithin(s.root, filepath.Join(s.relativeDirectory, entry.Name()))
+		relativePath := filepath.Join(s.relativeDirectory, entry.Name())
+		if err := ensureRecordPath(s.root, relativePath); err != nil {
+			return nil, fmt.Errorf("record file %s: %w", entry.Name(), err)
+		}
+		recordPath, err := ValidatePathWithin(s.rootPath, relativePath)
 		if err != nil {
 			return nil, fmt.Errorf("record file %s: %w", entry.Name(), err)
 		}
-		data, err := os.ReadFile(recordPath)
+		data, err := s.root.ReadFile(relativePath)
 		if err != nil {
 			return nil, fmt.Errorf("read record file %s: %w", entry.Name(), err)
 		}
@@ -177,12 +239,51 @@ func (s *Store[T]) List() ([]T, error) {
 		if err != nil {
 			return nil, fmt.Errorf("record file %s: %w", entry.Name(), err)
 		}
-		if filepath.Clean(expected) != filepath.Clean(filepath.Join(s.directory, entry.Name())) {
+		if filepath.Clean(expected) != filepath.Clean(recordPath) {
 			return nil, fmt.Errorf("record id %q does not match filename %q", id, entry.Name())
 		}
 		result = append(result, value)
 	}
 	return result, nil
+}
+
+func ensureDirectoryPath(root *os.Root, path string) error {
+	clean := filepath.Clean(path)
+	if clean == "." {
+		return nil
+	}
+	current := "."
+	for _, component := range strings.Split(clean, string(os.PathSeparator)) {
+		if component == "" || component == "." {
+			continue
+		}
+		current = filepath.Join(current, component)
+		info, err := root.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("path component %q is a symlink", current)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("path component %q is not a directory", current)
+		}
+	}
+	return nil
+}
+
+func ensureRecordPath(root *os.Root, path string) error {
+	info, err := root.Lstat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("path is a symlink")
+	}
+	return nil
 }
 
 func isWithin(root, candidate string) bool {

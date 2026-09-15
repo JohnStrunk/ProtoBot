@@ -203,6 +203,7 @@ func TestProjectProvidesTypedInterfaceAndChangeSetStores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InterfaceStore returned error: %v", err)
 	}
+	defer func() { _ = interfaces.Close() }()
 	interfaceRecord := records.InterfaceRecord{ID: "api-gateway", Name: "API Gateway", Type: records.InterfaceNetworkService, Created: "2026-09-15T10:00:00Z"}
 	if err := interfaces.Save(interfaceRecord); err != nil {
 		t.Fatalf("InterfaceStore.Save returned error: %v", err)
@@ -218,6 +219,7 @@ func TestProjectProvidesTypedInterfaceAndChangeSetStores(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ChangeSetStore returned error: %v", err)
 	}
+	defer func() { _ = changeSets.Close() }()
 	changeSet := records.ChangeSet{
 		ID:                     "CS-001",
 		BaseCommit:             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",

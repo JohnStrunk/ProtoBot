@@ -292,21 +292,51 @@ func CanonicalInterface(value InterfaceRecord) InterfaceRecord {
 func CanonicalChangeSet(value ChangeSet) ChangeSet {
 	value.Operations = append([]RequirementOperation(nil), value.Operations...)
 	sort.Slice(value.Operations, func(i, j int) bool {
-		return operationKey(value.Operations[i].Action, value.Operations[i].RequirementID) < operationKey(value.Operations[j].Action, value.Operations[j].RequirementID)
+		return lessStrings(
+			value.Operations[i].Action,
+			value.Operations[i].RequirementID,
+			value.Operations[i].Rationale,
+			value.Operations[j].Action,
+			value.Operations[j].RequirementID,
+			value.Operations[j].Rationale,
+		)
 	})
 	value.InterfaceOperations = append([]InterfaceOperation(nil), value.InterfaceOperations...)
 	sort.Slice(value.InterfaceOperations, func(i, j int) bool {
-		return operationKey(value.InterfaceOperations[i].Action, value.InterfaceOperations[i].InterfaceID) < operationKey(value.InterfaceOperations[j].Action, value.InterfaceOperations[j].InterfaceID)
+		return lessStrings(
+			value.InterfaceOperations[i].Action,
+			value.InterfaceOperations[i].InterfaceID,
+			value.InterfaceOperations[i].Rationale,
+			value.InterfaceOperations[j].Action,
+			value.InterfaceOperations[j].InterfaceID,
+			value.InterfaceOperations[j].Rationale,
+		)
 	})
 	value.ArtifactOperations = append([]ArtifactOperation(nil), value.ArtifactOperations...)
 	sort.Slice(value.ArtifactOperations, func(i, j int) bool {
-		return operationKey(value.ArtifactOperations[i].Action, value.ArtifactOperations[i].ArtifactID) < operationKey(value.ArtifactOperations[j].Action, value.ArtifactOperations[j].ArtifactID)
+		return lessStrings(
+			value.ArtifactOperations[i].Action,
+			value.ArtifactOperations[i].ArtifactID,
+			value.ArtifactOperations[i].Rationale,
+			value.ArtifactOperations[j].Action,
+			value.ArtifactOperations[j].ArtifactID,
+			value.ArtifactOperations[j].Rationale,
+		)
 	})
 	value.AffectedInterfaces = sortedStrings(value.AffectedInterfaces)
 	value.AffectedScopes = sortedStrings(value.AffectedScopes)
 	value.ImpactAssessment = append([]ImpactAssessment(nil), value.ImpactAssessment...)
 	sort.Slice(value.ImpactAssessment, func(i, j int) bool {
-		return value.ImpactAssessment[i].RequirementID < value.ImpactAssessment[j].RequirementID
+		return lessStrings(
+			value.ImpactAssessment[i].RequirementID,
+			value.ImpactAssessment[i].Disposition,
+			value.ImpactAssessment[i].Rationale,
+			value.ImpactAssessment[i].Origin,
+			value.ImpactAssessment[j].RequirementID,
+			value.ImpactAssessment[j].Disposition,
+			value.ImpactAssessment[j].Rationale,
+			value.ImpactAssessment[j].Origin,
+		)
 	})
 	return value
 }
@@ -315,7 +345,20 @@ func CanonicalProjectConfig(value ProjectConfig) ProjectConfig {
 	value.Stores = value.Stores.WithDefaults()
 	value.Artifacts = append([]ArtifactEntry(nil), value.Artifacts...)
 	sort.Slice(value.Artifacts, func(i, j int) bool {
-		return value.Artifacts[i].ID < value.Artifacts[j].ID
+		return lessStrings(
+			value.Artifacts[i].ID,
+			string(value.Artifacts[i].Kind),
+			value.Artifacts[i].Path,
+			value.Artifacts[i].Digest,
+			value.Artifacts[i].Owner,
+			value.Artifacts[i].Validator,
+			value.Artifacts[j].ID,
+			string(value.Artifacts[j].Kind),
+			value.Artifacts[j].Path,
+			value.Artifacts[j].Digest,
+			value.Artifacts[j].Owner,
+			value.Artifacts[j].Validator,
+		)
 	})
 	return value
 }
@@ -329,6 +372,16 @@ func sortedStrings(values []string) []string {
 	return result
 }
 
-func operationKey(action, id string) string {
-	return action + "\x00" + id
+func lessStrings(values ...string) bool {
+	if len(values)%2 != 0 {
+		return false
+	}
+	half := len(values) / 2
+	for i := 0; i < half; i++ {
+		if values[i] == values[half+i] {
+			continue
+		}
+		return values[i] < values[half+i]
+	}
+	return false
 }
