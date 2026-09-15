@@ -76,8 +76,8 @@ func TestCanonicalEncodingIsStable(t *testing.T) {
 	second.AppliesTo.Interfaces = []string{"cli", "api-gateway"}
 	second.AppliesTo.Scopes = []string{"authentication", "security"}
 	second.Relationships = []records.Relationship{
-			{Type: "depends-on", Target: "REQ-A-00001"},
-			{Type: "related-to", Target: "REQ-Z-00001"},
+		{Type: "depends-on", Target: "REQ-A-00001"},
+		{Type: "related-to", Target: "REQ-Z-00001"},
 	}
 	second.Verification.Mode = records.VerificationIsolatedInterface
 	second.Status = records.StatusActive
