@@ -225,7 +225,7 @@ Architecture change:
 | Value | Description |
 | --- | --- |
 | `network-service` | Network service (REST API, gRPC service). Specification approach: Smithy or OpenAPI. |
-| `cli` | Command-line interface. Specification approach: command grammar and result contract in the [`ears-manager` CLI Integration Contract](../architecture/ears-manager-cli.md). |
+| `cli` | Command-line interface. Specification approach: command grammar and typed result contract defined by each CLI interface; `usage`, docopt, or `wasi:cli` may provide optional tooling. |
 | `repl` | Read-eval-print loop. Specification approach: skills and prompts define the interaction protocol. |
 | `linkable-library` | Linkable library or SDK. Specification approach: WIT (Wasm Interface Types). |
 | `web-gui` | Web GUI (HTML/CSS). Specification approach: open gap — not yet established. |

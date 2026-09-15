@@ -1,6 +1,6 @@
 # ProtoBot: `ears-manager` CLI Integration Contract
 
-> Architecture interface contract -- September 2026
+> Architecture interface contract — September 2026
 >
 > Defines the command and result boundary used by the Specification Toolkit,
 > Drafting Table, CI, and Job Site when they access governed specification
@@ -113,6 +113,17 @@ which the Drafting Table requests a change-set branch; branch naming and
 branch lifecycle still follow [Git and Project-Repository
 Integration](git-integration.md#change-set-branches).
 
+The write destination allowlist is independent of Git staging. A write may
+target a registered specification artifact, the registered requirement or
+change-set stores, `.protobot/project.yaml`, or the classification entries in
+`.protobot/projection.yaml`. New artifact paths may be project-owned
+specification paths outside reserved control directories. The CLI rejects
+`.git/`, `.github/`, `.protobot/attestations/`,
+`.protobot/test-catalog.jsonl`, and other workflow or evidence paths even
+when they resolve inside the project root. Git's deny-by-default projection
+classification remains a second, independent enforcement layer; see [Git and
+Project-Repository Integration](git-integration.md#path-rules).
+
 Except for `project init`, every record or artifact write targets an
 unapproved proposed change set. An approved manifest on the default branch is
 immutable; attempting to update it is a conflict, not a new draft.
@@ -219,6 +230,15 @@ the binary version without reading the project.
 - A write command that needs a proposed change set requires
   `--change-set CS-<NNN>`. The command never silently selects an unrelated
   active change set.
+- Path containment is validated before any read or write. Absolute paths,
+  `..` escapes, symlink-resolution failures, and reserved control/workflow
+  paths return `artifact.invalid_path` or `artifact.write_not_allowed`,
+  status `4`, and `mutation: "none"`; diagnostics never echo an unsafe or
+  credential-bearing path.
+- `project init` accepts credential-free `https://` and `ssh://` remotes and
+  the standard `git@host:path` SSH form. URL passwords, tokens, and other
+  embedded secret userinfo are rejected with
+  `project.remote_credentials`, status `4`, and no echoed remote value.
 - Record-creation commands require a caller-supplied `--created` timestamp
   in the ADR-0002 ISO 8601 format. The CLI does not add an invocation
   timestamp to a result envelope, which keeps replayed JSON deterministic.
@@ -248,6 +268,11 @@ classifies registered specification paths as `shared` in
 merge anything. The caller follows the project-initialization sequence in
 [Git and Project-Repository Integration][git-init].
 
+`--canonical-remote` must use a credential-free `https://` or `ssh://` URL,
+or the standard `git@host:path` SSH form. `project init` and `check` reject
+URL passwords, tokens, and other embedded secret userinfo with
+`project.remote_credentials`, status `4`, and no echoed remote value.
+
 ### Record mutation grammar
 
 The following options are the canonical request fields. The command may
@@ -274,14 +299,10 @@ artifact put --change-set CS-ID --id ARTIFACT-ID --kind KIND --path PATH \
 change-set create --intent TEXT [--affected-interface ID]... \
   [--affected-scope SCOPE]... --implementation-required true|false \
   [--implementation-rationale TEXT] --created ISO8601
-change-set update --id CS-ID [--intent TEXT] [--affected-interface ID]... \
+change-set update --change-set CS-ID [--intent TEXT] [--affected-interface ID]... \
   [--affected-scope SCOPE]... [--base-commit FULL-SHA] \
   [--implementation-required true|false] \
   [--implementation-rationale TEXT] [--impact-file PATH|-]
-
-change-set compare --change-set CS-ID [--against FULL-SHA]
-check [--at FULL-SHA] [--change-set CS-ID]
-impact --change-set CS-ID [--at FULL-SHA]
 ```
 
 `requirement update` preserves the record's stable ID and creation metadata.
@@ -294,6 +315,33 @@ top-level value is a list of complete `ImpactAssessment` objects. It is not
 stored as a separate artifact. Supplying it replaces the draft assessment
 atomically, after `impact` has been rerun and all entries have a final
 disposition.
+
+### Read and analysis grammar
+
+```text
+artifact get --id ARTIFACT-ID [--at FULL-SHA]
+artifact list [--kind KIND] [--owner OWNER] [--at FULL-SHA]
+
+interface list [--type TYPE] [--status STATUS] [--at FULL-SHA]
+interface show --id INTERFACE-ID [--at FULL-SHA]
+
+requirement list [--interface ID] [--scope SCOPE] [--type TYPE] \
+  [--status STATUS] [--relationship RELATIONSHIP] [--at FULL-SHA]
+requirement show --id REQUIREMENT-ID [--at FULL-SHA]
+
+change-set list [--status STATUS] [--interface ID] [--scope SCOPE] \
+  [--at FULL-SHA]
+change-set show --change-set CS-ID [--at FULL-SHA]
+change-set compare --change-set CS-ID [--against FULL-SHA]
+
+check [--at FULL-SHA] [--change-set CS-ID]
+impact --change-set CS-ID [--at FULL-SHA]
+```
+
+`--id` identifies a requirement, interface, or artifact. `--change-set`
+identifies a change set in every command that operates on an existing change
+set. `--at` selects the immutable read revision; `--against` selects the
+comparison baseline.
 
 ## Request and result protocol
 
@@ -413,7 +461,7 @@ operation. Fields inherited from ADR-0002 are not repeated in full.
 
 | Request | Success result | Diagnostic result |
 | --- | --- | --- |
-| Project ID, name, canonical remote, review mode, and optional path/branch defaults | Project identity, repository settings, schema versions, registered artifact IDs/paths, and changed paths | `project.already_initialized`, `project.not_git_root`, `project.invalid_path`, or `project.invalid_configuration` |
+| Project ID, name, canonical remote, review mode, and optional path/branch defaults | Project identity, repository settings, schema versions, registered artifact IDs/paths, and changed paths | `project.already_initialized`, `project.not_git_root`, `project.invalid_path`, `project.remote_credentials`, or `project.invalid_configuration` |
 
 The operation is the only write that does not require an existing project
 configuration or `--change-set`. It is atomic across `project.yaml` and
@@ -468,15 +516,20 @@ explicit.
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
-| `change-set show` | Change-set ID and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths | `change_set.not_found` |
-| `change-set update` | Change-set ID plus metadata, base refresh, or complete impact assessment | Before/after manifest summary, new assessment status, and changed paths | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
-| `change-set compare` | Change-set ID and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
+| `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths | `change_set.not_found` |
+| `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | Before/after manifest summary, new assessment status, and changed paths | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
+| `change-set compare` | `--change-set CS-ID` and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
 `change-set create` allocates the next unused sequence number and records a
 full 40-character `base_commit`. Normal creation cuts the branch named by
 `repository.branch_prefix` and the slug rules in #34. Project initialization
-is the documented exception because its branch is cut before `project.yaml`
-exists. A failed creation leaves neither a manifest nor a new branch.
+is the documented exception: when the working tree is already on the
+pre-cut `cs/<nnn>-project-init` branch, the project is not yet approved, and
+that branch has no manifest, `change-set create` records the existing branch
+and does not return `change_set.branch_exists`. This is the only branch
+reuse case and corresponds to [Git and Project-Repository
+Integration](git-integration.md#project-initialization). A failed creation
+leaves neither a manifest nor a new branch.
 
 `change-set update --impact-file` replaces the complete impact assessment in
 one operation. The file must contain a final `applicable` or
@@ -494,7 +547,12 @@ ears-manager check [--at FULL-SHA] [--change-set CS-ID]
 project store, registry, projection classification, all records, and all
 referential, relationship, EARS, digest, and change-set rules. With a change
 set it additionally verifies that the proposed manifest is complete and its
-impact assessment matches the current deterministic candidate set.
+impact assessment matches the current deterministic candidate set. "Matches"
+means that every current mechanical candidate has exactly one final recorded
+disposition, every recorded `mechanical` entry is still a current mechanical
+candidate, and every `semantic` entry names an unchanged active requirement
+that is not in the change-set operations. Semantic entries are permitted
+extras; unreviewed or duplicate entries are not.
 
 Success data contains:
 
@@ -610,9 +668,15 @@ Retired requirements are retained in the change-set delta but are never
 delivery obligations.
 
 If `impact` finds no candidates, `assessment_status` is `complete` only when
-the change set has no unreviewed recorded entries. If the affected scope or
-base commit changes, a prior complete assessment becomes `stale` and
-approval is blocked until it is rerun and reviewed.
+the change set has no unreviewed recorded entries. A prior complete assessment
+becomes `stale` whenever any input that can alter the mechanical candidate set
+changes: the base commit, affected interfaces, affected scopes, changed
+requirement/interface/artifact operations, or relevant requirement
+relationships and applicability records. `assessment_status` is `incomplete`
+when current candidates lack final dispositions, `stale` when the recorded
+assessment was computed from different inputs, and `complete` only when the
+matching rule above passes. Approval is blocked for either incomplete or
+stale status.
 
 ## Atomicity and failure behavior
 
@@ -622,7 +686,11 @@ Every mutating command follows this sequence:
 2. Load the complete affected store using safe parsing.
 3. Validate the request and all affected records, references, relationships,
    registered paths, and projection classifications.
-4. Verify the change set is proposed and its base/revision is current.
+4. For an existing-change-set write, verify that the change set is proposed
+   and its base/revision is current. `project init` instead verifies that the
+   control namespace is absent; `change-set create` verifies project
+   configuration, base availability, branch state, and the initialization
+   branch-reuse rule.
 5. Write a complete replacement set through a temporary file or directory.
 6. Re-read and validate the replacement set.
 7. Atomically replace the governed paths and return the result.
@@ -630,7 +698,8 @@ Every mutating command follows this sequence:
 No failed validation writes a partial record, registry entry, digest, or
 manifest operation. A failure after an external filesystem or Git operation
 cannot be proven rolled back returns status `6` and `mutation: "unknown"`;
-the caller must reconcile with `show`, `status`, or `check` before retrying.
+the caller must reconcile with the applicable resource-specific `show`
+command and `check` before retrying.
 
 The caller must preserve the current checkpoint on every non-zero result. It
 must not turn a failed write into conversational success or edit a governed
@@ -702,25 +771,27 @@ This closes the implementation-blocking part of
 [Q18](open-questions.md#q18-cli-interface-spec-evaluation) without adding a
 new design track.
 
-## Related documents
+---
 
-- [Vision](../vision.md) -- purpose, users, outcomes, and prototype boundary
-- [Architecture](../architecture.md) -- external interfaces, persistent
+## Related Documents
+
+- [Vision](../vision.md) — Purpose, users, outcomes, and prototype boundary
+- [Architecture](../architecture.md) — External interfaces, persistent
   state, and environmental constraints
-- [Overview](overview.md) -- specification hierarchy, modes, and workflow
-- [System Components](components.md) -- component responsibilities and
+- [Overview](overview.md) — Specification hierarchy, modes, and workflow
+- [System Components](components.md) — Component responsibilities and
   `ears-manager` behavior
-- [User Interaction Flow](user-interaction-flow.md) -- Sketching,
+- [User Interaction Flow](user-interaction-flow.md) — Sketching,
   Dimensioning, and impact review
-- [Drafting Table UX](drafting-table-ux.md) -- user-visible checkpoints and
+- [Drafting Table UX](drafting-table-ux.md) — User-visible checkpoints and
   approval behavior
-- [Git and Project-Repository Integration](git-integration.md) -- branches,
+- [Git and Project-Repository Integration](git-integration.md) — Branches,
   commits, pull requests, and approved state
-- [Open Design Questions](open-questions.md) -- remaining unresolved design
+- [Open Design Questions](open-questions.md) — Remaining unresolved design
   questions
-- [ADR-0001](../decisions/0001-requirements-storage-format.md) -- physical
+- [ADR-0001](../decisions/0001-requirements-storage-format.md) — Physical
   storage format
-- [ADR-0002](../decisions/0002-ears-specification-record-schema.md) --
-  logical record schema
+- [ADR-0002](../decisions/0002-ears-specification-record-schema.md) —
+  Logical record schema
 
 [git-init]: git-integration.md#project-initialization

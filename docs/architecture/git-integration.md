@@ -208,15 +208,12 @@ host creates that commit when the repository is created. An empty
 repository is initialized by the user first, outside this
 contract.
 
-No `ears-manager` subcommand writes `project.yaml` today. Neither
-the CLI contract in
-[architecture.md](../architecture.md#ears-manager-cli) nor the
-subcommand table in
-[components.md](components.md#subcommands) lists one. This
-contract therefore depends on #30 defining a project
-initialization operation that writes `project.yaml`, seeds the
-artifact registry, and records the schema versions. Until that
-operation exists, fixture step 1 has no command to run.
+The `ears-manager project init` command writes `project.yaml`, seeds the
+artifact registry, records the schema versions, and classifies the registered
+paths. The command and result boundary are defined in the
+[`ears-manager` CLI Integration Contract](ears-manager-cli.md). The Git
+fixture's initialization step invokes that command before creating the
+initial change-set manifest.
 
 Adopting an existing repository never rewrites its history and
 never moves existing files. It registers the paths that are
@@ -235,9 +232,8 @@ Drafting Table never stages it.
 
 At initialization the Drafting Table proposes a default layout and
 the user confirms or changes it before the commit. The write goes
-through the `ears-manager` initialization operation that
-[Project initialization](#project-initialization) records as a
-dependency on #30. The proposed default is:
+through `ears-manager project init` as described by
+[Project initialization](#project-initialization). The proposed default is:
 
 | Registry entry | `kind` | Proposed path |
 | --- | --- | --- |
@@ -742,7 +738,7 @@ operations at the harness permission layer.
 
 | Operation | Constraint |
 | --- | --- |
-| Initialize the control namespace | Through the `ears-manager` operation #30 must define; commits `.protobot/project.yaml` on a change-set branch |
+| Initialize the control namespace | Through `ears-manager project init`; commits `.protobot/project.yaml` on a change-set branch |
 | Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base` |
 | Fetch | From `repository.canonical_remote` only |
 | Create a change-set branch | Named `cs/<nnn>-<slug>`, cut from `repository.default_branch` |
@@ -917,6 +913,8 @@ resurface.
 - [System Components](components.md) — Component architecture,
   the content storage model, the multi-player workflow, and
   cross-cutting concerns.
+- [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
+  Command grammar, results, diagnostics, and impact review.
 - [User Interaction Flow](user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Open Design Questions](open-questions.md) — Unresolved design

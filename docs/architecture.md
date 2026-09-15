@@ -640,6 +640,7 @@ catching violations before they reach CI.
 
 | Tool | System | Operations |
 | --- | --- | --- |
+| `ears-manager project init` | Specification store | Initialize the project control namespace and registered specification paths |
 | `ears-manager requirement *` | Specification store | Add, list, show, update, retire requirements |
 | `ears-manager interface *` | Specification store | Add, list, show, update interfaces |
 | `ears-manager artifact put/get/list` | Specification store | Manage Vision, Architecture, IDL artifacts |
@@ -856,7 +857,7 @@ that contract.
 - [System Components](architecture/components.md) — Component architecture,
   interfaces, and cross-cutting concerns
 - [`ears-manager` CLI Integration Contract](architecture/ears-manager-cli.md)
-  — command grammar, results, diagnostics, and impact review
+  — Command grammar, results, diagnostics, and impact review
 - [Git and Project-Repository
   Integration](architecture/git-integration.md) — Project
   identification, branches, commits, PR preparation, and approved

@@ -99,7 +99,7 @@ ongoing interactive work happens.
 | Interface Type | Spec Approach | Example |
 | --- | --- | --- |
 | Network service | Smithy / OpenAPI | REST API, gRPC service |
-| CLI | Command grammar and result contract in the [`ears-manager` CLI Integration Contract](ears-manager-cli.md) | Build tool, code generator |
+| CLI | Command grammar and typed result contract defined by each CLI interface; `usage`, docopt, or `wasi:cli` may provide optional tooling | Build tool, code generator |
 | REPL | Skills and prompts define the interaction protocol | Interactive notebook |
 | Linkable library | WIT (Wasm Interface Types) | Shared SDK module |
 | Web GUI (html/css) | _(open gap — not yet solved)_ | Dashboard UI |
@@ -1131,6 +1131,8 @@ whether this is achievable given Red Hat's AIA requirements.
   constraints
 - [System Components](components.md) — Component architecture,
   interfaces, and cross-cutting concerns
+- [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
+  Command grammar, results, diagnostics, and impact review
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state

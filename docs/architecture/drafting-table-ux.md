@@ -903,7 +903,7 @@ OAuth tokens, hosted session manager, or live cloud services.
 - [System Components](components.md) — Component architecture,
   interfaces, and cross-cutting concerns
 - [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
-  command grammar, results, diagnostics, and impact review
+  Command grammar, results, diagnostics, and impact review
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Open Design Questions](open-questions.md) — Unresolved design

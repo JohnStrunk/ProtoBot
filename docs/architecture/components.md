@@ -390,9 +390,11 @@ It is used by these callers:
 | `ears-manager project init` | Initialize `.protobot/project.yaml`, seed the artifact registry and schema versions, and classify registered specification paths. |
 | `ears-manager check` | Validate all spec files: EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
 | `ears-manager requirement add` | Add a new EARS requirement with interface or project-wide applicability selectors and optional narrower scopes. Validates the EARS statement and metadata before writing. |
-| `ears-manager requirement list/show/update/retire` | Read or modify requirements through a proposed change set. |
+| `ears-manager requirement list/show` | Read requirements at the working tree or an immutable `--at` revision. |
+| `ears-manager requirement update/retire` | Modify requirements through a proposed change set. |
 | `ears-manager interface add` | Register a new interface in the Architecture within the active proposed change set. |
-| `ears-manager interface list/show/update` | Read or modify interfaces through a proposed change set. |
+| `ears-manager interface list/show` | Read interfaces at the working tree or an immutable `--at` revision. |
+| `ears-manager interface update` | Modify interfaces through a proposed change set. |
 | `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest and invokes its configured validator without requiring `ears-manager` to understand every format. |
 | `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by kind or ID through the governed path registry. |
 | `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, and requirement operations. Approved change sets are immutable. |
@@ -1873,7 +1875,7 @@ confirmation.
 - [Drafting Table UX](drafting-table-ux.md) — Stable interaction
   contract for the first local Drafting Table
 - [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
-  command grammar, results, diagnostics, and impact review
+  Command grammar, results, diagnostics, and impact review
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas
 - [Related Work](related-work.md) — Red Hat internal projects,

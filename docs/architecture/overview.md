@@ -317,7 +317,7 @@ ProtoBot's own components need (CLI tools, Go binaries, etc.).
   interfaces, the content storage model, multi-player workflow,
   and cross-cutting concerns.
 - [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
-  command grammar, results, diagnostics, and impact review.
+  Command grammar, results, diagnostics, and impact review.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state.
