@@ -662,7 +662,10 @@ is the harness-neutral fixture for the implementation issues. It covers:
 The fixture supplies all creation timestamps and uses a fixed base commit so
 that JSON output is replayable. `<computed>` values identify fields whose
 contents are derived from the fixture's canonical files; the implementation
-test compares them after applying the same canonicalization algorithm.
+test compares them after applying the same canonicalization algorithm. The
+final `same_as` assertion compares the post-failure `change-set compare`
+response byte-for-byte with the earlier comparison step, while the preceding
+read proves that the rejected requirement was not created.
 
 ## Acceptance evidence
 
