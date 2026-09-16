@@ -166,6 +166,12 @@ You are the ProtoBot Drafting Table, running in Codex with the Codex
 binding of adapter layout 1. Begin every start summary with the line
 "Adapter: ProtoBot adapter layout 1, Codex binding."
 
+Before anything else, run the shell command `true`. The ProtoBot guard
+refuses it, and that refusal shows that the guard hook is running. If
+`true` runs instead, stop: tell the user that .codex/hooks.json is not
+trusted and must be trusted with /hooks, and do nothing else in this
+session.
+
 Your skills are these Toolkit skills and no others. Open a skill by
 reading its SKILL.md under .agents/skills/, and read its references the
 same way:
@@ -210,6 +216,13 @@ enabled = false
   line is spoken in the first turn, so the session record holds it
   ([Traces](adapter-contract.md#traces)). The two skill names are the
   manifest's `toolkit_skills`, and the fixture checks that they match.
+- **The probe is the first tool call (H8).** `true` is not a shell
+  operation, so a running guard refuses it, and the refusal reaches
+  the model. If the hook is untrusted, or was changed after it was
+  trusted, `true` runs, changes nothing, and the role stops before any
+  governed step. The probe closes the untrusted-hook and changed-hook
+  cases of Codex's fail-open hooks; it cannot see a per-call crash or
+  timeout, which H8 records.
 - **`[skills] include_instructions = false` hides every skill (H10).**
   See [Skill visibility](#skill-visibility).
 - **`approval_policy = "never"` (H7).** A command that needs approval is
@@ -255,15 +268,18 @@ read-only shell forms that count as reads. Each is one simple command:
 | Show a file or a part of it | `cat <path> ...`, `sed -n '<a>,<b>p' <path>`, `head -n <n> <path>`, `tail -n <n> <path>`, `nl -ba <path>` |
 | Count lines | `wc -l <path> ...` |
 | List a directory | `ls <path> ...`, `ls -la <path> ...`, `rg --files <path> ...` |
-| Search | `rg -n <pattern> <path> ...` |
+| Search | `rg -n -e <pattern> -- <path> ...` |
 
-Every `<path>` is named explicitly and checked after symlink
-resolution. The guard refuses a read form under `.protobot/`, of an
-`.env` file, or outside the project except a user-scope Toolkit skill
-root, and refuses a read of `<skill root>/<name>/SKILL.md` or of a file
-below it when `<name>` is not in `toolkit_skills` (guard rule 5). A
-search or listing must name a path, so a search of the whole project
-root is refused.
+Every `<path>` is named explicitly, does not start with `-`, and is
+checked after symlink resolution. `<a>`, `<b>`, and `<n>` are unsigned
+integers. `<pattern>` follows `-e` and is one shell word, so it cannot
+be parsed as an option; a pattern in any other position is refused. The
+guard refuses a read form under `.protobot/`, of a credential file, or
+outside the project except a user-scope Toolkit skill root, and
+refuses a read of `<skill root>/<name>/SKILL.md` or of a file below it
+when `<name>` is not in `toolkit_skills` (guard rule 5). A search or
+listing must name a path, so a search of the whole project root is
+refused.
 
 ### No execpolicy rules
 
@@ -326,9 +342,15 @@ discovers. Unlike the Claude Code binding, no skill stays visible.
 A hidden skill's files are still on disk, and Codex has no skill tool
 to refuse a load. The guard refuses a read form on a `SKILL.md` outside
 `toolkit_skills` ([Read forms](#read-forms)), so the model cannot load
-another skill in the role. A user can still insert a skill by typing
-`$<name>` in a prompt (documented); that is the user's own action, and
-the guard does not see it.
+another skill in the role. Codex also inserts a skill into the prompt
+when the prompt text mentions `$<name>` (documented), and the guard
+does not see that route, because it is not a tool call. Whether pasted
+text, such as IdeaBot material, triggers it too is not observed. The
+route changes what the model reads, not what it can do: the guard and
+the profile bound every effect
+([Untrusted input](adapter-contract.md#untrusted-input)). H10 records
+the gap, and the fixture confirms the reach of `$<name>` before H10 is
+marked met ([Open points](#open-points)).
 
 ### Invocation
 
@@ -362,9 +384,9 @@ file.
 | H5 | Nothing on idle or exit | No `Stop` or `SessionEnd` hook | Designed |
 | H6 | Replayable session record | The session file under `$CODEX_HOME/sessions/` and the `codex exec --json` event stream | Designed; hook events are not recorded, and a refusal is recorded as the tool output |
 | H7 | Headless replay with no permission prompt | `codex exec --json`, `approval_policy = "never"`, and a custom model provider pointed at a replay endpoint | Observed with a stub endpoint; the fixture has not run |
-| H8 | Guard before every tool call | The project hook, trusted once with `/hooks` | Observed for shell commands; an untrusted hook does not run, and a hanging guard fails open |
+| H8 | Guard before every tool call | The project hook, trusted once with `/hooks`; the profile's probe at session start | Observed for shell commands. Fail-open cases: an untrusted or changed hook (closed by the probe), a crash, an exit other than 2, or no output (closed by the guard's exit-2 rule), and a timeout (open gap) |
 | H9 | Hide file-writing, subagent, and web tools | `web_search = "disabled"`, `multi_agent = false` | Observed for web and subagent tools; `apply_patch` cannot be hidden and is refused by the guard (gap) |
-| H10 | Toolkit skills only | `include_instructions = false`; the profile names the Toolkit skills; the guard refuses any other `SKILL.md` read | Observed that the catalog is gone; the fixture has not run |
+| H10 | Toolkit skills only | `include_instructions = false`; the profile names the Toolkit skills; the guard refuses any other `SKILL.md` read | Observed that the catalog is gone; `$<name>` in the prompt text can still insert another skill's text, and the fixture has not run (gap) |
 | H11 | No credential in binding files; no session upload | Placeholders; `[analytics]` and `[feedback]` off; no `codex cloud` or `remote-control` | Designed |
 | H12 | Publish this status | This table | Met |
 | H13 | Remote `wms` server with OAuth 2.1 | `[mcp_servers.wms]` with `url` and `oauth`, and `codex mcp login wms` | Candidate; not checked |
@@ -387,8 +409,6 @@ The native layer stops less than in the other two bindings: no Codex
 rule refuses a command for the role alone, and no setting hides
 `apply_patch`. The guard carries the difference, and the later layers
 still hold ([What the harness layer stops][layer-stops]).
-
-[layer-stops]: adapter-contract.md#what-the-harness-layer-stops
 
 ---
 
@@ -496,14 +516,15 @@ clone as trusted and holds the hook's trust entry.
   developer instructions name exactly the manifest's `toolkit_skills`.
 - Its tools are `exec_command`, `write_stdin`, `request_user_input`,
   `view_image`, `apply_patch`, and the `wms` tools, and no other.
-- A replayed command that the guard refuses, in the first turn of
-  step 2, is refused, which shows that the hook is trusted and running.
+- The first tool call of every run in the role is the probe `true`,
+  and it is refused, which shows that the hook is trusted and running.
 
 ---
 
 ## Open points
 
-The fixture must confirm these before any obligation is marked met:
+The fixture must confirm these before any other obligation is marked
+met:
 
 1. Whether the hook's trust entry can be written for the fixture
    without the interactive `/hooks` review. If not, the fixture runs
@@ -520,6 +541,9 @@ The fixture must confirm these before any obligation is marked met:
 6. Whether the model, without a skill catalog, opens the Toolkit skills
    reliably from the profile's instructions. The fixture's replayed
    turns cannot show this; the skill evaluation (#63) can.
+7. Whether `$<name>` is matched in pasted prompt text as well as in
+   text the user types, and whether it still inserts a skill when
+   `include_instructions = false`.
 
 ---
 
@@ -527,14 +551,25 @@ The fixture must confirm these before any obligation is marked met:
 
 - [Agent Harness Adapter Contract](adapter-contract.md) — The
   harness-neutral contract this binding implements.
-- [OpenCode Harness Binding](opencode.md) — The first binding, the
-  only one checked by the fixture so far.
+- [OpenCode Harness Binding](opencode.md) — The first binding.
 - [Claude Code Harness Binding](claude-code.md) — The second binding.
-- [Git and Project-Repository Integration](../git-integration.md) —
-  Permitted Git operations and ungoverned-edit detection.
+- [Vision](../../vision.md) — Purpose, intended users, desired
+  outcomes, prototype scope, and non-goals.
 - [Architecture](../../architecture.md) — The Drafting Table Boundary
   and the OpenCode-plus-skill strawman.
-- [System Components](../components.md) — The Drafting Table and the
-  Specification Toolkit.
 - [Overview](../overview.md) — Single-player and multi-player modes, and
   platform.
+- [System Components](../components.md) — The Drafting Table and the
+  Specification Toolkit.
+- [Git and Project-Repository Integration](../git-integration.md) —
+  Permitted Git operations and ungoverned-edit detection.
+- [User Interaction Flow](../user-interaction-flow.md) — Phase
+  details, sequence diagrams, and change types.
+- [Drafting Table UX](../drafting-table-ux.md) — Stable interaction
+  contract for the first local Drafting Table.
+- [Open Design Questions](../open-questions.md) — Unresolved design
+  questions across all areas.
+- [Related Work](../related-work.md) — Internal and external
+  projects informing the design.
+
+[layer-stops]: adapter-contract.md#what-the-harness-layer-stops

@@ -33,6 +33,8 @@ It adds no rule of its own. Where OpenCode forces a choice, this
 document states the choice and the obligation it serves. Every
 OpenCode behavior named here was observed on OpenCode 1.18.30 with a
 replayed model ([Observed OpenCode behaviors](#observed-opencode-behaviors)).
+The fixture has not run here yet. Issue #77 runs it, and turns each
+"designed" and "observed" status into "met" or into a recorded gap.
 
 ---
 
@@ -147,6 +149,10 @@ Toolkit skills name operations. In OpenCode:
   `write`, the patch tool, `task`, `webfetch`, or `websearch`. The same
   catch-all denies `doom_loop`, so an identical call repeated three
   times is refused rather than asked about.
+- **The `read` denies are the native copy of the role's read denies.**
+  They cover `.env` files and `.protobot/`; the guard refuses the other
+  credential files that the contract names
+  ([The Drafting Table role](adapter-contract.md#the-drafting-table-role)).
 - **The `skill` rule is the manifest's `toolkit_skills` (H10).** Its
   `"*": deny` comes first, so every other skill is left out of the
   model's list and refused when called
@@ -346,19 +352,24 @@ entry point's name must differ from every skill name.
 
 | # | Obligation | OpenCode binding | Status |
 | --- | --- | --- | --- |
-| H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Met |
-| H2 | The `ears-manager` CLI and the `wms` tools for the role | `ears-manager *` in the bash rules; the `wms` entry and `wms_*` rules | Met |
-| H3 | `drafting-table` entry point | The command and the agent | Met |
-| H4 | Resume on every entry, continued session, and compaction | Command prompt and session skill; `--continue` and `--session` continue a session | Met |
-| H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Met |
-| H6 | Replayable session record | OpenCode's session record and `opencode export` | Met; the resolved rules come from `opencode debug agent` |
-| H7 | Headless replay with no permission prompt | `opencode run --format json`, a replay provider, no `ask` rules | Met |
-| H8 | Guard before every tool call | The shim | Met |
-| H9 | Hide file-writing, subagent, and web tools | `"*": deny` | Met |
-| H10 | Toolkit skills only | `skill` rule with `"*": deny` first; other skills are hidden from the model's list and refused | Met |
-| H11 | No credential in binding files; no session upload | Placeholders; `share: disabled` | Met |
+| H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Observed (behavior 1); the fixture has not run |
+| H2 | The `ears-manager` CLI and the `wms` tools for the role | `ears-manager *` in the bash rules; the `wms` entry and `wms_*` rules | Designed; pattern matching observed (behavior 5), the `wms` server not yet |
+| H3 | `drafting-table` entry point | The command and the agent | Designed; `--agent` observed in the stub runs, the command file not yet |
+| H4 | Resume on every entry, continued session, and compaction | Command prompt and session skill; `--continue` and `--session` continue a session | Designed |
+| H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Designed |
+| H6 | Replayable session record | OpenCode's session record and `opencode export`; the resolved rules come from `opencode debug agent` | Observed for `opencode export` (behavior 8) |
+| H7 | Headless replay with no permission prompt | `opencode run --format json`, a replay provider, no `ask` rules | Observed for the replay provider and the `ask` rejection (behaviors 6, 9); the fixture has not run |
+| H8 | Guard before every tool call | The shim | Observed that a thrown error in `tool.execute.before` blocks the call (behavior 7); the shim is designed |
+| H9 | Hide file-writing, subagent, and web tools | `"*": deny` | Observed (behavior 3) |
+| H10 | Toolkit skills only | `skill` rule with `"*": deny` first; other skills are hidden from the model's list and refused | Observed (behavior 2) |
+| H11 | No credential in binding files; no session upload | Placeholders; `share: disabled` | Designed |
 | H12 | Publish this status | This table | Met |
 | H13 | Remote `wms` server with OAuth 2.1 | Not checked; the fixture is single-player | Open |
+
+"Designed" means the mechanism is documented and the fixture has not
+run. "Observed" means a stub run on 1.18.30 showed it, and the number
+points at [Observed OpenCode behaviors](#observed-opencode-behaviors).
+Nothing else is marked met; issue #77 runs the fixture.
 
 What the OpenCode layer stops, by route:
 
@@ -469,11 +480,21 @@ clients, and shell.
 - [Claude Code Harness Binding](claude-code.md) — The sibling binding
   for Claude Code.
 - [Codex Harness Binding](codex.md) — The sibling binding for Codex.
-- [Git and Project-Repository Integration](../git-integration.md) —
-  Permitted Git operations and ungoverned-edit detection.
+- [Vision](../../vision.md) — Purpose, intended users, desired
+  outcomes, prototype scope, and non-goals.
 - [Architecture](../../architecture.md) — The Drafting Table Boundary and
   the OpenCode-plus-skill strawman.
-- [System Components](../components.md) — The Drafting Table and the
-  Specification Toolkit.
 - [Overview](../overview.md) — Single-player and multi-player modes, and
   platform.
+- [System Components](../components.md) — The Drafting Table and the
+  Specification Toolkit.
+- [Git and Project-Repository Integration](../git-integration.md) —
+  Permitted Git operations and ungoverned-edit detection.
+- [User Interaction Flow](../user-interaction-flow.md) — Phase
+  details, sequence diagrams, and change types.
+- [Drafting Table UX](../drafting-table-ux.md) — Stable interaction
+  contract for the first local Drafting Table.
+- [Open Design Questions](../open-questions.md) — Unresolved design
+  questions across all areas.
+- [Related Work](../related-work.md) — Internal and external
+  projects informing the design.

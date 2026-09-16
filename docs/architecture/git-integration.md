@@ -723,9 +723,10 @@ Adapter, but `ears-manager` and Git run through the harness's own
 shell tool
 ([Drafting Table Boundary](../architecture.md#drafting-table-boundary)).
 There is no Git tool schema to constrain, so this allowlist is
-what bounds the agent. In every harness, #33 also enforces it before
-each shell command runs
-([Shell operations](agent-harness/adapter-contract.md#shell-operations)).
+what bounds the agent. In every bound harness, #33 also enforces it
+before each shell command runs, as the optional early layer
+([Shell operations](agent-harness/adapter-contract.md#shell-operations));
+the later layers hold when that layer is off.
 
 ### Allowed
 
@@ -887,7 +888,7 @@ resurface.
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
 | Directory layout inside the requirement store | Open with `ears-manager` ([`ears-manager`](components.md#ears-manager)). This document constrains which paths may be committed, not how the store organizes them. |
 | `ears-manager` command and result shapes | Defined by the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
-| Harness tool permission rules | Defined by [#33](agent-harness/adapter-contract.md#the-guard). This document names the layer and its effect, not its configuration. |
+| Harness tool permission rules | Defined by [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops). This document names the layer and its effect, not its configuration. |
 | Kit import commits | Kit packaging is open ([Kits](components.md#kits)). The imported specification content arrives as a proposed change set and follows this contract. The lock file `.protobot/kits.lock` is a separate matter: no document names its writer, so this contract does not stage it. Whoever settles Kit packaging must name that owner. |
 | Conflict-resolution UX | The failure table states the deterministic diagnostic and the safe retry. How the Drafting Table presents a conflict to the user is UX (#28). |
 | Web Drafting Table working-tree hosting | Where a hosted session keeps its checkout and session state is a deployment concern ([Web Drafting Table](../architecture.md#user-facing-interfaces)). The Git rules are unchanged. |

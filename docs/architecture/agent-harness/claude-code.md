@@ -30,8 +30,8 @@ the same fixture as in OpenCode. It adds no rule of its own. Where
 Claude Code forces a choice, this document states the choice and the
 obligation it serves.
 
-Unlike the [OpenCode binding](opencode.md), the fixture has not run
-here yet. The skill and settings-source behaviors in
+The fixture has not run here yet, as on the other bindings. The skill
+and settings-source behaviors in
 [Skill visibility](#skill-visibility) were observed on 2026-09-16 in
 headless test runs. Every other behavior comes from the Claude Code
 documentation and the CLI help of version 2.1.273, read the same day. The
@@ -240,7 +240,9 @@ holds the native copy of the role's rules:
   them. This early layer is weaker than OpenCode's, and H8 carries the
   difference.
 - **The deny list hides the file-writing, subagent, and web tools
-  (H9)** and copies the two read denies of the role table.
+  (H9)** and copies the role table's `.protobot/` deny and its `.env`
+  deny; the guard refuses the other credential files that the contract
+  names.
 - **`skillOverrides` hides every skill the binding can name (H10).**
   The first six names are the project's maintenance skills in
   `.agents/skills/`; the rest are the Claude Code 2.1.273 built-in
@@ -473,7 +475,8 @@ sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 
 ## Open points
 
-The fixture must confirm these before any obligation is marked met:
+The fixture must confirm these before any other obligation is marked
+met:
 
 1. Whether an agent with a `tools` list still receives the MCP tools of
    `--mcp-config`.
@@ -500,14 +503,23 @@ The fixture must confirm these before any obligation is marked met:
 
 - [Agent Harness Adapter Contract](adapter-contract.md) — The
   harness-neutral contract this binding implements.
-- [OpenCode Harness Binding](opencode.md) — The sibling binding, the
-  only one checked so far.
+- [OpenCode Harness Binding](opencode.md) — The first binding.
 - [Codex Harness Binding](codex.md) — The sibling binding for Codex.
-- [Git and Project-Repository Integration](../git-integration.md) —
-  Permitted Git operations and ungoverned-edit detection.
+- [Vision](../../vision.md) — Purpose, intended users, desired
+  outcomes, prototype scope, and non-goals.
 - [Architecture](../../architecture.md) — The Drafting Table Boundary
   and the OpenCode-plus-skill strawman.
-- [System Components](../components.md) — The Drafting Table and the
-  Specification Toolkit.
 - [Overview](../overview.md) — Single-player and multi-player modes, and
   platform.
+- [System Components](../components.md) — The Drafting Table and the
+  Specification Toolkit.
+- [Git and Project-Repository Integration](../git-integration.md) —
+  Permitted Git operations and ungoverned-edit detection.
+- [User Interaction Flow](../user-interaction-flow.md) — Phase
+  details, sequence diagrams, and change types.
+- [Drafting Table UX](../drafting-table-ux.md) — Stable interaction
+  contract for the first local Drafting Table.
+- [Open Design Questions](../open-questions.md) — Unresolved design
+  questions across all areas.
+- [Related Work](../related-work.md) — Internal and external
+  projects informing the design.

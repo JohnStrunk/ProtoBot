@@ -44,8 +44,9 @@ binding per harness:
   what is written once and shared by every harness, and what every
   harness binding must provide.
 - **[OpenCode Harness Binding](opencode.md) is the first binding.** It
-  defines the OpenCode files that meet this contract, checked against
-  OpenCode 1.18.30.
+  defines the OpenCode files that meet this contract, designed against
+  OpenCode 1.18.30 and partly observed with a stub model. Its fixture
+  runs in #77.
 - **[Claude Code Harness Binding](claude-code.md) is the second.** It
   defines the Claude Code files, designed against the Claude Code
   2.1.273 documentation and CLI help. Its fixture has not run yet.
@@ -216,7 +217,7 @@ Drafting Table role. Only that role performs governed mutations.
 
 | Capability | Drafting Table role | Through |
 | --- | --- | --- |
-| Read project files | Yes, except `.protobot/` and `.env` files | The harness's read and search tools, or the read forms of its [tool vocabulary](#tool-vocabulary) row when it has none |
+| Read project files | Yes, except `.protobot/` and credential files | The harness's read and search tools, or the read forms of its [tool vocabulary](#tool-vocabulary) row when it has none |
 | Read files outside the project | No, except a user-scope Toolkit skill root | — |
 | Read and write registered specifications | Yes, validated | The `ears-manager` CLI, through the harness's shell tool |
 | Write a file directly | No | — |
@@ -227,7 +228,7 @@ Drafting Table role. Only that role performs governed mutations.
 | Register an approved change set | Yes, single-player, after the user merged | `register-approved-change-set` |
 | See and load skills | Toolkit skills only, in the model's skill list and in a load | The harness's skill mechanism |
 | Subagents, web fetch, web search, other MCP servers | No | — |
-| Credentials | None held and none readable | — |
+| Credentials | None held. Credential files are not readable, and a remote URL that carries one is not printed ([Credentials](#credentials)). A local harness does not isolate the user's own credentials from the user's own machine. | — |
 
 In an existing session, the conversation so far is context, not state:
 the resume steps read authoritative state whatever it says
@@ -235,11 +236,15 @@ the resume steps read authoritative state whatever it says
 governed tools, so choosing the wrong agent cannot mutate governed
 state.
 
-The two read denies have different reasons. `.env` files hold
-credentials. `.protobot/` is denied because callers never parse the
-store ([`ears-manager` CLI](../../architecture.md#ears-manager-cli)); a
-Git read command can still print its content, so that deny is a
-contract rule, not a secrecy boundary.
+The two read denies have different reasons. Credential files hold
+credentials: `.env` files, `.netrc`, `.npmrc`, `.pypirc`, and private
+keys, that is `*.pem`, `*.key`, and `id_*` files. Guard rule 5 refuses
+a read of any of them; a binding's native copy may deny fewer, and the
+guard carries the rest. `.protobot/` is denied because callers never
+parse the store
+([`ears-manager` CLI](../../architecture.md#ears-manager-cli)); a Git
+read command can still print its content, so that deny is a contract
+rule, not a secrecy boundary.
 
 ### Governed operations
 
@@ -334,14 +339,15 @@ fields, never from the command, the prompt, or the conversation:
 | `<default>` | `repository.default_branch` |
 | `<prefix>` | `repository.branch_prefix` |
 | `<branch>` | The current branch, read with `git rev-parse --abbrev-ref HEAD`. It must have the form `<prefix><nnn>-<slug>`. |
+| `<nnn>`, `<slug>` | The zero-padded change-set number, and the slug that #34 derives from the intent: lowercase letters, digits, and single hyphens, at most 40 characters ([One branch per change set](../git-integration.md#one-branch-per-change-set)) |
 | `<rev>` | `HEAD`, `<remote>/<default>`, `<branch>`, or a full 40-character commit hash |
 | `<path>` | A registered artifact path or a path below a registered directory, `.protobot/project.yaml`, or `.protobot/projection.yaml` |
 
 | Operation | Command forms | Constraint |
 | --- | --- | --- |
-| Read specifications | `ears-manager <group> list`, `<group> show`, `artifact get`, `change-set compare`, `check`, `impact`, and any `--help` | Read-only; `--output json` |
-| Write specifications | `ears-manager project init`, `artifact put`, `interface add` and `update`, `requirement add`, `update`, and `retire`, `change-set create` and `update` | `--output json`; long text on standard input in a quoted here-document; #30's grammar |
-| Read repository state | `git rev-parse --show-toplevel`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --verify <rev>`, `git status --porcelain`, `git merge-base <rev> <rev>`, `git merge-base --is-ancestor <rev> <rev>`, `git remote -v` | Read-only |
+| Read specifications | `ears-manager <read> --output json`, where `<read>` is `<group> list`, `<group> show`, `artifact get`, `change-set compare`, `check`, or `impact` with #30's arguments; and `ears-manager <any> --help` | Read-only |
+| Write specifications | `ears-manager <write> --output json` with the long text on standard input in a quoted here-document, where `<write>` is `project init`, `artifact put`, `interface add` or `update`, `requirement add`, `update`, or `retire`, or `change-set create` or `update` with #30's arguments | #30's grammar |
+| Read repository state | `git rev-parse --show-toplevel`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --verify <rev>`, `git status --porcelain`, `git merge-base <rev> <rev>`, `git merge-base --is-ancestor <rev> <rev>`, `git remote -v` | Read-only. `git remote -v` is refused when any remote URL carries userinfo, such as `user:token@`, and the refusal names the remote; #34 keeps credentials in the credential helper, never in a URL ([Repository fields](../git-integration.md#repository-fields)). |
 | Fetch | `git fetch <remote>` | Nothing after the remote |
 | Create or switch a change-set branch | `git switch -c <prefix><nnn>-<slug>`, `git switch <prefix><nnn>-<slug>` | #34's branch name |
 | Stage | `git add -- <path> ...` | On `<branch>`; every path is a `<path>`, and never `.` |
@@ -353,17 +359,26 @@ fields, never from the command, the prompt, or the conversation:
 | Read a pull request | `gh pr view <branch> --repo <repo> --json <fields>` | `<fields>` is a comma-separated subset of `number`, `state`, `url`, `baseRefName`, `headRefName`, and `mergeCommit` |
 | Register an approved change set | `register-approved-change-set` with the change-set ID of `<branch>` and the full merge commit | Single-player, after the user merged the pull request |
 
-Every command is one simple command in one of these forms, with the
-options in the order shown and nothing more. The guard refuses:
+The guard parses the command as shell words into an argument list and
+a standard-input text, and matches the list against the forms; it
+never matches the command string. Every command is one simple command
+in one of these forms, with the options in the order shown and nothing
+more. For `ears-manager`, the form is the subcommand, #30's arguments
+for it, and `--output json`, and the guard takes the argument list of
+each subcommand from #30. The guard refuses:
 
 - an option or argument that the form does not show, such as `--force`,
   `--amend`, `--no-verify`, `--delete`, or `--squash`, and with them
   every option that writes a file or runs a program, such as
-  `--output`, `--upload-pack`, `--receive-pack`, or `--exec`;
+  `--output` on a Git command, `--upload-pack`, `--receive-pack`, or
+  `--exec`;
 - a global Git option before the subcommand, such as `-c` or `-C`, and
   an environment assignment before the command;
 - output redirection, command substitution, and variable expansion
-  outside a quoted here-document body; and
+  outside a quoted here-document body;
+- a command that does not parse to exactly one simple command, so a
+  quoted here-document whose body holds its own delimiter line ends
+  early, and the second command that follows is refused; and
 - any other command, so a push to the default branch is refused before
   it runs, as the
   [repository fixture](../git-integration.md#repository-fixture)
@@ -384,9 +399,10 @@ Three properties follow from the forms:
 - **Messages, bodies, and specification text are data.** A commit
   message, a pull-request body, or a requirement text travels in a
   quoted here-document, so its text cannot become shell syntax. A
-  pull-request title travels in single quotes and holds no single
-  quote. A harness whose native patterns match here-document text may
-  refuse a text that contains a forbidden option; reword it.
+  pull-request title travels in single quotes, and a title that
+  contains a single quote is refused; reword it. A harness whose
+  native patterns match here-document text may refuse a text that
+  contains a forbidden option; reword it too.
 - **The Git host client is `gh`.** The first project is hosted on
   GitHub, so the same client serves every harness; another host's
   client gets the same shell-operation shape. `gh pr merge`, `gh api`,
@@ -463,7 +479,10 @@ document names them, and guard rules 5 and 6 treat them as reads.
 1. **Find the project.** The guard looks for `.protobot/project.yaml`
    at the root of the Git working tree that contains `cwd`, by the rule
    in [The project root](../git-integration.md#the-project-root). Without
-   one, it allows everything.
+   a `.protobot/` directory there, it allows everything: the directory
+   is not a ProtoBot project. With that directory but no readable
+   `project.yaml`, the project counts as found and the read in rule 2
+   as failed, so a malformed project fails closed.
 2. **Ask `ears-manager`.** For each decision it reads the registered
    paths through `artifact list` and the project fields through the
    read operation of #30. It never parses `project.yaml` itself
@@ -485,8 +504,8 @@ document names them, and guard rules 5 and 6 treat them as reads.
    MCP tool is refused inside the role.
 5. **The role's tool set.** Under the Drafting Table role, the guard
    refuses every file write, subagent launch, web fetch, and web search,
-   every read under `.protobot/` or of an `.env` file, and every skill
-   load not listed in `toolkit_skills`.
+   every read under `.protobot/` or of a credential file, and every
+   skill load not listed in `toolkit_skills`.
 6. **The role's shell commands.** Under the Drafting Table role, a
    command that is not one of the [shell operations](#shell-operations)
    in its exact form, or a read form of the harness's
@@ -605,9 +624,10 @@ any harness.
   Git uses the user's credential helper and `gh` its own store, whether
   the project's `review_mode` is single-player or multi-player. The
   Drafting Table role cannot print a credential: environment and
-  file-printing commands are not shell operations, `.env` reads and
-  reads outside the project are refused, and variable expansion is
-  refused.
+  file-printing commands are not shell operations, credential-file
+  reads and reads outside the project are refused, variable expansion
+  is refused, and `git remote -v` is refused when a remote URL carries
+  userinfo.
 - **The limit of a local harness.** The agent runs as the user, on the
   user's machine. The adapter narrows what the Drafting Table role can
   reach; it does not isolate a token from the user's own shell or from
@@ -709,8 +729,11 @@ The adapter places three more facts in it:
 - Each binding names its record and its export route, and states what
   the record lacks. The fixture captures anything missing, such as the
   resolved native rules, next to the export.
-- A full export holds unapproved specification text and pasted
-  material, so it is handled as confidential to the project. A
+- The role's reads and shell operations are bounded so that no
+  credential enters the record; one that enters through a route the
+  guard does not see is in the export too. A full export therefore
+  holds unapproved specification text, pasted material, and whatever
+  the role read, and is handled as confidential to the project. A
   redacted export, where the harness offers one, shows the shape of a
   session without its content.
 - The session record is harness state. It is not one of the six stores
@@ -797,9 +820,9 @@ meet one records the gap, and the later layers still hold.
 
 | Harness | Binding | Status |
 | --- | --- | --- |
-| OpenCode | [OpenCode Harness Binding](opencode.md) | H1 to H12 met on OpenCode 1.18.30; H13 not checked |
-| Claude Code | [Claude Code Harness Binding](claude-code.md) | Designed against Claude Code 2.1.273; the fixture has not run, so no obligation is marked met |
-| Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no obligation is marked met |
+| OpenCode | [OpenCode Harness Binding](opencode.md) | Designed against OpenCode 1.18.30, with skill discovery and visibility, tool hiding, rule order, pattern matching, the plugin hook, export, and the replay provider observed against a stub model; the fixture runs in #77, so no H1 to H11 obligation is marked met; H12 is met; H13 not checked |
+| Claude Code | [Claude Code Harness Binding](claude-code.md) | Designed against Claude Code 2.1.273; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met |
+| Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met |
 
 ---
 
@@ -826,7 +849,9 @@ status names it.
 ### Known extension points
 
 The table records what each harness offers for each obligation. The
-OpenCode column is bound and checked. The Claude Code column is bound
+OpenCode column is bound in [OpenCode Harness Binding](opencode.md)
+and partly observed against a stub model on 2026-09-16; its fixture
+runs in #77. The Claude Code column is bound
 in [Claude Code Harness Binding](claude-code.md) from the published
 documentation and CLI help of Claude Code 2.1.273, read on 2026-09-16,
 and not yet checked by the fixture. The Codex column is bound in
@@ -846,7 +871,7 @@ yet known. Each binding verifies its column against the version it pins.
 | Remote `wms` server with OAuth 2.1 (H13) | Open | An HTTP MCP server with OAuth through `/mcp`; candidate | A streamable HTTP MCP server with `codex mcp login`; candidate |
 | Hide tools from the role (H9) | `"*": deny` in the agent | The agent's `tools` list and deny rules | `web_search = "disabled"` and `multi_agent = false`, observed; no setting hides `apply_patch` |
 | Restrict skills (H10) | `permission.skill` with `"*": deny` first hides every other skill from the model's list and refuses it; observed | `skillOverrides` with `off` hides and refuses a named skill; `Skill(<name>)` rules never change the list; a skill in another user's scope cannot be named in advance; observed | `include_instructions = false` removes the skill catalog, and the profile names the Toolkit skills; `[[skills.config]]` hides a named skill; observed. No skill tool: the guard refuses a read of another `SKILL.md` |
-| Call the guard (H8) | A plugin's `tool.execute.before` and a shim | A `PreToolUse` command hook; status 2 blocks and the reason reaches the model | A `PreToolUse` hook in `.codex/hooks.json`; status 2 blocks, observed; the hook needs trust, and an untrusted, crashing, or silent hook lets the call through |
+| Call the guard (H8) | A plugin's `tool.execute.before` and a shim | A `PreToolUse` command hook; status 2 blocks and the reason reaches the model | A `PreToolUse` hook in `.codex/hooks.json`; status 2 blocks, observed; the hook needs trust, and an untrusted, crashing, or silent hook lets the call through; the profile probes the hook at session start |
 | Role signal for the guard | The agent name from `chat.params` | `PROTOBOT_ROLE` from the role's settings `env`; `agent_type` in the hook input is undocumented | `PROTOBOT_ROLE` set at launch reaches the hook, observed; the input names no profile |
 | Headless run (H7) | `opencode run --format json` | `claude -p --output-format stream-json --permission-prompts none` | `codex exec --json` |
 | Continue a session (H4) | `--continue`, `--session` | `--continue`, `--resume` | `codex resume`, `codex exec resume` |
@@ -907,10 +932,14 @@ registration are covered by step 8 of #34's
 - A bare repository as `origin`, and one clone in the state after step
   8 of the [repository fixture](../git-integration.md#repository-fixture):
   `CS-001` and `CS-002` merged, with `docs/vision.md` and
-  `docs/architecture.md` registered and committed. Change set `CS-003`
-  is open on its branch. `repository.canonical_remote` is a
-  GitHub-shaped URL that an `insteadOf` rule in the clone's Git config
-  rewrites to the bare repository, so `<repo>` has an owner and a name.
+  `docs/architecture.md` registered and committed. Then change set
+  `CS-003` is created with `ears-manager change-set create`, and its
+  branch `cs/003-<slug>` is cut from the default branch and checked
+  out, as step 2 of that fixture did for `CS-002`; the manifest records
+  the default-branch head as `base_commit`. `repository.canonical_remote`
+  is a GitHub-shaped URL that an `insteadOf` rule in the clone's Git
+  config rewrites to the bare repository, so `<repo>` has an owner and
+  a name.
 - The manifest, the Toolkit skills at a pinned commit in
   `.agents/skills/`, one maintenance skill `review-pr`, the guard, and
   the binding under test.
@@ -939,16 +968,16 @@ repository state.
 | 2 | Start a session outside the role with any prompt, then continue it through the `drafting-table` entry point with an intent | The second turn runs in the role. It loads `drafting-specifications`, and its resume reads — `git rev-parse --show-toplevel`, `git remote -v`, the change-set reads, and the blocked-work query — all complete before any governed write. The start summary names the blocked item and carries the recording notice. |
 | 3 | A replayed turn loads `eliciting-requirements` and reads `references/ears-and-review.md` | Both calls complete. The skill text in the session record equals the pinned files. |
 | 4 | A replayed turn loads `review-pr` | Refused. The refusal text is in the record. The skill list that the harness sent to the model in the role names only the Toolkit skills; the replay endpoint or the binding's event stream shows it. |
-| 5 | The user accepts a `ready for review` candidate, and a replayed turn runs `ears-manager requirement add` with the text on standard input | The stub records one call whose arguments follow the [host mapping](#host-mapping). The record file exists. `git status` lists only registered paths and the manifest. No commit exists. |
+| 5 | The user accepts a `ready for review` candidate, and a replayed turn runs `ears-manager requirement add` with the text on standard input | The stub records one call that carries `--output json`, whose arguments follow the [host mapping](#host-mapping), and whose standard input holds the requirement text. The record file exists. `git status` lists only registered paths and the manifest. No commit exists. |
 | 6 | In the role, replayed turns write a record under `.protobot/requirements/` with a file tool, run `sed -i` on `docs/vision.md`, and run `git rev-parse --verify HEAD > docs/vision.md` | All three are refused, by the guard or earlier by native rules. Every file is byte-identical. |
 | 7 | Outside the role, replayed turns write `docs/vision.md` and edit `.protobot/change-sets/cs-002.yaml` with file tools | Both are refused. Both files are unchanged. |
 | 8 | The `ears-manager` stub fails the next `requirement add` with a JSON diagnostic and a non-zero exit | The shell result carries the diagnostic unchanged. No second write follows. The working tree is as it was after step 5. |
 | 9 | Outside the role, a replayed turn runs `cd docs && echo x >> vision.md`; then the user asks the role for a commit | The shell write succeeds, because the redirection target is not written from the project root. The pre-stage digest comparison stages nothing. Its diagnostic names `docs/vision.md`, both digests, and `git checkout -- docs/vision.md` as the discard route, which the role does not run. Outside the role, a replayed turn runs it, and the file is restored. |
 | 10 | The session ends | No commit and no push since setup. The step-5 record is still in the working tree. No harness or MCP stub process remains. |
 | 11 | Start a new session, without continuing, through the entry point | A new session ID. The resume reads present `CS-003`, its branch, and the step-5 requirement as an uncommitted draft. No call reads an earlier session. |
-| 12 | Push a commit to the default branch of `origin` from outside the session, then continue the session through the entry point | The resume reads run again, and the summary reports that the default branch moved since `base_commit`, as #34's failure table states, instead of trusting the conversation. |
+| 12 | Push a commit to the default branch of `origin` from outside the session, then continue the session through the entry point | The resume reads run again and present `CS-003`, its branch, and `base_commit` from governed reads and Git, not from the conversation. The summary makes no claim about the default branch; step 14 detects the move. |
 | 13 | Start a session with the `wms` stub stopped | The summary marks blocked work as unavailable. Drafting continues. No `wms` call succeeds. |
-| 14 | The user approves and asks for a commit and a pull request | Only shell operations run. One commit follows #34's message format. The branch is pushed to `origin`. The `gh` stub records one `pr create` whose `--repo` is the canonical repository, `--base` is `main`, and `--head` is `cs/003-<slug>`, and whose body came from a quoted here-document containing `>` characters. No merge and no other call follows the handoff. |
+| 14 | The user approves and asks for a commit and a pull request | Only shell operations run. One commit follows #34's message format. Before the push, `git fetch origin` and the `merge-base` check report that the default branch moved since `base_commit` (step 12), as #34's [failure table](../git-integration.md#failure-behavior) states; the role merges it in with `git merge --no-ff --no-edit origin/main` and runs `change-set update`, so the branch gains a merge commit and the manifest's `base_commit` equals the new default-branch head. The branch is pushed to `origin`. The `gh` stub records one `pr create` whose `--repo` is the canonical repository, `--base` is `main`, and `--head` is `cs/003-<slug>`, and whose body came from a quoted here-document containing `>` characters. No merge and no other call follows the handoff. |
 | 15 | Export every session | Each export names the role, the model, and the harness version, and holds the adapter line and every tool call with its status and error text. |
 
 A session started in one bound harness and resumed in another, at step
@@ -981,13 +1010,18 @@ repository:
 | Drafting Table | `gh pr create --repo <other-owner>/<name> --base main --head cs/003-<slug> --title 'x' --body-file -` | Not the canonical repository |
 | Drafting Table | `gh api repos/<owner>/<repo>` and `gh auth token` | Not a shell operation |
 | Drafting Table | `gh pr create --repo <repo> --base main --head cs/003-<slug> --title "$GH_TOKEN" --body-file -` | Variable expansion |
+| Drafting Table | `gh pr create --repo <repo> --base main --head cs/003-<slug> --title 'it'"'"'s' --body-file -` | Title contains a single quote |
+| Drafting Table | `git commit -F - <<'EOF'` whose body holds a line `EOF` before the end | Here-document ends early; a second command follows |
+| Drafting Table | `rg -n --pre=<program> docs/`, in Codex | Not a read form: the pattern follows `-e` |
+| Drafting Table | `git remote -v` while a remote URL carries userinfo | Remote URL carries a credential |
 | Drafting Table | A subagent launch, a web fetch, or a tool of a non-governed MCP server | Outside the role's tool set |
-| Drafting Table | A read of `.env` or `.protobot/project.yaml` | Outside the role's tool set |
+| Drafting Table | A read of `.env`, `.netrc`, `id_ed25519`, or `.protobot/project.yaml` | Outside the role's tool set |
 | Drafting Table | `ears-manager check > out.json` | Output redirection |
 | Other | `ears-manager requirement add` with any arguments | Governed write outside the role |
 | Other | A file write to `.protobot/change-sets/cs-002.yaml` | Guarded path |
 | Drafting Table | A file write while `ears-manager` cannot list the registry | The failed read, named |
 | Other | A file write under `.protobot/` while `ears-manager` cannot list the registry | Guarded path |
+| Drafting Table | A file write or a shell command while `.protobot/` exists without a readable `project.yaml` | The failed read, named |
 
 Harness checks: no headless run shows a permission prompt, session
 upload is off, and the whole fixture gives identical results with no
