@@ -79,6 +79,7 @@ one authoritative owner: the WMS Adapter write boundary.
 | Drafting Table | Run preflight checks and present diagnostics; submit a reviewed blocked-work resolution under delegated human approval. | No direct lifecycle mutation; the Materializer performs the authoritative transition after approval is verified. |
 | Job Site | Request claims, leases, execution progress, inspection, and merge completion. | No direct store write; its commands go through the WMS boundary. |
 | Materializer | Assemble and refresh complete work-item contracts after approved specification changes or true-bug intake. | Only through the WMS materialization/transition operation. |
+| Reconciler role (Job Site Materializer/Dispatcher recovery) | Supply Git/WMS reconciliation evidence for lease recovery, merge recovery, and lost completion writes. | No direct store write; it uses the WMS boundary and cannot issue execution leases or mutate implementation branches. |
 | WMS Adapter | Fetch current state, invoke the authoritative evaluator, and commit an allowed mutation atomically. | Yes. |
 | Backend translator | Map the validated ProtoBot operation to GitHub, GitLab, Jira, Beads, or Trello. | No. It must not reimplement lifecycle rules. |
 | `ears-manager` | Validate and resolve specification artifacts referenced by the work item. | No. Specification state and lifecycle state are separate. |
@@ -203,7 +204,7 @@ floor:
 | --- | --- |
 | `human-maintainer` | Approve blocked-work resolution and perform safe abandonment. |
 | `materializer` | Materialization, dependency refresh, `resolve-block`, and contract revalidation. |
-| `job-site` | Claim, lease renewal, Building, Inspecting, Job Site `merge-conflict`, Job Site `record-merge`, and other merge progress. |
+| `job-site` | `claim`, `renew-lease`, `tests-pass`, `raise-spec-question`, `refresh-active`, `return-to-building`, `begin-merge`, Job Site `merge-conflict`, and Job Site `record-merge`. |
 | `reconciler` | `recover-lease`, `merge-conflict`, `merge-not-applied`, and reconciled `record-merge`. |
 | `drafting-table` | Preflight and submission of a reviewed resolution under a trusted `human_approval_id`; it cannot claim, build, inspect, complete, or directly unblock a work item. |
 
@@ -269,6 +270,27 @@ Every authoritative request contains:
 | `fencing_token` | Current lease token for a Job Site mutation. Required after claim; absent for claim itself. |
 | `idempotency_key` | Stable key for the logical operation. Required for authoritative mutation. |
 | `observed_snapshot` | Optional caller snapshot used by preflight. It is ignored as authority by the WMS transaction. |
+
+### Reconciliation evidence
+
+Fence-exempt reconciler operations use evidence observed by the WMS and
+trusted integration boundary, not a proof blob supplied by the caller. The
+authoritative `current_record` carries:
+
+| Field | Required meaning |
+| --- | --- |
+| `reconciliation.status` | One of `conflict`, `not-applied`, or `merge-recorded`. |
+| `reconciliation.git_mutation` | Observed Git result: `none`, `conflict`, or `merged`. |
+| `reconciliation.merge_envelope` | Tested candidate digest, sealed Inspection Run, post-attestation integration head, target, contract version, and resulting merge commit. |
+
+The WMS compares this evidence with the current work-item contract. A
+reconciler `merge-conflict` to `ready-for-building` requires a matching
+`conflict`/non-merged result; `merge-not-applied` requires a matching
+`not-applied`/`none` result; and reconciled `record-merge` requires a
+matching `merge-recorded`/`merged` envelope. Missing, malformed, or
+mismatched evidence returns `PRECONDITION_FAILED` with reconciliation
+details and cannot mutate state. Callers cannot replace these fields with
+payload claims.
 
 ### Decision
 
@@ -346,9 +368,9 @@ into an arbitrary update.
 | `return-to-building` | `inspecting` | `building` | In-contract defect or failed final test requires rework. The current fence is checked and atomically replaced with a new lease fence. |
 | `begin-merge` | `inspecting` | `merging` | Inspection Run is sealed, all findings are terminal, and the final test gate passed. |
 | `merge-conflict` | `merging` | `building` | A Job Site owner presents the current merge fence; the WMS atomically replaces it with a new Job Site execution lease fence after conflict reconciliation. |
-| `merge-conflict` | `merging` | `ready-for-building` | A `reconciler` supplies proof that the candidate must be retried; no live fence is required and the next Job Site must claim the item normally. |
-| `merge-not-applied` | `merging` | `ready-for-building` | A `reconciler` proves Git was not mutated; no live fence is required and all gates must run again before a new claim. |
-| `record-merge` | `merging` | `completed` | A Job Site supplies the current fence, or a `reconciler` supplies proof of the already-recorded merge; the merge envelope and evidence match. |
+| `merge-conflict` | `merging` | `ready-for-building` | A `reconciler` supplies matching WMS-observed `conflict`/non-merged evidence; no live fence is required and the next Job Site must claim the item normally. |
+| `merge-not-applied` | `merging` | `ready-for-building` | A `reconciler` supplies matching WMS-observed `not-applied`/`none` evidence; no live fence is required and all gates must run again before a new claim. |
+| `record-merge` | `merging` | `completed` | A Job Site supplies the current fence, or a `reconciler` supplies matching WMS-observed `merge-recorded`/`merged` evidence; the merge envelope matches. |
 | `recover-lease` | `building` or `inspecting` | `ready-for-building` | The lease is expired, Git/WMS reconciliation is complete, and no unrecorded mutation remains. |
 | `abandon` | `waiting`, `ready-for-building`, `building`, `inspecting`, or `blocked` | `abandoned` | An authorized maintainer confirms cancellation and reconciliation proves that integration cannot have occurred. |
 
@@ -624,8 +646,9 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-032` | A role-valid Materializer requests `resolve-block` without `human_approval_id` or `approval_resolution_digest`. | Rejected with `UNAUTHORIZED_ACTION`; the item remains `blocked`. |
 | `VR-033` | A successful `resolve-block` response is lost; the Materializer retries the exact request with the same key after the approval was consumed. | The original allowed result is replayed before approval consumption is checked again; no second transition occurs. |
 | `VR-034` | A `reconciler` handles a merge conflict without a Job Site fence and supplies reconciliation proof. | `merging -> ready-for-building` succeeds without issuing a fence to the reconciler. |
-| `VR-035` | A `reconciler` retries `record-merge` after Git merged but the WMS completion response was lost. | Completion succeeds from the recorded merge envelope and proof without a live Job Site fence, and the retry is idempotent. |
+| `VR-035` | Git merge is recorded, but the WMS record remains `merging` because the completion write did not commit; a `reconciler` calls `record-merge` with matching observed evidence. | Completion succeeds without a live Job Site fence; an identical reconciler retry returns `replayed: true`. |
 | `VR-036` | A `job-site` presents a stale or missing fence for `merge-conflict` or `record-merge`. | Rejected with `STALE_FENCING_TOKEN`; no mutation and no new lease are issued. |
+| `VR-037` | A `reconciler` invokes `merge-conflict`, `merge-not-applied`, or `record-merge` with empty, forged, or mismatched reconciliation evidence. | Rejected with `PRECONDITION_FAILED`; no mutation and no execution lease are issued. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests

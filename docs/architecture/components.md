@@ -638,9 +638,10 @@ The API surface includes:
 - **Idempotent completion:** Complete only a `merging` item whose tested
   product-tree digest, sealed Inspection Run, post-attestation integration
   head, target, and contract version match. A Job Site completion also
-  requires the current fencing token. A reconciler replay after Git
-  already merged instead requires the recorded merge envelope and
-  reconciliation proof, with no active Job Site fence. Repeating the
+   requires the current fencing token. A reconciler replay after Git
+   already merged instead requires the WMS-observed merge envelope and
+   reconciliation evidence; the reconciler does not present a live Job
+   Site fence. Repeating the
   operation with the same resulting merge commit returns the prior result;
   a different result is rejected for reconciliation.
 - **Finding ledger:** Create a finding by stable producer idempotency key
