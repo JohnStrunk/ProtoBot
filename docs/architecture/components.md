@@ -157,6 +157,12 @@ to the WMS via MCP or API.
 - For urgency between sessions, external notification channels
   (email, Slack) can alert the user that something needs attention.
   The TUI itself doesn't need to be the notification mechanism.
+- Any coding-agent harness can host the TUI Drafting Table through a
+  harness binding. The shared adapter core — a manifest, the Drafting
+  Table role, the permitted shell operations, and one guard command
+  that every harness calls before each tool call — is defined in
+  [Specification Toolkit Harness Adapters](harness-adapters.md).
+  OpenCode is the first binding ([OpenCode Adapter](opencode-adapter.md)).
 
 ### Responsibilities (common to all implementations)
 
@@ -277,7 +283,13 @@ The final cross-harness packaging boundary remains an open question.
 - **Toolkit packaging format.** What does the toolkit look like on
   disk? A directory of markdown skills + JSON tool schemas (like
   OpenCode's skill system)? A plugin/extension package? The answer
-  depends partly on what the target harnesses support.
+  depends partly on what the target harnesses support. The on-disk
+  half is resolved for every harness:
+  [Specification Toolkit Harness Adapters](harness-adapters.md#the-three-layers)
+  decides skills as `<name>/SKILL.md` directories under
+  `.agents/skills/` and tool definitions as MCP servers. Still open:
+  how the toolkit reaches a project other than ProtoBot, and how it is
+  versioned.
 - **Tool surface split.** The toolkit needs tools for two systems:
   the WMS Adapter (work item lifecycle CRUD and queries) and the
   spec store (via `ears-manager`). The WMS Adapter tools handle
@@ -1587,7 +1599,10 @@ instrumentation.
 
 - **Trace format and storage.** What structured trace data does each
   component emit beyond git commits? Logs? OpenTelemetry spans?
-  Something custom? Where is it stored and how is it queried?
+  Something custom? Where is it stored and how is it queried? For the
+  TUI Drafting Table, the interim trace source is the harness's own
+  session record ([Harness adapters — Traces](harness-adapters.md#traces));
+  a harness-neutral format is still open.
 - **Eval harness.** How do you run an eval? Feed a component
   recorded inputs and compare outputs against a reference? The
   Eval Hub and
@@ -1888,6 +1903,10 @@ confirmation.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Specification Toolkit Harness Adapters](harness-adapters.md) —
+  Harness-neutral adapter core, governed tools, the guard, and harness
+  obligations
+- [OpenCode Adapter](opencode-adapter.md) — The first harness binding
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Drafting Table UX](drafting-table-ux.md) — Stable interaction

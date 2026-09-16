@@ -78,8 +78,9 @@ Git history_. Adjacent contracts define the surfaces around it:
   This document names `ears-manager` operations; #30 defines their
   request and result shapes in the
   [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
-- **#33** (OpenCode Specification Toolkit adapter) defines skill
-  discovery and harness tool permissions, including the optional
+- **#33** ([Specification Toolkit Harness Adapters](harness-adapters.md),
+  with [OpenCode](opencode-adapter.md) as the first binding) defines
+  skill discovery and harness tool permissions, including the optional
   early enforcement layer that denies direct writes to registered
   paths.
 - **#75** implements this contract and executes the
@@ -670,7 +671,7 @@ fire.
 
 | Layer | Where | Catches |
 | --- | --- | --- |
-| Harness tool permission rules (optional, #33) | The agent's own tool call | A write under a registered path before it happens |
+| Harness tool permission rules (optional, [#33](harness-adapters.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
 | Pre-stage digest comparison | The Drafting Table, before staging | A registered path whose content no longer matches its registry digest |
 | `ears-manager check` | Branch push and merge gate in CI | Malformed records, digest mismatches, dangling references, symmetry and cycle violations |
 | Path ownership in CI | Merge gate | A change that edits files outside the owning component's paths |
@@ -720,8 +721,9 @@ The Specification Toolkit supplies tool definitions for
 harness's own file and shell tools
 ([Drafting Table Boundary](../architecture.md#drafting-table-boundary)).
 There is no Git tool schema to constrain, so this allowlist is
-what bounds the agent, and #33 may additionally deny the same
-operations at the harness permission layer.
+what bounds the agent. In every harness, #33 also enforces it before
+each shell command runs
+([Shell operations](harness-adapters.md#shell-operations)).
 
 ### Allowed
 
@@ -877,13 +879,13 @@ resurface.
 | Decision | Rationale |
 | --- | --- |
 | `wi/` branch naming and lifecycle | The Job Site owns those branches. The open question in the [Content Storage Model](components.md#content-storage-model) stays open for that half. |
-| Git host API binding for pull requests | This document names the operations. The concrete host client, its authentication, and its error mapping belong to the harness adapter (#33) and the deployment. |
+| Git host API binding for pull requests | This document names the operations. The concrete host client, its authentication, and its error mapping belong to the harness adapter and the deployment. For every harness on GitHub, [#33](harness-adapters.md#shell-operations) binds them to `gh`. |
 | Bot account model for the Job Site | The Drafting Table commits with the user's identity, so the open question in [Multi-player Workflow](components.md#multi-player-workflow) is unchanged by this contract. |
 | Merge queue or batching | Concurrent change sets follow the standard refresh-before-merge model. A Bors-style queue is [related work](related-work.md#gas-town--beads-steve-yegge), not a decision here. |
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
 | Directory layout inside the requirement store | Open with `ears-manager` ([`ears-manager`](components.md#ears-manager)). This document constrains which paths may be committed, not how the store organizes them. |
 | `ears-manager` command and result shapes | Defined by the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
-| Harness tool permission rules | Defined by #33. This document names the layer and its effect, not its configuration. |
+| Harness tool permission rules | Defined by [#33](harness-adapters.md#the-guard). This document names the layer and its effect, not its configuration. |
 | Kit import commits | Kit packaging is open ([Kits](components.md#kits)). The imported specification content arrives as a proposed change set and follows this contract. The lock file `.protobot/kits.lock` is a separate matter: no document names its writer, so this contract does not stage it. Whoever settles Kit packaging must name that owner. |
 | Conflict-resolution UX | The failure table states the deterministic diagnostic and the safe retry. How the Drafting Table presents a conflict to the user is UX (#28). |
 | Web Drafting Table working-tree hosting | Where a hosted session keeps its checkout and session state is a deployment concern ([Web Drafting Table](../architecture.md#user-facing-interfaces)). The Git rules are unchanged. |
@@ -906,6 +908,9 @@ resurface.
   Command grammar, results, diagnostics, and impact review.
 - [User Interaction Flow](user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
+- [Specification Toolkit Harness Adapters](harness-adapters.md) —
+  Harness-neutral adapter core, the guard, and harness obligations.
+- [OpenCode Adapter](opencode-adapter.md) — The first harness binding.
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas.
 - [Related Work](related-work.md) — Internal and external

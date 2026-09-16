@@ -581,5 +581,8 @@ implementations) succeed at much higher rates than those without.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Specification Toolkit Harness Adapters](harness-adapters.md) —
+  Harness-neutral adapter core, the guard, and harness obligations
+- [OpenCode Adapter](opencode-adapter.md) — The first harness binding
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas

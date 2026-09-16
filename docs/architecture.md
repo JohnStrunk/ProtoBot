@@ -599,6 +599,13 @@ defines the initial integration model:
 The Web Drafting Table replaces OpenCode with a hosted agent
 runtime but loads the same Specification Toolkit.
 
+[Specification Toolkit Harness
+Adapters](architecture/harness-adapters.md) defines this strawman for
+any harness: the shared adapter core, the tool permissions, resumable
+state, and the obligations every harness binding must meet.
+[OpenCode Adapter](architecture/opencode-adapter.md) is its first
+binding.
+
 ### Governed tool integrations
 
 The Drafting Table agent interacts with external systems
@@ -621,7 +628,9 @@ prompting alone. The mandatory enforcement layers are:
 
 Optional early enforcement: harness permission rules that
 deny writes under specification paths at the tool level,
-catching violations before they reach CI.
+catching violations before they reach CI. These rules and their
+limits, for every harness, are in [What the harness layer
+stops](architecture/harness-adapters.md#what-the-harness-layer-stops).
 
 **Tool governance principles:**
 
@@ -868,6 +877,11 @@ that contract.
   Integration](architecture/git-integration.md) — Project
   identification, branches, commits, PR preparation, and approved
   specification state
+- [Specification Toolkit Harness
+  Adapters](architecture/harness-adapters.md) — Harness-neutral adapter
+  core, governed tools, the guard, and harness obligations
+- [OpenCode Adapter](architecture/opencode-adapter.md) — The first
+  harness binding
 - [User Interaction Flow](architecture/user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Drafting Table UX](architecture/drafting-table-ux.md) — Stable

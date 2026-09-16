@@ -1152,6 +1152,9 @@ whether this is achievable given Red Hat's AIA requirements.
   approved specification state
 - [Drafting Table UX](drafting-table-ux.md) — Stable interaction
   contract for the first local Drafting Table
+- [Specification Toolkit Harness Adapters](harness-adapters.md) —
+  Harness-neutral adapter core, the guard, and harness obligations
+- [OpenCode Adapter](opencode-adapter.md) — The first harness binding
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas
 - [Related Work](related-work.md) — Red Hat internal projects,
