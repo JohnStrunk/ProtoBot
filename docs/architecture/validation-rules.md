@@ -290,10 +290,11 @@ reconciler `merge-conflict` to `ready-for-building` requires a matching
 `conflict`/non-merged result; `merge-not-applied` requires a matching
 `not-applied`/`none` result; and reconciled `record-merge` requires a
 matching `merge-recorded`/`merged` envelope. `recover-lease` requires an
-expired lease plus `lease-recovered` evidence, and `abandon` requires
-`not-integrated` evidence. Missing, malformed, or mismatched evidence
-returns `PRECONDITION_FAILED` with reconciliation details and cannot
-mutate state. Callers cannot replace these fields with payload claims.
+expired lease plus `lease-recovered`/`none` evidence, and `abandon`
+requires `not-integrated`/`none` evidence. Step 11 evaluates these same
+current-record pairs. Missing, malformed, or mismatched evidence returns
+`PRECONDITION_FAILED` with reconciliation details and cannot mutate state.
+Callers cannot replace these fields with payload claims.
 
 ### Decision
 
