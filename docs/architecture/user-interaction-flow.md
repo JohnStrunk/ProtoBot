@@ -1043,9 +1043,9 @@ stateDiagram-v2
     Blocked --> Ready: resolve, refresh, revalidate
     Blocked --> Abandoned: authorized cancellation
     Inspecting --> Merging: final pass
-    Merging --> Building: merge conflict
+    Merging --> Building: Job Site merge conflict
     Merging --> Completed: merge recorded
-    Merging --> Ready: no Git mutation, rerun all gates
+    Merging --> Ready: reconciled conflict or no Git mutation, rerun all gates
     Completed --> [*]
     Abandoned --> [*]
 ```

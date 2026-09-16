@@ -669,9 +669,9 @@ stateDiagram-v2
     Inspecting --> Building: defects or final-test failure
     Blocked --> Ready: resolve, refresh, revalidate
     Inspecting --> Merging: inspection and final tests pass
-    Merging --> Building: merge conflict, refresh required
+    Merging --> Building: Job Site merge conflict, refresh required
     Merging --> Completed: merge recorded or reconciled
-    Merging --> Ready: no Git mutation, rerun all gates
+    Merging --> Ready: reconciled conflict or no Git mutation, rerun all gates
     Building --> Ready: lease expired, Git reconciled
     Inspecting --> Ready: lease expired, Git reconciled
     Waiting --> Abandoned
@@ -705,10 +705,10 @@ stateDiagram-v2
 - **`merging`** records the tested candidate commit and proposed target
   before mutating Git. It cannot be abandoned. If the Git merge succeeds
   but the completion write fails, reconciliation idempotently transitions
-  this state to `completed`; a conflict returns it to `building`. If
-  reconciliation proves Git was never mutated, it increments the
-  contract version and returns the item to `ready-for-building`, where a
-  new owner must rerun all test and inspection gates.
+  this state to `completed`; a Job Site-owned conflict returns it to
+  `building`. A reconciler can instead return a conflicted or unmutated
+  item to `ready-for-building`, where a new owner must rerun all test and
+  inspection gates.
 - **`abandoned`** is terminal and is rejected if Git or reconciliation
   metadata shows that integration may already have occurred. Restarting
   canceled logical work creates a replacement item with a new
