@@ -387,7 +387,7 @@ It is used by these callers:
 
 | Subcommand | Purpose |
 | --- | --- |
-| `ears-manager project init` | Initialize `.protobot/project.yaml`, seed the artifact registry and schema versions, and classify registered specification paths. |
+| `ears-manager project init` | Initialize `.protobot/project.yaml`, seed stores, schema versions, and opaque artifact entries, and classify registered specification paths. |
 | `ears-manager check` | Validate all spec files: EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
 | `ears-manager requirement add` | Add a new EARS requirement with interface or project-wide applicability selectors and optional narrower scopes. Validates the EARS statement and metadata before writing. |
 | `ears-manager requirement list/show` | Read requirements at the working tree or an immutable `--at` revision. |
