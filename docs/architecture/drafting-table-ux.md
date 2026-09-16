@@ -60,8 +60,8 @@ define _how_ the underlying systems respond:
   [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
 - **#31** (Drafting Table WMS operations) defines the exact WMS Adapter
   operations and result shapes for Drafting Table use.
-- **#32** (Validation Rules) defines lifecycle validation and rejection
-  schemas.
+- **#32** ([Validation Rules](validation-rules.md)) defines lifecycle
+  validation and rejection schemas.
 - **#33** (OpenCode Specification Toolkit adapter) defines skill discovery, tool
   permissions, and the harness-specific adapter layer.
 - **#34** (single-player Git integration) defines branch, commit, and PR
@@ -907,6 +907,8 @@ OAuth tokens, hosted session manager, or live cloud services.
   interfaces, and cross-cutting concerns
 - [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
   Command grammar, results, diagnostics, and impact review
+- [Validation Rules](validation-rules.md) — Lifecycle validation,
+  authorization, transitions, and rejection semantics
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Open Design Questions](open-questions.md) — Unresolved design

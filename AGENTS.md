@@ -26,6 +26,10 @@ following hierarchy:
   format, workflow, and platform.
 - `docs/architecture/components.md` — component architecture,
   interfaces, and cross-cutting concerns.
+- [Git integration](docs/architecture/git-integration.md) — governed Git and
+  project-repository integration.
+- [Validation Rules](docs/architecture/validation-rules.md) — lifecycle
+  validation, authorization, transition, and rejection contract.
 - `docs/architecture/user-interaction-flow.md` — phase details,
   sequence diagrams, and testing strategy.
 - `docs/architecture/drafting-table-ux.md` — stable interaction

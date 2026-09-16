@@ -58,7 +58,7 @@ Environmental constraints are listed in a
 | 3 | Specification Toolkit ↔ Agent Harness | Agent skill package | Specification Toolkit | Drafting Table (TUI), Drafting Table (Web) |
 | 4 | `ears-manager` CLI | CLI | `ears-manager` | Specification Toolkit, CI, Job Site |
 | 5 | WMS Adapter API | Network service | WMS Adapter | Drafting Table, Job Site |
-| 6 | Validation Rules | Linkable library or declarative rule set _(open — see [components.md](architecture/components.md#validation-rules))_ | Validation Rules | Drafting Table, Job Site, WMS Adapter |
+| 6 | Validation Rules | Versioned declarative state-machine ruleset with deterministic evaluator | Validation Rules | Drafting Table, Job Site, WMS Adapter |
 | 7 | Project repository (Git) | Persistent state | Project | Drafting Table, Job Site, `ears-manager`, CI |
 | 8 | Job Site intake (change-set registration, true-bug intake) | CLI + webhook | Job Site | CI hooks, Git hooks, maintainers |
 | 9 | Claim coordinator | Persistent state | WMS Adapter | Job Site |
@@ -352,9 +352,9 @@ and lifecycle state machine.
 Validation Rules are the domain logic that enforces
 well-formedness on work-item state transitions.
 
-**Interface type:** Linkable library or declarative rule set
-_(open — the packaging is not yet decided)_ — consumed by the
-Drafting Table, Job Site, and WMS Adapter boundary.
+**Interface type:** Versioned declarative state-machine ruleset with a
+deterministic evaluator. The MVP package is `validation-rules/v1`; it is
+consumed by the Drafting Table, Job Site, and WMS Adapter boundary.
 
 **External contract:**
 
@@ -367,6 +367,10 @@ Drafting Table, Job Site, and WMS Adapter boundary.
   structured rejection.
 - **Rule version:** Every decision records the exact
   rule/policy version for replay and audit.
+
+The full request, authorization, transition, rejection, deployment, and
+conformance contract is defined in the
+[Validation Rules](architecture/validation-rules.md) document.
 
 **Scope boundary with `ears-manager`:**
 
@@ -836,7 +840,7 @@ approach.
 | `ears-manager` CLI | CLI | Command grammar, typed result envelope, and exit-status contract defined in the [CLI Integration Contract](architecture/ears-manager-cli.md) |
 | WMS Adapter API | Network service | Smithy or OpenAPI |
 | Specification Toolkit | Agent skill package | Skill manifest + MCP tool schemas (JSON Schema) |
-| Validation Rules | Linkable library or declarative rule set | WIT or declarative state-machine schema _(open — see [components.md](architecture/components.md#validation-rules))_ |
+| Validation Rules | Versioned declarative state-machine ruleset | Deterministic evaluator ([Validation Rules Contract](architecture/validation-rules.md)) |
 | Drafting Table (TUI) | REPL | Specification Toolkit skills and prompts define the interaction protocol |
 | Drafting Table (Web) | Web GUI | Open gap — Web GUI specification approach not yet established |
 | Project repository | Persistent state | JSON Schema for each `.protobot/` file + `ears-manager` CLI contract |
@@ -858,6 +862,8 @@ that contract.
   interfaces, and cross-cutting concerns
 - [`ears-manager` CLI Integration Contract](architecture/ears-manager-cli.md)
   — Command grammar, results, diagnostics, and impact review
+- [Validation Rules](architecture/validation-rules.md) — Lifecycle state,
+  authorization, transition, rejection, and conformance contract
 - [Git and Project-Repository
   Integration](architecture/git-integration.md) — Project
   identification, branches, commits, PR preparation, and approved

@@ -104,7 +104,8 @@ ProtoBot has seven primary logical components and reusable asset families:
 6. **Validation Rules** — Domain logic that enforces well-formedness
    on work item state transitions. Shared across the Drafting
    Table and the Job Site — both use these rules when writing to the
-   WMS. Not a running service; a shared library or rule set.
+   WMS. Not a running service; the MVP uses a versioned declarative
+   ruleset and deterministic evaluator.
    (Spec-level validation — EARS formatting, referential integrity —
    is handled by `ears-manager`, not here.)
 7. **Job Site** — The autonomous execution engine that runs Workers and
@@ -591,9 +592,9 @@ The adapter does **not**:
   [Content Storage Model](#content-storage-model) below.
 - Determine pipeline entry point (that's a Validation Rules
   concern).
-- Decide whether a work item is ready for the Job Site (that's a query
-  the Job Site makes against the adapter's state, evaluated by the
-  Job Site using Validation Rules).
+- Decide readiness from a caller's query alone. The Job Site may query
+  and preflight readiness, but the WMS boundary evaluates the current
+  record with Validation Rules before an authoritative claim or refresh.
 - Push work to the Job Site (the Job Site pulls).
 
 ### Adapter API
@@ -924,9 +925,10 @@ item entirely rather than refresh it.
   resumes Building.
 - **Pre-merge revalidation:** an active Job Site with the current lease
   evaluates again after a successful Inspection Run. On success it
-  appends the contract version, merges latest main under the same fence,
-  regenerates projections/test selection, and returns to `building`. On
-  failure it transitions to `blocked` and releases the lease.
+  appends the contract version, merges latest main under the current
+  fence, atomically replaces that fence, regenerates projections/test
+  selection, and returns to `building`. On failure it transitions to
+  `blocked` and releases the lease.
 
 Every existing-branch refresh reruns build, full active tests, mutation,
 and a new Inspection Run. A path-disjoint result never waives these gates.
@@ -1103,8 +1105,8 @@ on work items and state transitions. They answer questions like:
   commit?
 - Is a blocked item's escalation actually resolved before unblocking?
 - What pipeline entry point does this change type require?
-  (Undefined/changes → Dimensioning; contradictions → Building
-  directly. See
+  (Undefined/changes → Dimensioning; contradictions → the Building
+  pipeline directly after WMS materialization. See
   [Incremental Development][incremental-development].)
 
 [incremental-development]: user-interaction-flow.md#incremental-development-and-change-types
@@ -1115,6 +1117,12 @@ The WMS API boundary then atomically verifies the expected current state
 and allowed transition before mutating the backend. That boundary may be
 implemented inside the adapter service or as a mandatory validation
 gateway in front of thin backend translators.
+
+The MVP contract for this boundary is the versioned declarative
+`validation-rules/v1` ruleset and deterministic evaluator in the
+[Validation Rules Contract](validation-rules.md). The evaluator's
+decision is advisory during preflight and authoritative only when the WMS
+boundary evaluates the fresh record and commits the conditional mutation.
 
 ### Why shared rules at the write boundary?
 
@@ -1154,12 +1162,11 @@ The line between Validation Rules and `ears-manager` is:
 
 ### Open design questions
 
-- **Rule packaging.** Are these rules expressed as code (a library
-  imported by the Drafting Table and Job Site), as a declarative
-  schema (state machine definition), or as part of the
-  Specification Toolkit's skills/prompts (so the agent itself
-  enforces them)? The answer affects testability and how tightly
-  coupled the rules are to specific implementations.
+- **Future bindings.** The MVP uses a declarative state-machine ruleset
+  with a deterministic evaluator. A WIT binding, compiled library, or
+  separate service may improve portability later, but none may change the
+  decision or rejection semantics defined by the
+  [Validation Rules Contract](validation-rules.md).
 
 ---
 
@@ -1868,6 +1875,8 @@ confirmation.
 - [Architecture](../architecture.md) — External interface inventory,
   pluggable boundaries, persistent state, and environmental
   constraints
+- [Validation Rules Contract](validation-rules.md) — Lifecycle states,
+  authorization, transitions, rejection semantics, and acceptance matrix
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
