@@ -184,11 +184,10 @@ the contract is Markdown skills, JSON tool schemas, and prompts.
   instructions for Sketching and Dimensioning. ProtoBot uses the capability
   during Dimensioning, but it is not tied to ProtoBot's phases, storage,
   approval, or lifecycle.
-- **Tool definitions:** MCP tool schemas or API client code for
-  `ears-manager` operations (see the
-  [`ears-manager` CLI table](#ears-manager-cli)) and WMS Adapter
+- **Tool definitions:** MCP tool schemas for WMS Adapter
   operations (create/read/update work items, query blocked
-  items).
+  items). `ears-manager` is a CLI; the skills describe its
+  commands (see the [`ears-manager` CLI table](#ears-manager-cli)).
 - **Prompts:** System prompts, templates, and reference material
   including EARS pattern definitions, the interface-type
   taxonomy, gap-closing heuristics, and the specification
@@ -586,8 +585,9 @@ defines the initial integration model:
   how to conduct Sketching, how to conduct Dimensioning, how
   to handle each EARS pattern type, and how to surface gaps.
 - **Tool definitions** (MCP tool schemas) provide the agent
-  with governed access to `ears-manager` and the WMS Adapter.
-  The agent invokes tools through the harness's standard tool
+  with governed access to the WMS Adapter. `ears-manager` is a
+  CLI that the agent runs through the harness's shell tool. The
+  agent invokes tools through the harness's standard tool
   execution mechanism.
 - **Prompts** provide system context: EARS pattern definitions,
   the interface-type taxonomy, gap-closing heuristics, and
@@ -599,12 +599,13 @@ defines the initial integration model:
 The Web Drafting Table replaces OpenCode with a hosted agent
 runtime but loads the same Specification Toolkit.
 
-[Specification Toolkit Harness
-Adapters](architecture/harness-adapters.md) defines this strawman for
-any harness: the shared adapter core, the tool permissions, resumable
-state, and the obligations every harness binding must meet.
-[OpenCode Adapter](architecture/opencode-adapter.md) is its first
-binding.
+The [Agent Harness Adapter
+Contract](architecture/agent-harness/adapter-contract.md) defines this
+strawman for any harness: the shared adapter core, the tool
+permissions, resumable state, and the obligations every harness binding
+must meet. [OpenCode](architecture/agent-harness/opencode.md),
+[Claude Code](architecture/agent-harness/claude-code.md), and
+[Codex](architecture/agent-harness/codex.md) are the first bindings.
 
 ### Governed tool integrations
 
@@ -630,7 +631,7 @@ Optional early enforcement: harness permission rules that
 deny writes under specification paths at the tool level,
 catching violations before they reach CI. These rules and their
 limits, for every harness, are in [What the harness layer
-stops](architecture/harness-adapters.md#what-the-harness-layer-stops).
+stops](architecture/agent-harness/adapter-contract.md#what-the-harness-layer-stops).
 
 **Tool governance principles:**
 
@@ -877,11 +878,17 @@ that contract.
   Integration](architecture/git-integration.md) — Project
   identification, branches, commits, PR preparation, and approved
   specification state
-- [Specification Toolkit Harness
-  Adapters](architecture/harness-adapters.md) — Harness-neutral adapter
-  core, governed tools, the guard, and harness obligations
-- [OpenCode Adapter](architecture/opencode-adapter.md) — The first
+- [Agent Harness Adapter
+  Contract](architecture/agent-harness/adapter-contract.md) —
+  Harness-neutral adapter core, governed tools, the guard, and harness
+  obligations
+- [OpenCode Harness Binding](architecture/agent-harness/opencode.md) —
+  The first harness binding
+- [Claude Code Harness
+  Binding](architecture/agent-harness/claude-code.md) — The second
   harness binding
+- [Codex Harness Binding](architecture/agent-harness/codex.md) — The
+  third harness binding
 - [User Interaction Flow](architecture/user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Drafting Table UX](architecture/drafting-table-ux.md) — Stable

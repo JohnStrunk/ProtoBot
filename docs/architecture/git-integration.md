@@ -78,8 +78,10 @@ Git history_. Adjacent contracts define the surfaces around it:
   This document names `ears-manager` operations; #30 defines their
   request and result shapes in the
   [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
-- **#33** ([Specification Toolkit Harness Adapters](harness-adapters.md),
-  with [OpenCode](opencode-adapter.md) as the first binding) defines
+- **#33** ([Agent Harness Adapter Contract](agent-harness/adapter-contract.md),
+  with the [OpenCode](agent-harness/opencode.md),
+  [Claude Code](agent-harness/claude-code.md), and
+  [Codex](agent-harness/codex.md) bindings) defines
   skill discovery and harness tool permissions, including the optional
   early enforcement layer that denies direct writes to registered
   paths.
@@ -671,7 +673,7 @@ fire.
 
 | Layer | Where | Catches |
 | --- | --- | --- |
-| Harness tool permission rules (optional, [#33](harness-adapters.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
+| Harness tool permission rules (optional, [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
 | Pre-stage digest comparison | The Drafting Table, before staging | A registered path whose content no longer matches its registry digest |
 | `ears-manager check` | Branch push and merge gate in CI | Malformed records, digest mismatches, dangling references, symmetry and cycle violations |
 | Path ownership in CI | Merge gate | A change that edits files outside the owning component's paths |
@@ -716,14 +718,14 @@ not listed is forbidden. This is the concrete form of the
 principle that _Git operations are explicit_
 ([Governed tool integrations][governed-tools]).
 
-The Specification Toolkit supplies tool definitions for
-`ears-manager` and the WMS Adapter, but Git runs through the
-harness's own file and shell tools
+The Specification Toolkit supplies tool definitions for the WMS
+Adapter, but `ears-manager` and Git run through the harness's own
+shell tool
 ([Drafting Table Boundary](../architecture.md#drafting-table-boundary)).
 There is no Git tool schema to constrain, so this allowlist is
 what bounds the agent. In every harness, #33 also enforces it before
 each shell command runs
-([Shell operations](harness-adapters.md#shell-operations)).
+([Shell operations](agent-harness/adapter-contract.md#shell-operations)).
 
 ### Allowed
 
@@ -879,13 +881,13 @@ resurface.
 | Decision | Rationale |
 | --- | --- |
 | `wi/` branch naming and lifecycle | The Job Site owns those branches. The open question in the [Content Storage Model](components.md#content-storage-model) stays open for that half. |
-| Git host API binding for pull requests | This document names the operations. The concrete host client, its authentication, and its error mapping belong to the harness adapter and the deployment. For every harness on GitHub, [#33](harness-adapters.md#shell-operations) binds them to `gh`. |
+| Git host API binding for pull requests | This document names the operations. The concrete host client, its authentication, and its error mapping belong to the harness adapter and the deployment. For every harness on GitHub, [#33](agent-harness/adapter-contract.md#shell-operations) binds them to `gh`. |
 | Bot account model for the Job Site | The Drafting Table commits with the user's identity, so the open question in [Multi-player Workflow](components.md#multi-player-workflow) is unchanged by this contract. |
 | Merge queue or batching | Concurrent change sets follow the standard refresh-before-merge model. A Bors-style queue is [related work](related-work.md#gas-town--beads-steve-yegge), not a decision here. |
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
 | Directory layout inside the requirement store | Open with `ears-manager` ([`ears-manager`](components.md#ears-manager)). This document constrains which paths may be committed, not how the store organizes them. |
 | `ears-manager` command and result shapes | Defined by the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
-| Harness tool permission rules | Defined by [#33](harness-adapters.md#the-guard). This document names the layer and its effect, not its configuration. |
+| Harness tool permission rules | Defined by [#33](agent-harness/adapter-contract.md#the-guard). This document names the layer and its effect, not its configuration. |
 | Kit import commits | Kit packaging is open ([Kits](components.md#kits)). The imported specification content arrives as a proposed change set and follows this contract. The lock file `.protobot/kits.lock` is a separate matter: no document names its writer, so this contract does not stage it. Whoever settles Kit packaging must name that owner. |
 | Conflict-resolution UX | The failure table states the deterministic diagnostic and the safe retry. How the Drafting Table presents a conflict to the user is UX (#28). |
 | Web Drafting Table working-tree hosting | Where a hosted session keeps its checkout and session state is a deployment concern ([Web Drafting Table](../architecture.md#user-facing-interfaces)). The Git rules are unchanged. |
@@ -908,9 +910,14 @@ resurface.
   Command grammar, results, diagnostics, and impact review.
 - [User Interaction Flow](user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
-- [Specification Toolkit Harness Adapters](harness-adapters.md) —
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, the guard, and harness obligations.
-- [OpenCode Adapter](opencode-adapter.md) — The first harness binding.
+- [OpenCode Harness Binding](agent-harness/opencode.md) — The first
+  harness binding.
+- [Claude Code Harness Binding](agent-harness/claude-code.md) — The
+  second harness binding.
+- [Codex Harness Binding](agent-harness/codex.md) — The third harness
+  binding.
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas.
 - [Related Work](related-work.md) — Internal and external

@@ -1,11 +1,11 @@
-# ProtoBot: OpenCode Adapter
+# ProtoBot: OpenCode Harness Binding
 
 > Design document — September 2026
 >
 > The first harness binding of the
-> [Specification Toolkit Harness Adapters](harness-adapters.md)
-> contract: the OpenCode files, how they meet each obligation, and the
-> OpenCode behaviors they rely on.
+> [Agent Harness Adapter Contract](adapter-contract.md): the OpenCode
+> files, how they meet each obligation, and the OpenCode behaviors they
+> rely on.
 
 **Contents:**
 
@@ -26,7 +26,7 @@ user invokes ProtoBot inside an existing OpenCode session. The
 harness-neutral half of the answer — the three layers, the manifest,
 the Drafting Table role, the shell operations, the guard, session
 behavior, traces, resumable state, exit conditions, and the fixture —
-is in [Specification Toolkit Harness Adapters](harness-adapters.md).
+is in [Agent Harness Adapter Contract](adapter-contract.md).
 This document is the OpenCode half.
 
 It adds no rule of its own. Where OpenCode forces a choice, this
@@ -68,10 +68,6 @@ needs the `external_directory` rule in
   "$schema": "https://opencode.ai/config.json",
   "share": "disabled",
   "mcp": {
-    "ears-manager": {
-      "type": "local",
-      "command": ["<ears-manager MCP server, named by #30>"]
-    },
     "wms": {
       "type": "local",
       "command": ["<WMS Adapter MCP server, named by #31>"]
@@ -81,7 +77,6 @@ needs the `external_directory` rule in
     "edit": {
       ".protobot/**": "deny"
     },
-    "ears-manager_*": "deny",
     "wms_*": "deny"
   }
 }
@@ -89,16 +84,17 @@ needs the `external_directory` rule in
 
 - **`share` is `disabled`**, because OpenCode's share feature uploads a
   session (H11).
-- **The two MCP servers** are the manifest's `governed_mcp_servers`
-  (H2). OpenCode names their tools `<server>_<tool>`, so the tools are
-  `ears-manager_*` and `wms_*`. The command values are placeholders
-  until #30 and #31 name the servers. Neither entry holds a credential.
+- **The `wms` server** is the manifest's only MCP server (H2). OpenCode
+  names its tools `wms_<operation>`. The command value is a placeholder
+  until #31 names the server, and the entry holds no credential.
+  `ears-manager` needs no entry: it is a shell operation.
 - **`edit` is denied under `.protobot/` for every agent.** The `edit`
   rule covers every OpenCode file tool: `edit`, `write`, and the patch
   tool. It is a static copy of the guard's guarded-path rule that holds
   even when plugins do not load.
-- **The governed tools are denied here and allowed only in the
-  `drafting-table` agent**, a native copy of guard rule 4.
+- **The `wms` tools are denied here and allowed only in the
+  `drafting-table` agent**, a native copy of the MCP half of guard rule
+  4. The `ears-manager` half lives in the agent's `bash` rules.
 
 This file adds denies and nothing else;
 [How the rules combine](#how-the-rules-combine) explains why.
@@ -127,7 +123,6 @@ permission:
     "*": deny
     drafting-specifications: allow
     eliciting-requirements: allow
-  "ears-manager_*": allow
   "wms_*": allow
   bash:
     "*": deny
@@ -141,8 +136,8 @@ Load the drafting-specifications skill before anything else, and
 follow it.
 
 Toolkit skills name operations. In OpenCode:
-- the operation `ears-manager <group> <verb>` is the tool
-  `ears-manager_<group>_<verb>`;
+- an `ears-manager` operation is one shell command with
+  `--output json`, and its long text goes on standard input;
 - a WMS operation is the tool `wms_<operation>`; and
 - a Git or Git host operation is one shell command.
 ```
@@ -152,9 +147,12 @@ Toolkit skills name operations. In OpenCode:
   `write`, the patch tool, `task`, `webfetch`, or `websearch`. The same
   catch-all denies `doom_loop`, so an identical call repeated three
   times is refused rather than asked about.
-- **The `skill` rule is the manifest's `toolkit_skills` (H10).** A new
-  Toolkit skill adds one line here and one in the manifest; the fixture
-  checks that the two lists match.
+- **The `skill` rule is the manifest's `toolkit_skills` (H10).** Its
+  `"*": deny` comes first, so every other skill is left out of the
+  model's list and refused when called
+  ([Skill visibility](#skill-visibility)). A new Toolkit skill adds one
+  line here and one in the manifest; the fixture checks that the two
+  lists match.
 - **No rule is `ask`.** In `opencode run`, a rule that resolves to `ask`
   is rejected automatically and the run ends, so an agent with only
   allow and deny rules behaves the same headless and in the TUI (H7).
@@ -165,70 +163,67 @@ Toolkit skills name operations. In OpenCode:
 #### Native copy of the shell operations
 
 The `bash` block copies the harness-neutral
-[shell operations](harness-adapters.md#shell-operations) into OpenCode
-patterns, with the defaults `origin`, `cs/`, and `main`. The guard
-enforces the same operations with the project's real values; this copy
-refuses early and still holds when plugins do not load.
+[shell operations](adapter-contract.md#shell-operations) into OpenCode
+patterns, with the defaults `origin`, `cs/`, and `main`, and a wildcard
+where the form has `<repo>`, `<branch>`, `<rev>`, or `<path>`. The guard
+enforces the same operations with the project's real values and the
+current branch; this copy refuses early and still holds when plugins do
+not load.
 
 ```yaml
 bash:
   "*": deny
+  # Specification reads and writes
+  "ears-manager *": allow
   # Read repository state
-  "git status*": allow
-  "git log*": allow
-  "git diff*": allow
-  "git show*": allow
-  "git ls-files*": allow
-  "git rev-parse*": allow
-  "git merge-base*": allow
+  "git rev-parse --show-toplevel": allow
+  "git rev-parse --abbrev-ref HEAD": allow
+  "git rev-parse --verify *": allow
+  "git status --porcelain": allow
+  "git merge-base *": allow
   "git remote -v": allow
-  "git remote get-url origin": allow
-  "git fetch origin*": allow
+  "git fetch origin": allow
   # Work on a change-set branch
   "git switch -c cs/*": allow
   "git switch cs/*": allow
   "git add -- *": allow
   "git commit -F -*": allow
-  "git merge --no-ff *": allow
+  "git merge --no-ff --no-edit origin/main": allow
   "git merge --abort": allow
-  "git checkout -- *": allow
   "git push origin cs/*": allow
-  "git push origin --delete cs/*": allow
-  "git branch -d cs/*": allow
   # Pull requests and registration
-  "gh pr create *": allow
-  "gh pr edit *": allow
-  "gh pr view*": allow
-  "gh pr checks*": allow
-  "gh pr merge * --merge*": allow
+  "gh pr create --repo *": allow
+  "gh pr edit cs/*": allow
+  "gh pr view cs/*": allow
   "register-approved-change-set *": allow
   # Forbidden forms of the commands above
-  "git * --output*": deny
-  "git * --upload-pack*": deny
-  "git * --receive-pack*": deny
-  "git * --exec*": deny
-  "git fetch *:*": deny
   "git add -- .": deny
-  "git checkout -- .": deny
   "git commit *--amend*": deny
   "git commit *--all*": deny
   "git commit -F - -a*": deny
-  "git merge *--squash*": deny
-  "git merge *--ff-only*": deny
   "git push *:*": deny
   "git push *+*": deny
   "git push *--force*": deny
-  "gh pr merge *--squash*": deny
-  "gh pr merge *--rebase*": deny
-  "gh pr merge *--admin*": deny
-  "gh pr merge *--auto*": deny
+  "git push *--delete*": deny
+  "git push *--mirror*": deny
+  "git push *--all*": deny
+  "git push *--tags*": deny
+  "git push *--receive-pack*": deny
+  "git push *--exec*": deny
+  "gh pr edit *--base*": deny
 ```
+
+A pattern without `*` matches only that exact command, so seven of the
+Git rules leave no room for an extra option. A pattern with `*` still
+matches a longer command, and the denies above catch only the most
+harmful additions. The guard refuses every other option, and every
+branch, repository, or path that does not match the current state.
 
 OpenCode matches these patterns against the whole command text,
 here-document bodies included, but does not look inside an output
-redirection. `git log --oneline > docs/vision.md` matches `git log*`,
-so the copy alone would let that command empty the file. The guard
-refuses it.
+redirection. `git rev-parse --verify HEAD > docs/vision.md` matches
+`git rev-parse --verify *`, so the copy alone would let that command
+empty the file. The guard refuses it.
 
 ### The `drafting-table` command
 
@@ -247,12 +242,12 @@ Adapter: ProtoBot adapter layout 1, OpenCode binding.
 ```
 
 The last line puts the adapter layout and the binding into the session
-record ([Traces](harness-adapters.md#traces)).
+record ([Traces](adapter-contract.md#traces)).
 
 ### The guard shim
 
 `.opencode/plugins/protobot-guard.js` connects OpenCode to the shared
-[guard](harness-adapters.md#the-guard) (H8). OpenCode has no
+[guard](adapter-contract.md#the-guard) (H8). OpenCode has no
 `PreToolUse` command hook, so the shim does the translation:
 
 1. **Tracks the role.** OpenCode's `tool.execute.before` hook does not
@@ -303,10 +298,26 @@ the working directory to the root of the Git working tree and reads
 repository, `.claude/skills` also links to `.agents/skills`; OpenCode
 finds each skill twice and lists it once.
 
+### Skill visibility
+
 Discovery is not permission. The ProtoBot repository also holds
-maintenance skills such as `pull-request` and `review-pr`, and OpenCode
-ships a built-in skill. The agent's `skill` rule allows only the
-manifest's Toolkit skills, and a denied skill cannot be loaded.
+maintenance skills such as `pull-request` and `review-pr`, OpenCode
+ships a built-in skill, and a user can have skills of their own.
+
+OpenCode lists skills for the model in the system prompt, in an
+`<available_skills>` block, and the `skill` tool loads one by name. The
+agent's `skill` rule decides both. Headless runs on 1.18.30, on
+2026-09-16, with a stub model that recorded every request, showed:
+
+| Agent's `skill` rule | Skill in `<available_skills>` | The model calls the skill |
+| --- | --- | --- |
+| `"*": deny`, then one allowed name | Only the allowed name; every other skill, from the project and from the global config directory, is left out | The allowed skill loads. Any other is refused with the matching rules. |
+| One allowed and one denied name, no `"*"` | Every skill except the denied one | The denied skill is refused. |
+
+The binding's `skill` rule starts with `"*": deny`, so the model sees
+and loads only the manifest's Toolkit skills. Unlike the Claude Code
+binding, it needs no list of other skill names, and a skill that the
+binding cannot know in advance is hidden too.
 
 ### Invocation
 
@@ -323,8 +334,9 @@ has no governed tools, and the guard refuses them.
 ### The first consumer in OpenCode
 
 `eliciting-requirements` loads through the `skill` tool and reads its
-`references/` through `read`. Its evaluation wrapper in PR #64 runs
-OpenCode with its own config and invokes it as
+`references/` through `read`. Its evaluation wrapper under
+`eval/eliciting-requirements/` runs OpenCode in a per-case workspace
+with its own `opencode.json` and invokes the skill as
 `/eliciting-requirements`, so the skill needs no binding file, and the
 entry point's name must differ from every skill name.
 
@@ -335,7 +347,7 @@ entry point's name must differ from every skill name.
 | # | Obligation | OpenCode binding | Status |
 | --- | --- | --- | --- |
 | H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Met |
-| H2 | Expose governed MCP tools to the role | `mcp` entries; `ears-manager_*` and `wms_*` rules | Met |
+| H2 | The `ears-manager` CLI and the `wms` tools for the role | `ears-manager *` in the bash rules; the `wms` entry and `wms_*` rules | Met |
 | H3 | `drafting-table` entry point | The command and the agent | Met |
 | H4 | Resume on every entry, continued session, and compaction | Command prompt and session skill; `--continue` and `--session` continue a session | Met |
 | H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Met |
@@ -343,9 +355,10 @@ entry point's name must differ from every skill name.
 | H7 | Headless replay with no permission prompt | `opencode run --format json`, a replay provider, no `ask` rules | Met |
 | H8 | Guard before every tool call | The shim | Met |
 | H9 | Hide file-writing, subagent, and web tools | `"*": deny` | Met |
-| H10 | Toolkit skills only | `skill` rule | Met |
+| H10 | Toolkit skills only | `skill` rule with `"*": deny` first; other skills are hidden from the model's list and refused | Met |
 | H11 | No credential in binding files; no session upload | Placeholders; `share: disabled` | Met |
 | H12 | Publish this status | This table | Met |
+| H13 | Remote `wms` server with OAuth 2.1 | Not checked; the fixture is single-player | Open |
 
 What the OpenCode layer stops, by route:
 
@@ -354,12 +367,12 @@ What the OpenCode layer stops, by route:
 | File tool under `.protobot/` | Tool not offered | Refused by the project rule and the guard |
 | File tool on a registered path elsewhere | Tool not offered | Refused by the guard |
 | Shell writer, such as `sed -i` | Refused by the native copy and the guard | Not stopped |
-| Output redirection in a shell command | Refused by the guard | Refused by the guard when the command contains the path as written from the project root |
+| Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root |
 | Tool of another MCP server | Not offered | The user's own configuration |
 | Subagent | `task` not offered | Not applicable |
 
 The routes that are not stopped are caught by the later layers, as
-[What the harness layer stops](harness-adapters.md#what-the-harness-layer-stops)
+[What the harness layer stops](adapter-contract.md#what-the-harness-layer-stops)
 describes.
 
 ---
@@ -371,7 +384,10 @@ The binding relies on these behaviors, each observed on OpenCode
 
 1. Skills are discovered from the locations in [Discovery](#discovery),
    and a name found twice is listed once.
-2. A skill denied by the `skill` rule cannot be loaded.
+2. A skill denied by the `skill` rule is left out of the
+   `<available_skills>` block of the system prompt and cannot be
+   loaded. A `"*": deny` rule hides project skills and skills in the
+   global config directory alike.
 3. A built-in tool with no allow rule for the agent is not offered to
    the model.
 4. Rules resolve in the order and with the effects in
@@ -399,7 +415,7 @@ binding, never in a Toolkit or adapter-core file.
 
 ## Running the fixture on OpenCode
 
-The [fixture session](harness-adapters.md#fixture-session) needs three
+The [fixture session](adapter-contract.md#fixture-session) needs three
 harness commands. For OpenCode:
 
 | Fixture need | OpenCode |
@@ -439,19 +455,25 @@ clients, and shell.
 - `opencode debug agent drafting-table` shows no `ask` rule from the
   agent file, and its `skill` patterns equal the manifest's
   `toolkit_skills`.
+- The replay endpoint records each request. In a turn in the role, the
+  `<available_skills>` block of the system prompt names exactly the
+  manifest's `toolkit_skills`.
 - No headless run prints an automatic permission rejection.
 
 ---
 
 ## Related Documents
 
-- [Specification Toolkit Harness Adapters](harness-adapters.md) — The
+- [Agent Harness Adapter Contract](adapter-contract.md) — The
   harness-neutral contract this binding implements.
-- [Git and Project-Repository Integration](git-integration.md) —
+- [Claude Code Harness Binding](claude-code.md) — The sibling binding
+  for Claude Code.
+- [Codex Harness Binding](codex.md) — The sibling binding for Codex.
+- [Git and Project-Repository Integration](../git-integration.md) —
   Permitted Git operations and ungoverned-edit detection.
-- [Architecture](../architecture.md) — The Drafting Table Boundary and
+- [Architecture](../../architecture.md) — The Drafting Table Boundary and
   the OpenCode-plus-skill strawman.
-- [System Components](components.md) — The Drafting Table and the
+- [System Components](../components.md) — The Drafting Table and the
   Specification Toolkit.
-- [Overview](overview.md) — Single-player and multi-player modes, and
+- [Overview](../overview.md) — Single-player and multi-player modes, and
   platform.

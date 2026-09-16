@@ -244,9 +244,14 @@ relationships, eval coverage) stay open above.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
-- [Specification Toolkit Harness Adapters](harness-adapters.md) —
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, the guard, and harness obligations
-- [OpenCode Adapter](opencode-adapter.md) — The first harness binding
+- [OpenCode Harness Binding](agent-harness/opencode.md) — The first
+  harness binding
+- [Claude Code Harness Binding](agent-harness/claude-code.md) — The
+  second harness binding
+- [Codex Harness Binding](agent-harness/codex.md) — The third harness
+  binding
 - [Related Work](related-work.md) — Red Hat internal projects,
   external factory projects, and lessons learned
 

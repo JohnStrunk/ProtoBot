@@ -161,8 +161,10 @@ to the WMS via MCP or API.
   harness binding. The shared adapter core — a manifest, the Drafting
   Table role, the permitted shell operations, and one guard command
   that every harness calls before each tool call — is defined in
-  [Specification Toolkit Harness Adapters](harness-adapters.md).
-  OpenCode is the first binding ([OpenCode Adapter](opencode-adapter.md)).
+  [Agent Harness Adapter Contract](agent-harness/adapter-contract.md).
+  The first bindings are [OpenCode](agent-harness/opencode.md),
+  [Claude Code](agent-harness/claude-code.md), and
+  [Codex](agent-harness/codex.md).
 
 ### Responsibilities (common to all implementations)
 
@@ -230,9 +232,10 @@ shared asset consumed by the agent harness.
   interface types), how to conduct Dimensioning (translate
   Architecture into EARS requirements, surface spec gaps, handle
   each EARS pattern type).
-- **Tool definitions** — MCP tool schemas or API client code for
-  interacting with the WMS Adapter (creating/reading/updating work
-  items, querying blocked items) and `ears-manager` (adding,
+- **Tool definitions** — MCP tool schemas for interacting with the
+  WMS Adapter (creating/reading/updating work items, querying blocked
+  items). `ears-manager` is a CLI that the agent runs through the
+  harness's shell tool; the skills describe its commands (adding,
   listing, and validating specifications on the active change-set or
   build-work-item branch).
 - **Prompts** — System prompts, templates, and reference material:
@@ -285,7 +288,7 @@ The final cross-harness packaging boundary remains an open question.
   OpenCode's skill system)? A plugin/extension package? The answer
   depends partly on what the target harnesses support. The on-disk
   half is resolved for every harness:
-  [Specification Toolkit Harness Adapters](harness-adapters.md#the-three-layers)
+  [Agent Harness Adapter Contract](agent-harness/adapter-contract.md#the-three-layers)
   decides skills as `<name>/SKILL.md` directories under
   `.agents/skills/` and tool definitions as MCP servers. Still open:
   how the toolkit reaches a project other than ProtoBot, and how it is
@@ -1601,7 +1604,8 @@ instrumentation.
   component emit beyond git commits? Logs? OpenTelemetry spans?
   Something custom? Where is it stored and how is it queried? For the
   TUI Drafting Table, the interim trace source is the harness's own
-  session record ([Harness adapters — Traces](harness-adapters.md#traces));
+  session record
+  ([Adapter contract — Traces](agent-harness/adapter-contract.md#traces));
   a harness-neutral format is still open.
 - **Eval harness.** How do you run an eval? Feed a component
   recorded inputs and compare outputs against a reference? The
@@ -1903,10 +1907,15 @@ confirmation.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
-- [Specification Toolkit Harness Adapters](harness-adapters.md) —
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, governed tools, the guard, and harness
   obligations
-- [OpenCode Adapter](opencode-adapter.md) — The first harness binding
+- [OpenCode Harness Binding](agent-harness/opencode.md) — The first
+  harness binding
+- [Claude Code Harness Binding](agent-harness/claude-code.md) — The
+  second harness binding
+- [Codex Harness Binding](agent-harness/codex.md) — The third harness
+  binding
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Drafting Table UX](drafting-table-ux.md) — Stable interaction
