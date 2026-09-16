@@ -422,11 +422,13 @@ It is used by these callers:
   The minimum relationship vocabulary is `depends-on`, `conflicts-with`,
   `supersedes`, and `related-to`; `depends-on` and `supersedes` must be
   acyclic. Dangling references are flagged.
-- **Artifact governance.** Every Vision, Architecture, interface IDL,
-  requirement store, and change-set file is registered by kind, path,
-  digest, owner, and validator. Opaque prose and external IDLs still pass
-  through `ears-manager` for change-set membership and path/transaction
-  control; format-specific tools perform their content validation.
+- **Artifact governance.** Vision, Architecture, interface IDL, and
+  interface-prose files are registered by kind, path, digest, owner, and
+  validator. Structured requirement, interface, and change-set records use
+  the `stores` block and their ADR-0003 layout. Opaque prose and external
+  IDLs still pass through `ears-manager` for change-set membership and
+  path/transaction control; format-specific tools perform their content
+  validation.
 - **File format consistency.** `ears-manager` ensures one-file-per-record
   YAML files ([ADR-0001](../decisions/0001-requirements-storage-format.md))
   are syntactically valid and follow the expected schema.
@@ -517,16 +519,14 @@ idempotency input.
 See the [CLI Integration Contract](ears-manager-cli.md) for the stable
 machine-readable and human-readable interface used by all of these callers.
 
-### Open design questions
+### Resolved and open design questions
 
 - **Spec directory layout.** The record format is decided
   (one file per record,
   [ADR-0001](../decisions/0001-requirements-storage-format.md)),
-  but the directory hierarchy is not. Flat, or mirroring
-  the specification levels (Vision → Architecture → Interface
-  → Requirement)? Naming convention for record files? The
-  layout affects discoverability and `ears-manager`'s internal
-  complexity.
+  and the minimum directory hierarchy and filename mapping are
+  defined by
+  [ADR-0003](../decisions/0003-ears-manager-storage-layout.md).
 - **Query richness.** How far do the resource-specific `list` commands go?
   Simple
   filtering (by interface, applicability scope, or pattern type)? Or
@@ -758,17 +758,18 @@ language/source/test layout:
 | `.protobot/projection.yaml` | Deny-by-default path classification for Worker and attestation projections. `ears-manager` writes the class for a registered specification path ([git-integration.md](git-integration.md#path-rules)); every other entry is reviewed project policy. |
 | `.protobot/policy.yaml` | Required Inspectors, WIP/scheduling policy, sandbox profile, and other reviewed project policy. |
 | `.protobot/kits.lock` | Optional Kit source/version/digest/provenance locks. |
-| `.protobot/change-sets/` | Immutable approved change-set manifests, one flat file per change set, named `cs-<nnn>.yaml` ([git-integration.md](git-integration.md#one-change-set-one-file)). |
+| `.protobot/interfaces/` | One YAML file per structured interface record, unless a project registers another relative path in `project.yaml`. |
+| `.protobot/change-sets/` | Immutable approved change-set manifests, one flat file per change set, named `cs-<nnnnn>.yaml` ([git-integration.md](git-integration.md#one-change-set-one-file)). |
 | `.protobot/test-catalog.jsonl` | Stable test IDs, requirement links, verification modes, control surfaces, and validity metadata. |
 | `.protobot/attestations/` | Finding snapshots/reports, conformance metadata, and canonical demo manifests; always `attestation-only`. |
 
 `project.yaml` points to the project's Vision, Architecture/interface
-IDLs, and structured requirement store wherever project conventions put
-them. The default that `ears-manager` proposes for the requirement store
-is `.protobot/requirements/`, which keeps the files it manages together
-and leaves the rest of the tree to the project
+IDLs, and structured stores wherever project conventions put them. The
+defaults that `ears-manager` proposes are `.protobot/requirements/`,
+`.protobot/interfaces/`, and `.protobot/change-sets/`, which keep the
+files it manages together and leave the rest of the tree to the project
 ([git-integration.md](git-integration.md#selecting-the-paths)); a project
-may register a different path.
+may register different relative paths.
 
 `ears-manager` is the exclusive write gate for every registered
 specification artifact: it owns structured requirements, the interface
@@ -930,17 +931,17 @@ item entirely rather than refresh it.
 Every existing-branch refresh reruns build, full active tests, mutation,
 and a new Inspection Run. A path-disjoint result never waives these gates.
 
-### Open design questions
+### Resolved and open design questions
 
 - **Spec directory layout.** The record format is decided
   (one file per record,
   [ADR-0001](../decisions/0001-requirements-storage-format.md)),
-  but the directory hierarchy is not. Flat, or mirroring
-  the specification levels? Naming convention for record
-  files? The layout affects discoverability and queryability.
+  and the minimum directory hierarchy and filename mapping are
+  defined by
+  [ADR-0003](../decisions/0003-ears-manager-storage-layout.md).
 - **Branch naming and lifecycle.** The change-set half is resolved:
   [Git and Project-Repository Integration](git-integration.md#change-set-branches)
-  decides `cs/<nnn>-<slug>`, creation at `change-set create`, and
+  decides `cs/<nnnnn>-<slug>`, creation at `change-set create`, and
   deletion after merge. Still open for build work items: the
   convention for `wi/` branch names (e.g., `wi/<id>-<slug>`), when
   the Job Site creates them (on work item creation or on first

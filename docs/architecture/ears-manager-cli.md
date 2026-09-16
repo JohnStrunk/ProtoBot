@@ -234,7 +234,7 @@ the binary version without reading the project.
 - Full Git commit selectors use lowercase or uppercase hexadecimal, but JSON
   output uses lowercase hexadecimal.
 - A write command that needs a proposed change set requires
-  `--change-set CS-<NNN>`. The command never silently selects an unrelated
+  `--change-set CS-<NNNNN>`. The command never silently selects an unrelated
   active change set.
 - Path containment is validated before any read or write. Absolute paths,
   `..` escapes, symlink-resolution failures, and reserved control/workflow
@@ -275,8 +275,9 @@ ears-manager project init \
 
 The defaults are `main`, `cs/`, `docs/vision.md`, and
 `docs/architecture.md`. Initialization creates the `.protobot/` control
-namespace, seeds schema versions and the default artifact registry, and
-classifies registered specification paths as `shared` in
+namespace, seeds schema versions and the default `stores` block, registers
+the opaque Vision and Architecture artifacts, and classifies registered
+specification paths as `shared` in
 `.protobot/projection.yaml`. It does not create content, commit, push, or
 merge anything. The caller follows the project-initialization sequence in
 [Git and Project-Repository Integration][git-init].
@@ -445,8 +446,8 @@ Each structured diagnostic has this shape:
 {
   "code": "requirement.ears_pattern_mismatch",
   "severity": "error",
-  "path": ".protobot/requirements/REQ-CLI-001.yaml",
-  "record_id": "REQ-CLI-001",
+  "path": ".protobot/requirements/REQ-CLI-00001.yaml",
+  "record_id": "REQ-CLI-00001",
   "field": "text",
   "message": "Text does not match the declared event-driven pattern.",
   "hint": "Start the statement with 'When ...'."
@@ -492,7 +493,7 @@ operation. Fields inherited from ADR-0002 are not repeated in full.
 
 | Request | Success result | Diagnostic result |
 | --- | --- | --- |
-| Project ID, name, canonical remote, review mode, and optional path/branch defaults | Project identity, repository settings, schema versions, registered artifact IDs/paths, and changed paths | `project.already_initialized`, `project.not_git_root`, `project.invalid_path`, `project.remote_credentials`, or `project.invalid_configuration` |
+| Project ID, name, canonical remote, review mode, and optional path/branch defaults | Project identity, repository settings, schema versions, store paths, registered artifact IDs/paths, and changed paths | `project.already_initialized`, `project.not_git_root`, `project.invalid_path`, `project.remote_credentials`, or `project.invalid_configuration` |
 
 The operation is the only write that does not require an existing project
 configuration or `--change-set`. It is atomic across `project.yaml` and
@@ -504,7 +505,7 @@ sequence; initialization itself does not approve or commit the project.
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
 | `artifact put` | Change set, artifact ID/kind/path/owner, optional validator, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.write_not_allowed`, or a validator diagnostic |
-| `artifact get` | Exactly one of artifact ID or kind, where kind must match one entry; optional `--at` | A file artifact returns its registry entry and UTF-8 content. A directory aggregate returns its registry entry, aggregate digest, and sorted member paths without content. | `artifact.not_found`, `artifact.ambiguous`, `artifact.not_readable_as_content`, or `artifact.read_failed` |
+| `artifact get` | Exactly one of artifact ID or kind, where kind must match one opaque artifact entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
 `artifact put` is the only route for Vision, Architecture, interface prose,
@@ -546,7 +547,7 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNN>` ID, full base commit, branch name, manifest path, empty proposed manifest, and updated change-set-store aggregate digest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
@@ -556,16 +557,12 @@ explicit.
 full 40-character `base_commit`. Normal creation cuts the branch named by
 `repository.branch_prefix` and the slug rules in #34. Project initialization
 is the documented exception: when the working tree is already on the
-pre-cut `cs/<nnn>-project-init` branch, the project is not yet approved, and
+pre-cut `cs/<nnnnn>-project-init` branch, the project is not yet approved, and
 that branch has no manifest, `change-set create` records the existing branch
 and does not return `change_set.branch_exists`. This is the only branch
 reuse case and corresponds to [Git and Project-Repository
 Integration](git-integration.md#project-initialization). A failed creation
 leaves neither a manifest nor a new branch.
-
-Creating a manifest also updates the registered `change-set` directory
-aggregate and its digest in `.protobot/project.yaml`. The manifest itself is
-not an artifact-registry entry; it is a change-set record under the aggregate.
 
 Every successful `change-set update` returns a `before` and `after` manifest
 summary, the resulting `assessment_status`, and sorted `changed_paths`.
@@ -623,7 +620,7 @@ an explicit immutable comparison revision. Its result contains:
 
 ```json
 {
-  "change_set_id": "CS-005",
+  "change_set_id": "CS-00005",
   "against_commit": "<full-sha>",
   "changed": [],
   "exact_duplicates": [],
@@ -664,11 +661,11 @@ The result shape is:
 
 ```json
 {
-  "change_set_id": "CS-005",
+  "change_set_id": "CS-00005",
   "against_commit": "<full-sha>",
   "candidates": [
     {
-      "requirement_id": "REQ-CLI-001",
+      "requirement_id": "REQ-CLI-00001",
       "origin": "mechanical",
       "matched_by": ["interface:cli-main", "scope:help-output"],
       "recommended_disposition": "applicable",
