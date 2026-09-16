@@ -172,8 +172,10 @@ item. The classification is part of the trusted command payload.
 
 If an approved change set declares `implementation_required: false`,
 materialization returns `omitted` rather than creating a build work item.
-The `materialization_key` prevents duplicate logical registration and the
-per-command `idempotency_key` prevents duplicate command results.
+The WMS still stores a materialization reservation containing the source
+fingerprint and `omitted` result. The `materialization_key` prevents
+duplicate logical registration and the per-command `idempotency_key`
+prevents duplicate command results.
 
 ---
 
@@ -273,24 +275,25 @@ Every authoritative request contains:
 
 ### Reconciliation evidence
 
-Fence-exempt reconciler operations use evidence observed by the WMS and
+Reconciliation-sensitive operations use evidence observed by the WMS and
 trusted integration boundary, not a proof blob supplied by the caller. The
 authoritative `current_record` carries:
 
 | Field | Required meaning |
 | --- | --- |
-| `reconciliation.status` | One of `conflict`, `not-applied`, or `merge-recorded`. |
+| `reconciliation.status` | One of `conflict`, `not-applied`, `merge-recorded`, `lease-recovered`, or `not-integrated`. |
 | `reconciliation.git_mutation` | Observed Git result: `none`, `conflict`, or `merged`. |
-| `reconciliation.merge_envelope` | Tested candidate digest, sealed Inspection Run, post-attestation integration head, target, contract version, and resulting merge commit. |
+| `reconciliation.merge_envelope` | For `merge-recorded`, the tested candidate digest, sealed Inspection Run, post-attestation integration head, target, contract version, and resulting merge commit. It may be absent for `conflict`, `not-applied`, `lease-recovered`, and `not-integrated`. |
 
 The WMS compares this evidence with the current work-item contract. A
 reconciler `merge-conflict` to `ready-for-building` requires a matching
 `conflict`/non-merged result; `merge-not-applied` requires a matching
 `not-applied`/`none` result; and reconciled `record-merge` requires a
-matching `merge-recorded`/`merged` envelope. Missing, malformed, or
-mismatched evidence returns `PRECONDITION_FAILED` with reconciliation
-details and cannot mutate state. Callers cannot replace these fields with
-payload claims.
+matching `merge-recorded`/`merged` envelope. `recover-lease` requires an
+expired lease plus `lease-recovered` evidence, and `abandon` requires
+`not-integrated` evidence. Missing, malformed, or mismatched evidence
+returns `PRECONDITION_FAILED` with reconciliation details and cannot
+mutate state. Callers cannot replace these fields with payload claims.
 
 ### Decision
 
@@ -332,8 +335,9 @@ the same idempotency key.
    or fencing checks. A second claimant therefore cannot acquire an item
    already claimed by another owner.
 5. `materialization_key` is the create-or-return identity for a logical
-   work item. Reusing it with a different source contract is an
-   `IDEMPOTENCY_CONFLICT`, even when the per-command key is new.
+   work item or an `omitted` materialization reservation. Reusing it with
+   a different source contract is an `IDEMPOTENCY_CONFLICT`, even when the
+   per-command key is new.
 6. A rejected request is also idempotent. The caller must use a refreshed
    expected version and a new key after correcting the cause.
 
@@ -368,9 +372,9 @@ into an arbitrary update.
 | `return-to-building` | `inspecting` | `building` | In-contract defect or failed final test requires rework. The current fence is checked and atomically replaced with a new lease fence. |
 | `begin-merge` | `inspecting` | `merging` | Inspection Run is sealed, all findings are terminal, and the final test gate passed. |
 | `merge-conflict` | `merging` | `building` | A Job Site owner presents the current merge fence; the WMS atomically replaces it with a new Job Site execution lease fence after conflict reconciliation. |
-| `merge-conflict` | `merging` | `ready-for-building` | A `reconciler` supplies matching WMS-observed `conflict`/non-merged evidence; no live fence is required and the next Job Site must claim the item normally. |
-| `merge-not-applied` | `merging` | `ready-for-building` | A `reconciler` supplies matching WMS-observed `not-applied`/`none` evidence; no live fence is required and all gates must run again before a new claim. |
-| `record-merge` | `merging` | `completed` | A Job Site supplies the current fence, or a `reconciler` supplies matching WMS-observed `merge-recorded`/`merged` evidence; the merge envelope matches. |
+| `merge-conflict` | `merging` | `ready-for-building` | A trusted `reconciler` operation evaluates matching WMS-observed `conflict`/non-merged evidence; no live fence is required and the next Job Site must claim the item normally. |
+| `merge-not-applied` | `merging` | `ready-for-building` | A trusted `reconciler` operation evaluates matching WMS-observed `not-applied`/`none` evidence; no live fence is required and all gates must run again before a new claim. |
+| `record-merge` | `merging` | `completed` | A Job Site supplies the current fence, or a trusted `reconciler` operation evaluates matching WMS-observed `merge-recorded`/`merged` evidence; the merge envelope matches. |
 | `recover-lease` | `building` or `inspecting` | `ready-for-building` | The lease is expired, Git/WMS reconciliation is complete, and no unrecorded mutation remains. |
 | `abandon` | `waiting`, `ready-for-building`, `building`, `inspecting`, or `blocked` | `abandoned` | An authorized maintainer confirms cancellation and reconciliation proves that integration cannot have occurred. |
 
@@ -530,8 +534,10 @@ For `materialize`, the create-or-return check treats a missing work-item
 record as an expected create when the project and `materialization_key`
 are authorized. If an existing record has the same source-contract
 fingerprint, the evaluator returns it with `replayed: true` and performs
-no mutation. A different source fingerprint returns
-`IDEMPOTENCY_CONFLICT` before expected state/version checks.
+no mutation. An existing `omitted` reservation with the same fingerprint
+returns the prior `omitted` result with `replayed: true`. A different
+source fingerprint returns `IDEMPOTENCY_CONFLICT` before expected
+state/version checks.
 
 `recover-lease` intentionally requires an expired or missing live lease
 after Git/WMS reconciliation, so it is exempt from step 10. `abandon` is a
@@ -539,11 +545,12 @@ maintainer operation and is also exempt; its cancellation and
 reconciliation preconditions authorize it without a Job Site fence.
 
 `merge-conflict`, `merge-not-applied`, and reconciled `record-merge` are
-also reconciliation operations. They are exempt from the live-owner fence
-check when the trusted `reconciler` context supplies the required Git/WMS
-reconciliation proof. A reconciler conflict returns the item to
-`ready-for-building` for a fresh Job Site claim; it never issues a Job
-Site fence to the reconciler.
+also reconciliation operations. A trusted `reconciler` role for one of
+these operations skips the live-owner fence check; step 11 then evaluates
+the required WMS-observed evidence on `current_record`. A reconciler
+conflict returns the item to `ready-for-building` for a fresh Job Site
+claim; it never issues a Job Site fence to the reconciler. Caller payload
+claims cannot satisfy or replace the evidence check.
 
 The response never returns a credential or an untrusted caller claim.
 
@@ -587,7 +594,7 @@ authorities:
 | State | Owner | Validation Rules responsibility |
 | --- | --- | --- |
 | Work-item state, contract versions, leases, and fencing tokens | WMS Adapter and its claim coordinator | Validate all reads used for a mutation and require atomic compare-and-swap semantics. |
-| Idempotency results and lifecycle audit events | WMS Adapter / external coordinator | Ensure retries return the original result and never duplicate a mutation. |
+| Idempotency results, materialization reservations, and lifecycle audit events | WMS Adapter / external coordinator | Ensure retries return the original result and never duplicate a mutation, including `omitted` outcomes. |
 | Specification records and impact dispositions | Git through `ears-manager` | Consume successful validation/check evidence; do not parse or mutate records. |
 | Project/deployment policy | `.protobot/policy.yaml` or deployment configuration | Select the compatible rule/policy version; changes are reviewed. |
 | Web session state | Web Drafting Table deployment | Supply authenticated project/session context only; never become lifecycle state or an alternate write authority. |
@@ -637,18 +644,21 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-023` | Drafting Table submits a valid reviewed resolution; Materializer performs `resolve-block`. | Approval is verified, `blocked -> ready-for-building` succeeds, and the Drafting Table itself performs no lifecycle mutation. |
 | `VR-024` | Materialize at `initial` version 0 with a new `materialization_key`, then repeat with the same source contract and a new command key. | The first result creates version 1; the second returns the existing item without a duplicate. |
 | `VR-025` | Reuse a `materialization_key` with a different source commit or contract payload. | Rejected with `IDEMPOTENCY_CONFLICT`; no second item is created. |
-| `VR-026` | A reconciler runs `recover-lease` for an expired/missing-fence `building` item after Git reconciliation. | Allowed; the item returns to `ready-for-building` without a fencing-token rejection, and the old lease cannot write. |
-| `VR-027` | An authorized maintainer runs `abandon` for a reconciled `building` item without a Job Site fence. | Allowed only when integration cannot have occurred; the item becomes `abandoned`. |
+| `VR-026` | A reconciler runs `recover-lease` for an expired/missing-fence `building` item whose `current_record` has matching `lease-recovered`/`none` evidence. | Allowed; the item returns to `ready-for-building` without a fencing-token rejection, and the old lease cannot write. |
+| `VR-027` | An authorized maintainer runs `abandon` for a `building` item whose `current_record` has matching `not-integrated`/`none` evidence. | Allowed; the item becomes `abandoned` without a Job Site fence. |
 | `VR-028` | An authoritative request has a missing/unknown role, expired context, or malformed/missing required authorization field. | Rejected with `UNAUTHORIZED_ACTION`; no mutation. |
 | `VR-029` | A request has empty or wildcard allowlists, or attempts to select a weaker `policy_version`. | Rejected with `UNAUTHORIZED_ACTION`; no mutation. |
 | `VR-030` | A valid `human_approval_id` bound to another work item or resolution is used for `resolve-block`. | Rejected with `UNAUTHORIZED_ACTION`; the approval is not consumed and the item remains `blocked`. |
 | `VR-031` | A new `resolve-block` request uses an approval that is expired, revoked, already consumed, or has a mismatched resolution digest. | Rejected with `UNAUTHORIZED_ACTION`; no lifecycle mutation occurs. |
 | `VR-032` | A role-valid Materializer requests `resolve-block` without `human_approval_id` or `approval_resolution_digest`. | Rejected with `UNAUTHORIZED_ACTION`; the item remains `blocked`. |
 | `VR-033` | A successful `resolve-block` response is lost; the Materializer retries the exact request with the same key after the approval was consumed. | The original allowed result is replayed before approval consumption is checked again; no second transition occurs. |
-| `VR-034` | A `reconciler` handles a merge conflict without a Job Site fence and supplies reconciliation proof. | `merging -> ready-for-building` succeeds without issuing a fence to the reconciler. |
-| `VR-035` | Git merge is recorded, but the WMS record remains `merging` because the completion write did not commit; a `reconciler` calls `record-merge` with matching observed evidence. | Completion succeeds without a live Job Site fence; an identical reconciler retry returns `replayed: true`. |
+| `VR-034` | A trusted `reconciler` handles a merge conflict without a Job Site fence while `current_record` contains matching `conflict`/non-merged evidence. | `merging -> ready-for-building` succeeds without issuing a fence to the reconciler; caller proof fields are ignored. |
+| `VR-035` | Git merge is recorded, but the WMS record remains `merging` because the completion write did not commit; `current_record` contains a matching merge envelope and a `reconciler` calls `record-merge`. | Completion succeeds without a live Job Site fence; an identical reconciler retry returns `replayed: true`. |
 | `VR-036` | A `job-site` presents a stale or missing fence for `merge-conflict` or `record-merge`. | Rejected with `STALE_FENCING_TOKEN`; no mutation and no new lease are issued. |
-| `VR-037` | A `reconciler` invokes `merge-conflict`, `merge-not-applied`, or `record-merge` with empty, forged, or mismatched reconciliation evidence. | Rejected with `PRECONDITION_FAILED`; no mutation and no execution lease are issued. |
+| `VR-037` | A `reconciler` invokes `merge-conflict`, `merge-not-applied`, or `record-merge` with missing, malformed, or mismatched WMS-observed evidence on `current_record`. | Rejected with `PRECONDITION_FAILED`; no mutation and no execution lease are issued. |
+| `VR-038` | A reconciler includes forged proof in the request payload while `current_record` contains valid matching evidence. | The payload claim is ignored; the decision follows `current_record` and no caller-supplied proof is trusted. |
+| `VR-039` | An `implementation_required: false` materialization returns `omitted`, then repeats with the same source or a different source under the same `materialization_key`. | Same source replays the stored `omitted` result; a different source is rejected with `IDEMPOTENCY_CONFLICT`. |
+| `VR-040` | `recover-lease` or `abandon` is requested with missing, malformed, or mismatched reconciliation evidence on `current_record`. | Rejected with `PRECONDITION_FAILED`; no mutation occurs even when the caller has the correct role. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests
