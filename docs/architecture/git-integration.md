@@ -76,7 +76,8 @@ Git history_. Adjacent contracts define the surfaces around it:
 - **#30** (`ears-manager` CLI integration) defines the governed
   command and result boundary for specification reads and writes.
   This document names `ears-manager` operations; #30 defines their
-  request and result shapes.
+  request and result shapes in the
+  [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
 - **#33** (OpenCode Specification Toolkit adapter) defines skill
   discovery and harness tool permissions, including the optional
   early enforcement layer that denies direct writes to registered
@@ -137,7 +138,7 @@ This document adds a `repository` block for the Git-facing fields:
 | `repository.canonical_remote` | URL of the canonical repository. The Drafting Table pushes to this remote only. |
 | `repository.default_branch` | The branch that holds approved specification state. `main` by default. |
 | `repository.review_mode` | `single-player` or `multi-player`. Declares the review ceremony. |
-| `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager check` rejects it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
+| `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager project init` and `check` reject it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
 | `schema_versions` | One version per store, as decided by [ADR-0002][adr2-versioning]. |
 | `stores` | Relative paths for the requirement, interface, and change-set stores, as decided by [ADR-0003](../decisions/0003-ears-manager-storage-layout.md). |
 | `artifacts` | The artifact registry: `id`, `kind`, `path`, `digest`, `owner`, and optional `validator` per entry ([ADR-0002][adr2-registry]). |
@@ -198,9 +199,9 @@ one before it:
    its registry.
 3. Run `change-set create`, which writes the manifest and records
    the default-branch head as `base_commit`.
-4. Commit three files — `project.yaml`, the manifest, and
-   `projection.yaml` with the `shared` class of each registered
-   path — then open the pull request and merge.
+4. Commit `.protobot/project.yaml`, `.protobot/projection.yaml`, and the
+   initial change-set manifest, with the `shared` class of each registered
+   path, then open the pull request and merge.
 
 The default branch must already have at least one commit, because
 a branch needs a base and a manifest needs a `base_commit`. A Git
@@ -208,15 +209,12 @@ host creates that commit when the repository is created. An empty
 repository is initialized by the user first, outside this
 contract.
 
-No `ears-manager` subcommand writes `project.yaml` today. Neither
-the CLI contract in
-[architecture.md](../architecture.md#ears-manager-cli) nor the
-subcommand table in
-[components.md](components.md#subcommands) lists one. This
-contract therefore depends on #30 defining a project
-initialization operation that writes `project.yaml`, seeds the
-artifact registry, and records the schema versions. Until that
-operation exists, fixture step 1 has no command to run.
+The `ears-manager project init` command writes `project.yaml`, seeds the
+artifact registry, records the schema versions, and classifies the registered
+paths. The command and result boundary are defined in the
+[`ears-manager` CLI Integration Contract](ears-manager-cli.md). The Git
+fixture's initialization step invokes that command before creating the
+initial change-set manifest.
 
 Adopting an existing repository never rewrites its history and
 never moves existing files. It registers the paths that are
@@ -235,9 +233,8 @@ Drafting Table never stages it.
 
 At initialization the Drafting Table proposes a default layout and
 the user confirms or changes it before the commit. The write goes
-through the `ears-manager` initialization operation that
-[Project initialization](#project-initialization) records as a
-dependency on #30. The proposed default is:
+through `ears-manager project init` as described by
+[Project initialization](#project-initialization). The proposed default is:
 
 | Managed path | Role | Proposed path |
 | --- | --- | --- |
@@ -535,8 +532,10 @@ report is a view of the Finding Ledger.
 
 ### Gates and labels
 
-- CI runs `ears-manager check` on every branch push and as the
-  merge gate.
+- CI runs `ears-manager check` on every branch push and as the merge gate.
+  A bare `check` resolves and validates every proposed change-set manifest in
+  the branch, including its impact assessment; interactive callers may pass
+  `--change-set CS-<NNNNN>` to narrow the check.
 - Path ownership in CI rejects a change that edits files outside
   the owning component's paths.
 - Branch protection on the default branch requires the pull
@@ -636,7 +635,7 @@ ceremony and the credential path differ.
 | Who owns specification artifacts | `ears-manager` | `ears-manager` |
 | Branch naming and creation | `cs/<nnnnn>-<slug>` from the default branch | Identical |
 | Commit content, message, trailer | As above | Identical |
-| Pull-request body | Rendered from `compare` and `impact` | Identical |
+| Pull-request body | Rendered from `change-set compare` and `impact` | Identical |
 | How a change reaches the default branch | Pull request | Pull request |
 | Who approves | The author merges their own pull request. No reviewer is required. | A reviewer merges; CODEOWNERS and required reviews apply |
 | Registration trigger | Local `register-approved-change-set` | Merge hook on the default branch |
@@ -728,14 +727,14 @@ operations at the harness permission layer.
 
 | Operation | Constraint |
 | --- | --- |
-| Initialize the control namespace | Through the `ears-manager` operation #30 must define; commits `.protobot/project.yaml` on a change-set branch |
+| Initialize the control namespace | `ears-manager project init` writes `.protobot/project.yaml` and `.protobot/projection.yaml` without committing; Git commits them with the initial manifest on the change-set branch |
 | Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base` |
 | Fetch | From `repository.canonical_remote` only |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Stage | Registered artifact paths, the change-set manifest, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
-| Open or update a pull request | Against `repository.default_branch`, body rendered from `compare` and `impact` |
+| Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |
 | Merge the default branch into the change-set branch | Merge commit; followed by `change-set update` |
 | Merge one's own pull request | Single-player only, merge commit, followed by registration |
 | Delete a merged change-set branch | Only after the merge commit exists on the default branch |
@@ -883,7 +882,7 @@ resurface.
 | Merge queue or batching | Concurrent change sets follow the standard refresh-before-merge model. A Bors-style queue is [related work](related-work.md#gas-town--beads-steve-yegge), not a decision here. |
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
 | Directory layout inside the requirement store | Open with `ears-manager` ([`ears-manager`](components.md#ears-manager)). This document constrains which paths may be committed, not how the store organizes them. |
-| `ears-manager` command and result shapes | Defined by #30. |
+| `ears-manager` command and result shapes | Defined by the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
 | Harness tool permission rules | Defined by #33. This document names the layer and its effect, not its configuration. |
 | Kit import commits | Kit packaging is open ([Kits](components.md#kits)). The imported specification content arrives as a proposed change set and follows this contract. The lock file `.protobot/kits.lock` is a separate matter: no document names its writer, so this contract does not stage it. Whoever settles Kit packaging must name that owner. |
 | Conflict-resolution UX | The failure table states the deterministic diagnostic and the safe retry. How the Drafting Table presents a conflict to the user is UX (#28). |
@@ -903,6 +902,8 @@ resurface.
 - [System Components](components.md) — Component architecture,
   the content storage model, the multi-player workflow, and
   cross-cutting concerns.
+- [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
+  Command grammar, results, diagnostics, and impact review.
 - [User Interaction Flow](user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Open Design Questions](open-questions.md) — Unresolved design

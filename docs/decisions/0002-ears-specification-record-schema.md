@@ -225,7 +225,7 @@ Architecture change:
 | Value | Description |
 | --- | --- |
 | `network-service` | Network service (REST API, gRPC service). Specification approach: Smithy or OpenAPI. |
-| `cli` | Command-line interface. Specification approach: `usage` (jdx.dev) / docopt / `wasi:cli` (evaluation pending, [Q18](../architecture/open-questions.md#q18-cli-interface-spec-evaluation)). |
+| `cli` | Command-line interface. Specification approach: command grammar and typed result contract defined by each CLI interface; `usage`, docopt, or `wasi:cli` may provide optional tooling. |
 | `repl` | Read-eval-print loop. Specification approach: skills and prompts define the interaction protocol. |
 | `linkable-library` | Linkable library or SDK. Specification approach: WIT (Wasm Interface Types). |
 | `web-gui` | Web GUI (HTML/CSS). Specification approach: open gap — not yet established. |
@@ -270,8 +270,8 @@ change:
 #### Interface Operations
 
 Each operation in the `interface_operations` list describes one
-interface change within the change set. `ears-manager add interface`
-and `ears-manager update` write these entries
+interface change within the change set. `ears-manager interface add`
+and `ears-manager interface update` write these entries
 ([components.md](../architecture/components.md#subcommands)).
 Interface retirement is recorded as a `revise` operation that
 sets `status: retired` on the interface record.
@@ -336,8 +336,11 @@ logical structure of each entry within that file.
 | `architecture` | The project Architecture document. |
 | `interface-idl` | An interface specification in a machine-readable IDL format (OpenAPI, protobuf, etc.). |
 | `interface-prose` | An interface specification in prose form. |
-| `requirement-store` | The structured requirement store directory managed by `ears-manager`. |
-| `change-set` | A change-set manifest file. |
+
+Structured requirement, interface, and change-set stores are configured in
+the `stores` block of `.protobot/project.yaml` and are not artifact-registry
+entries. Their layout and directory digest rules are defined by
+[ADR-0003](0003-ears-manager-storage-layout.md).
 
 ---
 
