@@ -40,7 +40,7 @@ documentation, the CLI help, and the source of version 0.154.0. The
 into "met" or into a recorded gap, and [Open points](#open-points) lists
 what it must confirm first.
 
-Codex differs from the other two harnesses in three ways that shape
+Codex differs from the other two harnesses in four ways that shape
 this binding:
 
 - **It has no agent file for the main session.** Codex agent roles
@@ -52,8 +52,12 @@ this binding:
   ([Read forms](#read-forms)).
 - **Its hooks fail open.** A hook that is not trusted does not run, and
   a hook that exits with any status other than 2, prints nothing, or
-  times out lets the call through. The binding closes what it can and
-  records the rest.
+  times out lets the call through. A launcher makes the hook run, the
+  sandbox stays on, and the rest is recorded.
+- **Its sandbox keeps `.git/` read-only and has no network.** The role
+  cannot write Git or reach the Git host from its shell, so the user
+  runs those commands
+  ([What the user runs in Codex](#what-the-user-runs-in-codex)).
 
 ---
 
@@ -61,14 +65,15 @@ this binding:
 
 ### Installed files
 
-The binding is two files. At project scope they sit beside the shared
+The binding is three files. At project scope they sit beside the shared
 layer:
 
 ```text
 <project root>/
 ├── .codex/
 │   ├── hooks.json                       the hook that calls the guard, every session
-│   └── drafting-table.config.toml       the role profile, linked into $CODEX_HOME
+│   ├── drafting-table.config.toml       the role profile, linked into $CODEX_HOME
+│   └── drafting-table                   the launcher: the drafting-table entry point
 └── .agents/                             shared layer (harness-neutral)
     ├── drafting-table.yaml
     └── skills/
@@ -86,18 +91,19 @@ profile names no project path, so one link serves every project that
 uses adapter layout 1, and the fixture checks that the linked file
 equals the project's.
 
-At user scope, `hooks.json` goes to `$CODEX_HOME/hooks.json` and the
-profile to `$CODEX_HOME/drafting-table.config.toml`.
+At user scope, `hooks.json` goes to `$CODEX_HOME/hooks.json`, the
+profile to `$CODEX_HOME/drafting-table.config.toml`, and the launcher
+onto `PATH`.
 
-The role is launched, not selected inside a session:
+The role is started by the launcher, not selected inside a session:
 
 ```text
-PROTOBOT_ROLE=drafting-table codex --profile drafting-table "<intent>"
+.codex/drafting-table "<intent>"
 ```
 
 Codex has no documented way to switch a running session to another
-profile. A user who is already in a session exits and resumes it with
-the profile, as [Invocation](#invocation) shows.
+profile. A user who is already in a session exits and resumes it
+through the launcher, as [Invocation](#invocation) shows.
 
 ### `.codex/hooks.json`
 
@@ -145,15 +151,60 @@ profile:
   under `hooks.state`, and a changed hook needs trust again. The user
   reviews and trusts the hook once with `/hooks`. In a trusted project
   with an untrusted `hooks.json`, a command that the hook refuses ran
-  without any diagnostic (observed). The
-  [fixture](#running-the-fixture-on-codex) checks that the hook fires
-  before any other step.
+  without any diagnostic (observed). The [launcher](#the-launcher)
+  does not depend on that step: it checks the file and starts Codex
+  with `--dangerously-bypass-hook-trust`, which runs the hook without
+  the trust store (observed). Other sessions in the project still need
+  the `/hooks` step, and there the hook is the optional early layer.
 - **A crash, an exit other than 2, or a timeout lets the call through**
-  (documented). The guard exits 2 on any internal error, as the
-  contract requires. A guard that hangs past the hook timeout is a gap
-  the native layer cannot close.
+  (documented). The guard exits 2 on any internal error it catches, as
+  the contract requires. A guard process that is killed, or that hangs
+  past the hook timeout, is a gap the native layer cannot close; the
+  [sandbox](#the-role-profile) keeps that gap to a read or a workspace
+  write.
 - Every matching hook of every configuration layer runs, so a user's
   own hooks run beside this one and cannot replace it.
+
+### The launcher
+
+`.codex/drafting-table` is the `drafting-table` entry point (H3). It
+is the check that the hook runs, made outside the model loop:
+
+```sh
+#!/bin/sh
+# ProtoBot Drafting Table entry point for Codex.
+set -eu
+root=$(git rev-parse --show-toplevel)
+hook="$root/.codex/hooks.json"
+expected=$(cat <<'HOOK'
+<the hooks.json above, byte for byte>
+HOOK
+)
+command -v drafting-table-guard >/dev/null 2>&1 ||
+  { echo "drafting-table-guard: not on PATH" >&2; exit 2; }
+[ "$(cat "$hook")" = "$expected" ] ||
+  { echo "$hook is not the ProtoBot guard hook" >&2; exit 2; }
+PROTOBOT_ROLE=drafting-table exec codex --profile drafting-table \
+  --dangerously-bypass-hook-trust "$@"
+```
+
+- **It vets the hook, then bypasses the trust store.** Codex documents
+  `--dangerously-bypass-hook-trust` for automation that has vetted its
+  hook sources, and the two checks are that vetting. With the flag,
+  the hook runs whether or not the user trusted it (observed behavior
+  7), so the untrusted-hook and changed-hook cases are closed before
+  Codex starts. A hook file that differs from the binding's by one
+  byte stops the launcher.
+- **Arguments pass through.** `.codex/drafting-table "<intent>"` starts
+  a session, `.codex/drafting-table resume --last` continues one, and
+  `.codex/drafting-table exec --json "<intent>"` is the headless form
+  the fixture uses.
+- **A session started by hand has only the probe.** `codex --profile
+  drafting-table` without the launcher runs with the trust store, and
+  the probe in the profile is then the only check that the hook fired
+  ([The role profile](#the-role-profile)).
+- The launcher holds no rule and reads no project file besides the
+  hook it compares.
 
 ### The role profile
 
@@ -168,9 +219,15 @@ binding of adapter layout 1. Begin every start summary with the line
 
 Before anything else, run the shell command `true`. The ProtoBot guard
 refuses it, and that refusal shows that the guard hook is running. If
-`true` runs instead, stop: tell the user that .codex/hooks.json is not
-trusted and must be trusted with /hooks, and do nothing else in this
-session.
+`true` runs instead, stop: the guard hook is not running. Tell the
+user to start the session through the launcher, .codex/drafting-table,
+and do nothing else in this session.
+
+In Codex the sandbox refuses every Git write, every gh command, and
+registration. Do not run them. When the session protocol reaches such
+a command, print it exactly as the shell operations show it, ask the
+user to run it in their own shell, and read the state again through
+the Git reads and ears-manager before you continue.
 
 Your skills are these Toolkit skills and no others. Open a skill by
 reading its SKILL.md under .agents/skills/, and read its references the
@@ -188,7 +245,7 @@ Toolkit skills name operations. In Codex:
 - a file is read with one of the read forms of the Codex binding.
 """
 approval_policy = "never"
-sandbox_mode = "danger-full-access"
+sandbox_mode = "workspace-write"
 web_search = "disabled"
 
 [features]
@@ -216,23 +273,30 @@ enabled = false
   line is spoken in the first turn, so the session record holds it
   ([Traces](adapter-contract.md#traces)). The two skill names are the
   manifest's `toolkit_skills`, and the fixture checks that they match.
-- **The probe is the first tool call (H8).** `true` is not a shell
+- **The probe is the second layer (H8).** `true` is not a shell
   operation, so a running guard refuses it, and the refusal reaches
-  the model. If the hook is untrusted, or was changed after it was
-  trusted, `true` runs, changes nothing, and the role stops before any
-  governed step. The probe closes the untrusted-hook and changed-hook
-  cases of Codex's fail-open hooks; it cannot see a per-call crash or
-  timeout, which H8 records.
+  the model. If the hook is not running, `true` runs, changes nothing,
+  and the role stops before any governed step. The
+  [launcher](#the-launcher) is the check outside the model loop; the
+  probe is what a session started by hand still has. Neither sees a
+  per-call crash or timeout, which H8 records.
 - **`[skills] include_instructions = false` hides every skill (H10).**
   See [Skill visibility](#skill-visibility).
 - **`approval_policy = "never"` (H7).** A command that needs approval is
   rejected and the failure returns to the model, so the role behaves the
-  same headless and interactive.
-- **`sandbox_mode = "danger-full-access"`.** Codex's `workspace-write`
-  sandbox keeps `.git`, `.agents`, and `.codex` read-only (documented),
-  so `git add`, `git commit`, and `git merge` would fail in it. The role
-  therefore runs commands without the Codex sandbox, as OpenCode and
-  Claude Code do, and the guard bounds the shell.
+  same headless and interactive. It refuses; it never approves. A
+  command that would need to leave the sandbox is refused, not
+  escalated.
+- **`sandbox_mode = "workspace-write"`, network off.** The role's
+  shell can write inside the working tree and `$TMPDIR`, which is what
+  `ears-manager` needs, and nothing else. Codex keeps `.git/`,
+  `.agents/`, and `.codex/` read-only in that mode and, with
+  `network_access` off, gives the shell no network (documented). So
+  `git switch`, `git add`, `git commit`, `git fetch`, `git merge`,
+  `git push`, every `gh` command, and `register-approved-change-set`
+  fail in the role, before the guard's answer matters. The user runs
+  them ([What the user runs in Codex](#what-the-user-runs-in-codex)).
+  The Git reads, `ears-manager`, and the `wms` tools work.
 - **`web_search = "disabled"` and `multi_agent = false` hide the web and
   subagent tools (H9).** With them, a model without an `apply_patch`
   tool type gets `exec_command`, `write_stdin`, `request_user_input`,
@@ -246,16 +310,45 @@ enabled = false
   sessions never load the server. `default_tools_approval_mode` lets the
   `wms` tools run under `approval_policy = "never"`. An MCP server from
   the user's base configuration still loads in the role, and guard
-  rule 4 refuses its tools. In multi-player mode the entry becomes a
-  streamable HTTP server with `url`, and the user authenticates once
-  with `codex mcp login wms`, which keeps the token in Codex's own store
-  outside the project (H13, unverified). The Web Drafting Table uses no
-  harness binding
+  rule 4 refuses its tools. Codex starts the server as its own process,
+  not as a tool call, so the tool sandbox does not apply to it; the
+  fixture confirms that it reaches the WMS backend with
+  `network_access` off ([Open points](#open-points)). In multi-player
+  mode the entry becomes a streamable HTTP server with `url`, and the
+  user authenticates once with `codex mcp login wms`, which keeps the
+  token in Codex's own store outside the project (H13, unverified). The
+  Web Drafting Table uses no harness binding
   ([Deployment modes](adapter-contract.md#deployment-modes)).
 - **`[analytics]` and `[feedback]` are off (H11).** Analytics is on by
   default in `codex exec`, and feedback can upload a session. Codex
   Cloud and remote control run only when the user starts them.
 - The profile holds no credential and no project path.
+
+### What the user runs in Codex
+
+The sandbox refuses these shell operations in the role, so the user
+runs them in their own shell when the session protocol reaches them.
+The role prints each command exactly as the
+[shell operations](adapter-contract.md#shell-operations) show it, with
+the placeholders filled, and reads the state again before it
+continues, as it does for a discard and a merge:
+
+| Step | Commands the user runs |
+| --- | --- |
+| Start a change set | `git fetch <remote>`, then, after `ears-manager change-set create`, `git switch -c <prefix><nnnnn>-<slug> <default>` |
+| Resume on another branch | `git switch <prefix><nnnnn>-<slug>` |
+| Commit | `git add -- <path> ...`, then `git commit -F -` with the message the role prints |
+| Refresh | `git fetch <remote>`, `git merge --no-ff --no-edit <remote>/<default>`; the role then runs `change-set update` |
+| Push and open the pull request | `git push <remote> <branch>`, `gh pr create ...` with the body the role prints |
+| Update or read the pull request | `gh pr edit ...`, `gh pr view ...` |
+| Register after the merge | `register-approved-change-set` |
+
+The role still runs every Git read, every `ears-manager` command, and
+every `wms` tool. Drafting, which is most of a session, is unchanged;
+the handoff at the end is the user's. A session started in OpenCode or
+Claude Code and resumed in Codex, or the other way round, finds the
+same state, because the commands are the same and only who runs them
+differs.
 
 ### Read forms
 
@@ -274,8 +367,9 @@ Every `<path>` is named explicitly, does not start with `-`, and is
 checked after symlink resolution. `<a>`, `<b>`, and `<n>` are unsigned
 integers. `<pattern>` follows `-e` and is one shell word, so it cannot
 be parsed as an option; a pattern in any other position is refused. The
-guard refuses a read form under `.protobot/`, of a credential file, or
-outside the project except a user-scope Toolkit skill root, and
+guard refuses a read form under `.protobot/` or `.git/`, of a
+credential file, or outside the project except a user-scope Toolkit
+skill root, and
 refuses a read of `<skill root>/<name>/SKILL.md` or of a file below it
 when `<name>` is not in `toolkit_skills` (guard rule 5). A search or
 listing must name a path, so a search of the whole project root is
@@ -356,14 +450,16 @@ marked met ([Open points](#open-points)).
 
 | Entry point | Effect |
 | --- | --- |
-| `PROTOBOT_ROLE=drafting-table codex --profile drafting-table "<intent>"` | A new session in the role |
-| `PROTOBOT_ROLE=drafting-table codex --profile drafting-table resume --last` | The most recent session continues in the role; the resume steps run again |
-| `PROTOBOT_ROLE=drafting-table codex --profile drafting-table resume <id>` | The named session continues in the role |
-| `PROTOBOT_ROLE=drafting-table codex exec --profile drafting-table --json "<intent>"` | A headless session; the fixture uses it |
+| `.codex/drafting-table "<intent>"` | A new session in the role |
+| `.codex/drafting-table resume --last` | The most recent session continues in the role; the resume steps run again |
+| `.codex/drafting-table resume <id>` | The named session continues in the role |
+| `.codex/drafting-table exec --json "<intent>"` | A headless session; the fixture uses it |
 
-A session without the profile has no `wms` tools, and one without
-`PROTOBOT_ROLE` is `other` to the guard, which refuses every governed
-operation.
+The launcher sets `PROTOBOT_ROLE` and the profile. A session without
+the profile has no `wms` tools, and one without `PROTOBOT_ROLE` is
+`other` to the guard, which refuses every governed operation. A
+session started with `codex --profile drafting-table` by hand runs
+without the launcher's hook check ([The launcher](#the-launcher)).
 
 ### The first consumer in Codex
 
@@ -379,12 +475,12 @@ file.
 | --- | --- | --- | --- |
 | H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Observed from the project root; the fixture has not run |
 | H2 | The `ears-manager` CLI and the `wms` tools for the role | `exec_command`; `[mcp_servers.wms]` in the profile | Designed |
-| H3 | `drafting-table` entry point | The profile, launched with `--profile` and `PROTOBOT_ROLE` | Observed that the profile loads and its instructions reach the model; a missing profile raises no error |
+| H3 | `drafting-table` entry point | The launcher, which starts the profile with `--profile` and `PROTOBOT_ROLE` | Observed that the profile loads and its instructions reach the model; a missing profile raises no error; the launcher is designed |
 | H4 | Resume on every entry, continued session, and compaction | `codex resume` and `codex exec resume` with the profile; the session skill runs the resume steps | Designed |
 | H5 | Nothing on idle or exit | No `Stop` or `SessionEnd` hook | Designed |
 | H6 | Replayable session record | The session file under `$CODEX_HOME/sessions/` and the `codex exec --json` event stream | Designed; hook events are not recorded, and a refusal is recorded as the tool output |
 | H7 | Headless replay with no permission prompt | `codex exec --json`, `approval_policy = "never"`, and a custom model provider pointed at a replay endpoint | Observed with a stub endpoint; the fixture has not run |
-| H8 | Guard before every tool call | The project hook, trusted once with `/hooks`; the profile's probe at session start | Observed for shell commands. Fail-open cases: an untrusted or changed hook (closed by the probe), a crash, an exit other than 2, or no output (closed by the guard's exit-2 rule), and a timeout (open gap) |
+| H8 | Guard before every tool call | The project hook; the launcher, which checks the hook file and starts Codex with `--dangerously-bypass-hook-trust`; the probe as the second layer | Observed for shell commands. The launcher closes the untrusted-hook and changed-hook cases. A guard process that is killed, or that hangs past the hook timeout, still lets the call through (gap), inside the sandbox, so the exposure is a read or a workspace write, never the machine or the network |
 | H9 | Hide file-writing, subagent, and web tools | `web_search = "disabled"`, `multi_agent = false` | Observed for web and subagent tools; `apply_patch` cannot be hidden and is refused by the guard (gap) |
 | H10 | Toolkit skills only | `include_instructions = false`; the profile names the Toolkit skills; the guard refuses any other `SKILL.md` read | Observed that the catalog is gone; `$<name>` in the prompt text can still insert another skill's text, and the fixture has not run (gap) |
 | H11 | No credential in binding files; no session upload | Placeholders; `[analytics]` and `[feedback]` off; no `codex cloud` or `remote-control` | Designed |
@@ -395,10 +491,16 @@ file.
 run. "Observed" means a stub run or `codex debug prompt-input` showed
 it. Nothing else is marked met.
 
+One limitation sits outside the obligations: the sandbox keeps `.git/`
+read-only and the role's shell has no network, so Git writes, `gh`,
+and registration are the user's
+([What the user runs in Codex](#what-the-user-runs-in-codex)).
+
 What the Codex layer stops, by route:
 
 | Write route to a guarded path | Role profile | Every other session |
 | --- | --- | --- |
+| Any write under `.git/`, and any network from the shell | Refused by the sandbox | Refused by the sandbox in a `workspace-write` session |
 | `apply_patch` under `.protobot/` or on a registered path | Offered to OpenAI models; refused by the guard | Refused by the guard |
 | Shell writer, such as `sed -i` | Refused by the guard | Not stopped |
 | Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root |
@@ -408,7 +510,9 @@ What the Codex layer stops, by route:
 The native layer stops less than in the other two bindings: no Codex
 rule refuses a command for the role alone, and no setting hides
 `apply_patch`. The guard carries the difference, and the later layers
-still hold ([What the harness layer stops][layer-stops]).
+still hold ([What the harness layer stops][layer-stops]). The sandbox
+stops more: no command in the role writes `.git/` or reaches the
+network.
 
 ---
 
@@ -459,7 +563,8 @@ The binding relies on these behaviors of Codex CLI 0.154.0.
    events are not written to the `--json` stream or the session file.
 3. `apply_patch` reaches hooks as `apply_patch`, and an MCP tool as
    `mcp__<server>__<tool>`; hosted web search does not reach hooks.
-4. `workspace-write` keeps `.git`, `.agents`, and `.codex` read-only;
+4. `workspace-write` keeps `.git`, `.agents`, and `.codex` read-only
+   and, with `network_access` off, gives a command no network;
    `approval_policy = "never"` rejects a command that needs approval.
 5. A prefix rule matches from the first word; the strictest decision
    wins; an unmatched command is allowed; an `allow` rule runs the
@@ -490,8 +595,9 @@ harness commands. For Codex:
 | Fixture need | Codex |
 | --- | --- |
 | List discovered skills (step 1) | `codex debug prompt-input` from a subdirectory of the clone, without the profile; the names in `<skills_instructions>` |
-| Headless turn in the role (steps 2 to 14) | `PROTOBOT_ROLE=drafting-table codex exec --profile drafting-table --strict-config --json "<intent>"`; `codex exec --profile drafting-table resume --last` or `resume <id>`, with the same variable, to continue |
+| Headless turn in the role (steps 2 to 14) | `.codex/drafting-table exec --strict-config --json "<intent>"`; `.codex/drafting-table exec resume --last` or `resume <id>` to continue |
 | Headless turn outside the role (steps 2, 7, 9) | `codex exec --json "<prompt>"` |
+| Commands the sandbox refuses (step 14) | The fixture runs `git add`, `git commit`, `git fetch`, the merge, `git push`, and `gh pr create` outside the session after the role names them; the `gh` stub still records the call |
 | Resolved native rules | No command prints them; the fixture keeps the profile and `hooks.json` next to the export |
 | Session export (step 15) | The session file under the fixture's `$CODEX_HOME/sessions/` and the `--json` event stream |
 
@@ -516,8 +622,13 @@ clone as trusted and holds the hook's trust entry.
   developer instructions name exactly the manifest's `toolkit_skills`.
 - Its tools are `exec_command`, `write_stdin`, `request_user_input`,
   `view_image`, `apply_patch`, and the `wms` tools, and no other.
-- The first tool call of every run in the role is the probe `true`,
-  and it is refused, which shows that the hook is trusted and running.
+- The launcher refuses to start when `hooks.json` differs from the
+  binding's by one byte, and the first tool call of every run in the
+  role is the probe `true`, refused, which shows that the hook runs.
+- In step 14, the sandbox refuses `git add` with no prompt, and the
+  role's message names the commands; the fixture runs them outside the
+  session, and the `gh` stub records `pr create`.
+- The `wms` tools answer in step 2 with `network_access` off.
 
 ---
 
@@ -526,10 +637,9 @@ clone as trusted and holds the hook's trust entry.
 The fixture must confirm these before any other obligation is marked
 met:
 
-1. Whether the hook's trust entry can be written for the fixture
-   without the interactive `/hooks` review. If not, the fixture runs
-   with `--dangerously-bypass-hook-trust`, and a separate interactive
-   check covers the trust step.
+1. Whether `--dangerously-bypass-hook-trust` runs a never-trusted
+   project hook in the TUI as it does in `codex exec` (observed
+   behavior 7).
 2. Whether `PreToolUse` fires for `write_stdin`, `view_image`, and
    `request_user_input`, and which `tool_name` each carries.
 3. Whether the hook command runs through a shell, so that the command
@@ -544,6 +654,12 @@ met:
 7. Whether `$<name>` is matched in pasted prompt text as well as in
    text the user types, and whether it still inserts a skill when
    `include_instructions = false`.
+8. Whether the `wms` MCP server, which Codex starts as its own
+   process, runs outside the tool sandbox and reaches the WMS backend
+   with `network_access` off.
+9. Whether the Git reads run cleanly with `.git/` read-only.
+   `git status` refreshes the index when it can and tolerates a
+   read-only one; the fixture shows it.
 
 ---
 

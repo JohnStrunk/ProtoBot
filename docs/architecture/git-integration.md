@@ -733,9 +733,10 @@ the later layers hold when that layer is off.
 | Operation | Constraint |
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init` writes `.protobot/project.yaml` and `.protobot/projection.yaml` without committing; Git commits them with the initial manifest on the change-set branch |
-| Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base` |
+| Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base`, and `remote` for listing only |
 | Fetch | From `repository.canonical_remote` only |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
+| Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
 | Stage | Registered artifact paths, the change-set manifest, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |

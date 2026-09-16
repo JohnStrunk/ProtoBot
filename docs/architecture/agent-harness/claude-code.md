@@ -207,7 +207,7 @@ holds the native copy of the role's rules:
     ],
     "deny": [
       "Edit", "Write", "NotebookEdit", "Agent", "WebFetch", "WebSearch",
-      "Read(/.env)", "Read(/.env.*)", "Read(/.protobot/**)"
+      "Read(/.env)", "Read(/.env.*)", "Read(/.git/**)", "Read(/.protobot/**)"
     ]
   },
   "skillOverrides": {
@@ -240,9 +240,9 @@ holds the native copy of the role's rules:
   them. This early layer is weaker than OpenCode's, and H8 carries the
   difference.
 - **The deny list hides the file-writing, subagent, and web tools
-  (H9)** and copies the role table's `.protobot/` deny and its `.env`
-  deny; the guard refuses the other credential files that the contract
-  names.
+  (H9)** and copies the role table's `.protobot/` and `.git/` denies
+  and its `.env` deny; the guard refuses the other credential files
+  that the contract names.
 - **`skillOverrides` hides every skill the binding can name (H10).**
   The first six names are the project's maintenance skills in
   `.agents/skills/`; the rest are the Claude Code 2.1.273 built-in

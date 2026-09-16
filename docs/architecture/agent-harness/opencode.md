@@ -116,6 +116,7 @@ permission:
     "*": allow
     "*.env": deny
     "*.env.*": deny
+    ".git/**": deny
     ".protobot/**": deny
   glob: allow
   grep: allow
@@ -150,8 +151,8 @@ Toolkit skills name operations. In OpenCode:
   catch-all denies `doom_loop`, so an identical call repeated three
   times is refused rather than asked about.
 - **The `read` denies are the native copy of the role's read denies.**
-  They cover `.env` files and `.protobot/`; the guard refuses the other
-  credential files that the contract names
+  They cover `.env` files, `.git/`, and `.protobot/`; the guard refuses
+  the other credential files that the contract names
   ([The Drafting Table role](adapter-contract.md#the-drafting-table-role)).
 - **The `skill` rule is the manifest's `toolkit_skills` (H10).** Its
   `"*": deny` comes first, so every other skill is left out of the
