@@ -1054,8 +1054,9 @@ The `ready-for-building` to `building` transition is an atomic
 compare-and-swap on the whole work item and its monotonically increasing
 contract version. A successful claim issues a fencing token and creates a
 renewable lease. Every live-owner mutation must present that token, so an
-expired owner cannot write into a newer execution attempt. After
-reconciling Git state, an expired `building` or `inspecting` lease can
+expired owner cannot write into a newer execution attempt. After the lease
+expires, complete Git/WMS reconciliation proves that no unrecorded
+mutation remains before an expired `building` or `inspecting` lease can
 return to `ready-for-building` without a live fence; the next claim issues
 a new one. An authorized maintainer may abandon a reconciled item before
 `merging`, but `merging` cannot be abandoned. Requirements are never

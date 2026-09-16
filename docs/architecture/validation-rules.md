@@ -192,7 +192,7 @@ branch, or ref claims.
 | `project_id` | Project selected from trusted project configuration, not from an arbitrary command argument. |
 | `work_item_id` | Target work item, when the command is item-scoped. The boundary checks that the principal is authorized for this project and item. |
 | `change_set_id` | Related approved change set for materialization or reviewed resolution, when applicable. |
-| `human_approval_id` | Required when a Drafting Table submits a blocked-work resolution. The Gate resolves it to a single-use approval bound to the subject, work item, change set or resolution digest, expiry, and revocation state; it is not a free-form caller assertion. |
+| `human_approval_id` | Required when a Drafting Table submits a blocked-work resolution. The Gate resolves it to a single-use approval bound to the approving human subject, delegated Materializer principal, work item, change set or resolution digest, expiry, and revocation state; it is not a free-form caller assertion. |
 | `approval_resolution_digest` | Digest of the reviewed blocked-work resolution. Required with `human_approval_id`; the authoritative evaluator compares it with the approval binding. |
 | `allowed_actions` | Actions granted to this principal for this request. The requested command must be in this set. |
 | `allowed_refs` | Git refs or resource scopes the principal may affect. A caller cannot widen this list. |
@@ -219,7 +219,9 @@ authority.
 
 The approval binding is checked and consumed in the same transaction as
 `resolve-block`. A mismatched, expired, revoked, or already-consumed
-approval cannot unblock any item.
+approval cannot unblock any item. The Materializer's trusted subject must
+match the approval's delegated principal, and the approval's authorized
+human subject must be preserved in the audit event before consumption.
 
 Every authoritative evaluation fails closed unless the Gate-issued context
 contains a non-empty authenticated `subject`, known `role`, trusted
@@ -245,16 +247,24 @@ user's own credential without exposing it to the evaluator.
 
 ## Evaluation contract
 
-The evaluator is a pure decision function for a supplied record and
-trusted context:
+The evaluator is a pure decision function for a supplied record, trusted
+context, and trusted evaluation time:
 
 ```text
-evaluate(request, current_record, ruleset) -> decision
+evaluate(request, current_record, ruleset, evaluation_context) -> decision
 ```
 
 The WMS boundary supplies `current_record` from its transaction. A
 preflight caller supplies an observed snapshot and must treat the result
-as advisory.
+as advisory. `evaluation_context` contains the Gate/WMS-normalized
+`evaluation_time`; the evaluator compares authorization and lease expiry
+against that value rather than a caller clock.
+
+The WMS transaction owns replay and materialization lookup. It atomically
+loads the idempotency result and materialization reservation, returns a
+stored decision for a replay or matching create-or-return, and invokes
+`evaluate` only for a new command with the fresh current record and
+evaluation context. The pure evaluator never queries a store.
 
 ### Request
 
@@ -308,8 +318,9 @@ The evaluator returns a deterministic decision with these fields:
 | `rule_version` | For the MVP, `validation-rules/v1`. |
 | `policy_version` | Policy version used for authorization/readiness checks. |
 | `operation` | The evaluated command. |
-| `before` | State and contract version observed for the decision. |
-| `after` | State and contract version that would result or did result. No state is changed by preflight. |
+| `before` | State and contract version observed for the decision. Materialization uses `initial` and version 0. |
+| `after` | State and contract version that would result or did result. No state is changed by preflight. For `outcome: omitted`, this is `null` because no work-item lifecycle record exists. |
+| `materialization_reservation` | For `materialize`, the source-fingerprinted reservation and result (`waiting`, `ready-for-building`, `blocked`, or `omitted`); omitted outcomes retain this reservation without an `after` lifecycle state/version. |
 | `fencing_token_issued` | Present when `claim`, `refresh-active` to `building`, `return-to-building`, or Job Site `merge-conflict` to `building` succeeds; the token is returned only to the authorized owner channel. |
 | `rejection` | Structured rejection data when `outcome` is `rejected`. |
 
@@ -428,7 +439,8 @@ invalid.
 
 | Invalid request | Rejection |
 | --- | --- |
-| Claim `waiting` or `blocked` with no active owner | `STALE_STATE` or `INVALID_TRANSITION`; resolve dependencies or the block before claiming. |
+| Claim `waiting` or `blocked` with no active owner while `expected_state` differs from the current state | `STALE_STATE`; refresh before choosing the next command. |
+| Claim `waiting` or `blocked` with no active owner while `expected_state` matches the current state | `INVALID_TRANSITION`; resolve dependencies or the block before claiming. |
 | Claim `building` or `inspecting` with an active owner/lease | `DUPLICATE_CLAIM`; query the current owner/status rather than retrying the claim. |
 | Move `blocked` directly to `building` | `INVALID_TRANSITION`; a reviewed resolution and full refresh must produce `ready-for-building` first. |
 | Move `ready-for-building` directly to `inspecting` or `completed` | `INVALID_TRANSITION`; the item must be claimed and pass the intervening gates. |
@@ -660,6 +672,8 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-038` | A reconciler includes forged proof in the request payload while `current_record` contains valid matching evidence. | The payload claim is ignored; the decision follows `current_record` and no caller-supplied proof is trusted. |
 | `VR-039` | An `implementation_required: false` materialization returns `omitted`, then repeats with the same source or a different source under the same `materialization_key`. | Same source replays the stored `omitted` result; a different source is rejected with `IDEMPOTENCY_CONFLICT`. |
 | `VR-040` | `recover-lease` or `abandon` is requested with missing, malformed, or mismatched reconciliation evidence on `current_record`. | Rejected with `PRECONDITION_FAILED`; no mutation occurs even when the caller has the correct role. |
+| `VR-041` | A claim uses `expected_state: blocked` against a current blocked item with no active owner. | Rejected with `INVALID_TRANSITION`; the expected state is current but the item must be resolved before claiming. |
+| `VR-042` | A Materializer uses a valid approval whose delegated principal or approved human subject does not match the trusted authorization context. | Rejected with `UNAUTHORIZED_ACTION`; the approval is not consumed and the item remains `blocked`. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests
