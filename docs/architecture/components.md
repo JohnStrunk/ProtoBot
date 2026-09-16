@@ -104,7 +104,8 @@ ProtoBot has seven primary logical components and reusable asset families:
 6. **Validation Rules** — Domain logic that enforces well-formedness
    on work item state transitions. Shared across the Drafting
    Table and the Job Site — both use these rules when writing to the
-   WMS. Not a running service; a shared library or rule set.
+   WMS. Not a running service; the MVP uses a versioned declarative
+   ruleset and deterministic evaluator.
    (Spec-level validation — EARS formatting, referential integrity —
    is handled by `ears-manager`, not here.)
 7. **Job Site** — The autonomous execution engine that runs Workers and
@@ -591,9 +592,9 @@ The adapter does **not**:
   [Content Storage Model](#content-storage-model) below.
 - Determine pipeline entry point (that's a Validation Rules
   concern).
-- Decide whether a work item is ready for the Job Site (that's a query
-  the Job Site makes against the adapter's state, evaluated by the
-  Job Site using Validation Rules).
+- Decide readiness from a caller's query alone. The Job Site may query
+  and preflight readiness, but the WMS boundary evaluates the current
+  record with Validation Rules before an authoritative claim or refresh.
 - Push work to the Job Site (the Job Site pulls).
 
 ### Adapter API
@@ -619,9 +620,12 @@ The API surface includes:
   the expected current state and monotonically increasing contract
   version. Claiming compares `ready-for-building` and atomically writes
   `building`, owner identity, renewable lease, and a new fencing token.
-  Every execution mutation must present that token. A stale owner or
-  duplicate claim fails without mutation even if the item later cycles
-  through the same state.
+  Every Job Site execution mutation and Job Site merge operation must
+  present that token. Reconciler recovery operations use Git/WMS
+  reconciliation proof instead; they cannot issue an execution lease or
+  mutate the implementation branch. A stale owner or duplicate claim
+  fails without mutation even if the item later cycles through the same
+  state.
 - **Queries:** Read items by ID, state, dependency, owner, or
   idempotency key, including "all ready items" and "all blocked items."
 - **Git references:** Record source specification and code commits,
@@ -633,7 +637,11 @@ The API surface includes:
   resulting merge commit.
 - **Idempotent completion:** Complete only a `merging` item whose tested
   product-tree digest, sealed Inspection Run, post-attestation integration
-  head, target, contract version, and fencing token match. Repeating the
+  head, target, and contract version match. A Job Site completion also
+   requires the current fencing token. A reconciler replay after Git
+   already merged instead requires the WMS-observed merge envelope and
+   reconciliation evidence; the reconciler does not present a live Job
+   Site fence. Repeating the
   operation with the same resulting merge commit returns the prior result;
   a different result is rejected for reconciliation.
 - **Finding ledger:** Create a finding by stable producer idempotency key
@@ -668,9 +676,9 @@ stateDiagram-v2
     Inspecting --> Building: defects or final-test failure
     Blocked --> Ready: resolve, refresh, revalidate
     Inspecting --> Merging: inspection and final tests pass
-    Merging --> Building: merge conflict, refresh required
+    Merging --> Building: Job Site merge conflict, refresh required
     Merging --> Completed: merge recorded or reconciled
-    Merging --> Ready: no Git mutation, rerun all gates
+    Merging --> Ready: reconciled conflict or no Git mutation, rerun all gates
     Building --> Ready: lease expired, Git reconciled
     Inspecting --> Ready: lease expired, Git reconciled
     Waiting --> Abandoned
@@ -704,10 +712,10 @@ stateDiagram-v2
 - **`merging`** records the tested candidate commit and proposed target
   before mutating Git. It cannot be abandoned. If the Git merge succeeds
   but the completion write fails, reconciliation idempotently transitions
-  this state to `completed`; a conflict returns it to `building`. If
-  reconciliation proves Git was never mutated, it increments the
-  contract version and returns the item to `ready-for-building`, where a
-  new owner must rerun all test and inspection gates.
+  this state to `completed`; a Job Site-owned conflict returns it to
+  `building`. A reconciler can instead return a conflicted or unmutated
+  item to `ready-for-building`, where a new owner must rerun all test and
+  inspection gates.
 - **`abandoned`** is terminal and is rejected if Git or reconciliation
   metadata shows that integration may already have occurred. Restarting
   canceled logical work creates a replacement item with a new
@@ -924,9 +932,10 @@ item entirely rather than refresh it.
   resumes Building.
 - **Pre-merge revalidation:** an active Job Site with the current lease
   evaluates again after a successful Inspection Run. On success it
-  appends the contract version, merges latest main under the same fence,
-  regenerates projections/test selection, and returns to `building`. On
-  failure it transitions to `blocked` and releases the lease.
+  appends the contract version, merges latest main under the current
+  fence, atomically replaces that fence, regenerates projections/test
+  selection, and returns to `building`. On failure it transitions to
+  `blocked` and releases the lease.
 
 Every existing-branch refresh reruns build, full active tests, mutation,
 and a new Inspection Run. A path-disjoint result never waives these gates.
@@ -1103,18 +1112,25 @@ on work items and state transitions. They answer questions like:
   commit?
 - Is a blocked item's escalation actually resolved before unblocking?
 - What pipeline entry point does this change type require?
-  (Undefined/changes → Dimensioning; contradictions → Building
-  directly. See
+  (Undefined/changes → Dimensioning; contradictions → the Building
+  pipeline directly after WMS materialization. See
   [Incremental Development][incremental-development].)
 
 [incremental-development]: user-interaction-flow.md#incremental-development-and-change-types
 
-Validation Rules are a shared library or declarative rule set. The
-Drafting Table and Job Site apply them before writes for early feedback.
+Validation Rules use the versioned declarative `validation-rules/v1`
+ruleset and deterministic evaluator. The Drafting Table and Job Site
+apply them before writes for early feedback.
 The WMS API boundary then atomically verifies the expected current state
 and allowed transition before mutating the backend. That boundary may be
 implemented inside the adapter service or as a mandatory validation
 gateway in front of thin backend translators.
+
+The MVP contract for this boundary is the versioned declarative
+`validation-rules/v1` ruleset and deterministic evaluator in the
+[Validation Rules Contract](validation-rules.md). The evaluator's
+decision is advisory during preflight and authoritative only when the WMS
+boundary evaluates the fresh record and commits the conditional mutation.
 
 ### Why shared rules at the write boundary?
 
@@ -1154,12 +1170,11 @@ The line between Validation Rules and `ears-manager` is:
 
 ### Open design questions
 
-- **Rule packaging.** Are these rules expressed as code (a library
-  imported by the Drafting Table and Job Site), as a declarative
-  schema (state machine definition), or as part of the
-  Specification Toolkit's skills/prompts (so the agent itself
-  enforces them)? The answer affects testability and how tightly
-  coupled the rules are to specific implementations.
+- **Future bindings.** The MVP uses a declarative state-machine ruleset
+  with a deterministic evaluator. A WIT binding, compiled library, or
+  separate service may improve portability later, but none may change the
+  decision or rejection semantics defined by the
+  [Validation Rules Contract](validation-rules.md).
 
 ---
 
@@ -1868,6 +1883,8 @@ confirmation.
 - [Architecture](../architecture.md) — External interface inventory,
   pluggable boundaries, persistent state, and environmental
   constraints
+- [Validation Rules Contract](validation-rules.md) — Lifecycle states,
+  authorization, transitions, rejection semantics, and acceptance matrix
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state

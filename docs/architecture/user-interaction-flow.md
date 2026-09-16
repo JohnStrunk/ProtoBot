@@ -1028,26 +1028,38 @@ stateDiagram-v2
     [*] --> Blocked: unresolved impact
     Waiting --> Ready: refresh baseline, revalidate
     Waiting --> Blocked: revalidation needs review
+    Waiting --> Abandoned: authorized cancellation
     Ready --> Blocked: revalidation needs review
     Ready --> Building: atomic claim
+    Ready --> Abandoned: authorized cancellation
     Building --> Inspecting: tests pass
     Building --> Blocked: specification question
+    Building --> Ready: expired lease, reconciled
+    Building --> Abandoned: authorized cancellation after reconciliation
     Inspecting --> Blocked: specification question
     Inspecting --> Building: defects or final-test failure
+    Inspecting --> Ready: expired lease, reconciled
+    Inspecting --> Abandoned: authorized cancellation after reconciliation
     Blocked --> Ready: resolve, refresh, revalidate
+    Blocked --> Abandoned: authorized cancellation
     Inspecting --> Merging: final pass
-    Merging --> Building: merge conflict
+    Merging --> Building: Job Site merge conflict
     Merging --> Completed: merge recorded
-    Merging --> Ready: no Git mutation, rerun all gates
+    Merging --> Ready: reconciled conflict or no Git mutation, rerun all gates
+    Completed --> [*]
+    Abandoned --> [*]
 ```
 
 The `ready-for-building` to `building` transition is an atomic
 compare-and-swap on the whole work item and its monotonically increasing
-contract version. A successful claim increments a fencing token and
-creates a renewable lease. Every later mutation must present that token,
-so an expired owner cannot write into a newer execution attempt. After
-reconciling Git state, an expired `building` or `inspecting` lease can
-return to `ready-for-building` for a fresh claim. Requirements are never
+contract version. A successful claim issues a fencing token and creates a
+renewable lease. Every live-owner mutation must present that token, so an
+expired owner cannot write into a newer execution attempt. After the lease
+expires, complete Git/WMS reconciliation proves that no unrecorded
+mutation remains before an expired `building` or `inspecting` lease can
+return to `ready-for-building` without a live fence; the next claim issues
+a new one. An authorized maintainer may abandon a reconciled item before
+`merging`, but `merging` cannot be abandoned. Requirements are never
 claimed individually.
 
 A work item carries:
@@ -1133,6 +1145,8 @@ whether this is achievable given Red Hat's AIA requirements.
   interfaces, and cross-cutting concerns
 - [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
   Command grammar, results, diagnostics, and impact review
+- [Validation Rules](validation-rules.md) — Lifecycle validation,
+  authorization, transitions, and rejection semantics
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state

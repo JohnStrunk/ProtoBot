@@ -26,6 +26,10 @@ following hierarchy:
   format, workflow, and platform.
 - `docs/architecture/components.md` — component architecture,
   interfaces, and cross-cutting concerns.
+- [`docs/architecture/git-integration.md`][git-integration-doc] — governed Git
+  and project-repository integration.
+- [`docs/architecture/validation-rules.md`][validation-rules-doc] — lifecycle
+  validation, authorization, transition, and rejection contract.
 - `docs/architecture/user-interaction-flow.md` — phase details,
   sequence diagrams, and testing strategy.
 - `docs/architecture/drafting-table-ux.md` — stable interaction
@@ -35,6 +39,9 @@ following hierarchy:
 - `docs/architecture/open-questions.md` — unresolved design
   questions across all areas.
 - `docs/decisions/` — architecture decision records (ADRs).
+
+[git-integration-doc]: docs/architecture/git-integration.md
+[validation-rules-doc]: docs/architecture/validation-rules.md
 
 ### Rules for creating or modifying specification documents
 
