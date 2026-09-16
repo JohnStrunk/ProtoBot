@@ -1,6 +1,6 @@
 # ProtoBot: Validation Rules Contract
 
-> Interface contract - issue #32 - September 2026
+> Interface contract — issue #32 — September 2026
 >
 > Defines the shared lifecycle rules used before and at the WMS write
 > boundary.
@@ -19,7 +19,7 @@
 - [Deployment, security, and state](#deployment-security-and-state)
 - [Conformance test matrix](#conformance-test-matrix)
 - [Out-of-scope decisions](#out-of-scope-decisions)
-- [Related documents](#related-documents)
+- [Related Documents](#related-documents)
 
 ---
 
@@ -171,7 +171,8 @@ item. The classification is part of the trusted command payload.
 
 If an approved change set declares `implementation_required: false`,
 materialization returns `omitted` rather than creating a build work item.
-The idempotency key still prevents duplicate registration results.
+The `materialization_key` prevents duplicate logical registration and the
+per-command `idempotency_key` prevents duplicate command results.
 
 ---
 
@@ -188,20 +189,22 @@ branch, or ref claims.
 | `project_id` | Project selected from trusted project configuration, not from an arbitrary command argument. |
 | `work_item_id` | Target work item, when the command is item-scoped. The boundary checks that the principal is authorized for this project and item. |
 | `change_set_id` | Related approved change set for materialization or reviewed resolution, when applicable. |
-| `human_approval_id` | Required when a Drafting Table submits a blocked-work resolution. The Gate resolves it to an authenticated maintainer decision; it is not a free-form caller assertion. |
+| `human_approval_id` | Required when a Drafting Table submits a blocked-work resolution. The Gate resolves it to a single-use approval bound to the subject, work item, change set or resolution digest, expiry, and revocation state; it is not a free-form caller assertion. |
+| `approval_resolution_digest` | Digest of the reviewed blocked-work resolution. Required with `human_approval_id`; the authoritative evaluator compares it with the approval binding. |
 | `allowed_actions` | Actions granted to this principal for this request. The requested command must be in this set. |
 | `allowed_refs` | Git refs or resource scopes the principal may affect. A caller cannot widen this list. |
 | `expires_at` | Expiry of the authorization context. Expired contexts are rejected. |
-| `policy_version` | Version of the authorization policy that produced the context. |
+| `policy_version` | Version of the authorization policy that produced the context. Required for every authoritative request. |
 
-The minimum command authority is:
+The command authority is an exclusive mapping, not a default permission
+floor:
 
 | Role | Authoritative command families |
 | --- | --- |
-| `human-maintainer` | Reviewed blocked-work resolution and safe abandonment. |
+| `human-maintainer` | Approve blocked-work resolution and perform safe abandonment. |
 | `materializer` | Materialization, dependency refresh, `resolve-block`, and contract revalidation. |
 | `job-site` | Claim, lease renewal, Building, Inspecting, and merge progress. |
-| `reconciler` | Lease recovery and Git/WMS reconciliation. |
+| `reconciler` | `recover-lease`, `merge-conflict`, and `merge-not-applied`. |
 | `drafting-table` | Preflight and submission of a reviewed resolution under a trusted `human_approval_id`; it cannot claim, build, inspect, complete, or directly unblock a work item. |
 
 For blocked-work resolution, the Drafting Table submits the user's
@@ -210,6 +213,20 @@ state. The Materializer verifies that approval, refreshes the authoritative
 record, and performs `resolve-block` through the WMS boundary. This keeps
 the conversational surface useful without granting it a direct unblock
 authority.
+
+The approval binding is checked and consumed in the same transaction as
+`resolve-block`. A mismatched, expired, revoked, or already-consumed
+approval cannot unblock any item.
+
+Every authoritative evaluation fails closed unless the Gate-issued context
+contains a non-empty authenticated `subject`, known `role`, trusted
+`project_id`, unexpired `expires_at`, `policy_version`, non-empty
+`allowed_actions`, and non-empty `allowed_refs`. Unknown roles, missing or
+malformed fields, empty allowlists, and `*`/`all` wildcard entries are
+rejected with `UNAUTHORIZED_ACTION`; the MVP has no wildcard exception.
+The requested operation must be in both the role's exclusive command
+family and Gate-issued `allowed_actions`. Payload refs must be a subset of
+`allowed_refs`. A caller cannot select or downgrade `policy_version`.
 
 The authorization context contains no downstream credential. In hosted
 deployments, the Bridge/Gate obtains a scoped credential only after the
@@ -276,7 +293,8 @@ the same idempotency key.
     request fingerprint and result. The key is scoped to the project; the
     fingerprint includes target, operation, canonical payload, expected
     state/version/fence, subject, role, allowed actions and refs,
-    `human_approval_id` when present, policy version, and rule version.
+    `human_approval_id` and `approval_resolution_digest` when present,
+    policy version, and rule version.
 2. A retry with the same key and identical fingerprint returns the original
    result with `replayed: true` and performs no second mutation.
 3. Reusing a key with a different operation, target, expected state or
@@ -309,7 +327,7 @@ into an arbitrary update.
 
 | Operation | From | To | Required conditions |
 | --- | --- | --- | --- |
-| `materialize` | `initial` at version 0 | `waiting`, `ready-for-building`, or `blocked` | A unique `materialization_key` and complete contract are supplied; the result follows dependency, impact, and readiness checks. |
+| `materialize` | `initial` at version 0 | `waiting`, `ready-for-building`, `blocked`, or `omitted` | A unique `materialization_key` and complete contract are supplied; the result follows dependency, impact, readiness, and implementation-effect checks. |
 | `refresh-dependencies` | `waiting` | `ready-for-building` | All dependencies are completed and the full pre-claim refresh passes. |
 | `revalidate` | `waiting` or `ready-for-building` | `blocked` | Refresh finds unresolved impact, specification, policy, or reconciliation work. |
 | `resolve-block` | `blocked` | `ready-for-building` | A reviewed resolution exists and a full refresh passes. Conversation alone cannot perform this transition. |
@@ -352,10 +370,13 @@ before returning `ready-for-building`:
 - the work-item contract contains its source, scope, provenance,
   materialization key, and required policy versions.
 
-If the contract is complete but a dependency remains, the result is
-`waiting`. If review, policy, impact, or reconciliation is unresolved, the
-result is `blocked`. A complete contract with no implementation effect
-returns `omitted` and creates no executable work item.
+`materialize` returns `waiting` when the contract is complete but a
+dependency remains. `refresh-dependencies` is accepted only after those
+dependencies complete and then returns `ready-for-building`; it does not
+silently preserve an unresolved dependency. If review, policy, impact, or
+reconciliation is unresolved, `revalidate` returns `blocked`. A complete
+contract with no implementation effect returns `omitted` and creates no
+executable work item.
 
 `refresh-active` is the pre-merge revalidation path for a Job Site that
 still holds an active lease. A passing refresh records a new contract
@@ -373,7 +394,8 @@ invalid.
 
 | Invalid request | Rejection |
 | --- | --- |
-| Claim `waiting`, `blocked`, `building`, or `inspecting` | `INVALID_TRANSITION`; resolve dependencies or use the appropriate current state. |
+| Claim `waiting` or `blocked` with no active owner | `STALE_STATE` or `INVALID_TRANSITION`; resolve dependencies or the block before claiming. |
+| Claim `building` or `inspecting` with an active owner/lease | `DUPLICATE_CLAIM`; query the current owner/status rather than retrying the claim. |
 | Move `blocked` directly to `building` | `INVALID_TRANSITION`; a reviewed resolution and full refresh must produce `ready-for-building` first. |
 | Move `ready-for-building` directly to `inspecting` or `completed` | `INVALID_TRANSITION`; the item must be claimed and pass the intervening gates. |
 | Move `building` directly to `merging` | `INVALID_TRANSITION`; `tests-pass`, inspection, and `begin-merge` are required. |
@@ -445,7 +467,7 @@ The MVP rejection codes are:
 | `STALE_CONTRACT_VERSION` | `expected_contract_version` does not match the current version. | `refresh` | `expected_contract_version`, `current_contract_version` |
 | `STALE_FENCING_TOKEN` | The caller's lease token is missing, expired, or no longer current. | `reconcile` | `fence_status`, `current_contract_version` |
 | `DUPLICATE_CLAIM` | Another owner successfully claimed the item or the claim is otherwise no longer available. | `query` | `current_state`, `current_contract_version`, `claim_status` |
-| `IDEMPOTENCY_CONFLICT` | An idempotency key was reused with a different request fingerprint or source contract. | `new-key` | `key_scope`, `request_fingerprint_digest`, `recorded_fingerprint_digest` |
+| `IDEMPOTENCY_CONFLICT` | An idempotency key was reused with a different request fingerprint or source contract. | `new-key` for a request-fingerprint conflict; `reconcile` for a materialization-source conflict. | `conflict_kind`, `key_scope`, `request_fingerprint_digest`, `recorded_fingerprint_digest`, or `materialization_key`, `recorded_source_digest` |
 | `ALREADY_TERMINAL` | The work item is `completed` or `abandoned`. | `never` | `terminal_state`, `current_contract_version` |
 | `NOT_FOUND` | The target project or work item is not visible in the trusted context. | `refresh` | `target_type`, `visibility_scope` |
 
@@ -453,20 +475,37 @@ The MVP rejection codes are:
 separate codes even when they occur in one failed request. The boundary
 reports the first failed check using a deterministic check order:
 
-1. target visibility and authorization;
-2. idempotency-key replay or conflict;
-3. terminal-state check;
-4. active-owner contention for `claim` (`DUPLICATE_CLAIM`);
-5. expected state;
-6. expected contract version;
-7. fencing token and lease;
-8. transition and command preconditions.
+1. target visibility and complete authorization-context validation;
+2. role-family, `allowed_actions`, and payload-ref subset checks;
+3. idempotency-key replay or conflict;
+4. `materialize` create-or-return by `materialization_key`;
+5. terminal-state check;
+6. active-owner contention for `claim` (`DUPLICATE_CLAIM`);
+7. expected state;
+8. expected contract version;
+9. live fencing token and lease, only for operations that require an
+   active owner fence: `renew-lease`, `tests-pass`, `refresh-active`,
+   `return-to-building`, `begin-merge`, `record-merge`,
+   `merge-conflict`, and `raise-spec-question`;
+10. transition and command preconditions.
 
 The claim-specific contention check applies only when the current record
 has an active owner or lease. A claim against another non-claimable state
 without an active owner uses `STALE_STATE` or `INVALID_TRANSITION` as
 appropriate. This keeps duplicate claims distinguishable from ordinary
 stale reads.
+
+For `materialize`, the create-or-return check treats a missing work-item
+record as an expected create when the project and `materialization_key`
+are authorized. If an existing record has the same source-contract
+fingerprint, the evaluator returns it with `replayed: true` and performs
+no mutation. A different source fingerprint returns
+`IDEMPOTENCY_CONFLICT` before expected state/version checks.
+
+`recover-lease` intentionally requires an expired or missing live lease
+after Git/WMS reconciliation, so it is exempt from step 9. `abandon` is a
+maintainer operation and is also exempt; its cancellation and
+reconciliation preconditions authorize it without a Job Site fence.
 
 The response never returns a credential or an untrusted caller claim.
 
@@ -560,6 +599,12 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-023` | Drafting Table submits a valid reviewed resolution; Materializer performs `resolve-block`. | Approval is verified, `blocked -> ready-for-building` succeeds, and the Drafting Table itself performs no lifecycle mutation. |
 | `VR-024` | Materialize at `initial` version 0 with a new `materialization_key`, then repeat with the same source contract and a new command key. | The first result creates version 1; the second returns the existing item without a duplicate. |
 | `VR-025` | Reuse a `materialization_key` with a different source commit or contract payload. | Rejected with `IDEMPOTENCY_CONFLICT`; no second item is created. |
+| `VR-026` | A reconciler runs `recover-lease` for an expired/missing-fence `building` item after Git reconciliation. | Allowed; the item returns to `ready-for-building` without a fencing-token rejection, and the old lease cannot write. |
+| `VR-027` | An authorized maintainer runs `abandon` for a reconciled `building` item without a Job Site fence. | Allowed only when integration cannot have occurred; the item becomes `abandoned`. |
+| `VR-028` | An authoritative request has a missing/unknown role, expired context, or malformed/missing required authorization field. | Rejected with `UNAUTHORIZED_ACTION`; no mutation. |
+| `VR-029` | A request has empty or wildcard allowlists, or attempts to select a weaker `policy_version`. | Rejected with `UNAUTHORIZED_ACTION`; no mutation. |
+| `VR-030` | A valid `human_approval_id` bound to another work item or resolution is used for `resolve-block`. | Rejected with `UNAUTHORIZED_ACTION`; the approval is not consumed and the item remains `blocked`. |
+| `VR-031` | A `resolve-block` approval is expired, revoked, already consumed, or has a mismatched resolution digest. | Rejected with `UNAUTHORIZED_ACTION`; no lifecycle mutation occurs. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests
@@ -582,23 +627,23 @@ decisions.
 
 ---
 
-## Related documents
+## Related Documents
 
-- [Vision](../vision.md) - Purpose, users, outcomes, and prototype scope.
-- [Architecture](../architecture.md) - External interfaces, persistent
+- [Vision](../vision.md) — Purpose, users, outcomes, and prototype scope.
+- [Architecture](../architecture.md) — External interfaces, persistent
   state, deployment modes, and environmental constraints.
-- [Overview](overview.md) - Guiding principles, workflow, and platform.
-- [System Components](components.md) - WMS lifecycle, component ownership,
+- [Overview](overview.md) — Guiding principles, workflow, and platform.
+- [System Components](components.md) — WMS lifecycle, component ownership,
   Job Site, and security boundaries.
-- [User Interaction Flow](user-interaction-flow.md) - Change types, work-item
+- [User Interaction Flow](user-interaction-flow.md) — Change types, work-item
   lifecycle, and testing strategy.
-- [Drafting Table UX](drafting-table-ux.md) - Preflight, blocked-work,
+- [Drafting Table UX](drafting-table-ux.md) — Preflight, blocked-work,
   stale-state, and mutation ownership behavior.
-- [Git and Project-Repository Integration](git-integration.md) - Git/WMS
+- [Git and Project-Repository Integration](git-integration.md) — Git/WMS
   registration and merge boundaries.
-- [Open Design Questions](open-questions.md) - Remaining questions about
-  packaging and future deployment concerns.
-- [ADR-0001](../decisions/0001-requirements-storage-format.md) - Physical
+- [Open Design Questions](open-questions.md) — Cross-cutting questions about
+  interactive, autonomous, compliance, and interface concerns.
+- [ADR-0001](../decisions/0001-requirements-storage-format.md) — Physical
   specification storage and reviewability.
-- [ADR-0002](../decisions/0002-ears-specification-record-schema.md) -
+- [ADR-0002](../decisions/0002-ears-specification-record-schema.md) —
   Specification record schemas and impact metadata.

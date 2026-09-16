@@ -1111,8 +1111,9 @@ on work items and state transitions. They answer questions like:
 
 [incremental-development]: user-interaction-flow.md#incremental-development-and-change-types
 
-Validation Rules are a shared library or declarative rule set. The
-Drafting Table and Job Site apply them before writes for early feedback.
+Validation Rules use the versioned declarative `validation-rules/v1`
+ruleset and deterministic evaluator. The Drafting Table and Job Site
+apply them before writes for early feedback.
 The WMS API boundary then atomically verifies the expected current state
 and allowed transition before mutating the backend. That boundary may be
 implemented inside the adapter service or as a mandatory validation
