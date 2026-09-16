@@ -324,7 +324,7 @@ logical structure of each entry within that file.
 | `id` | string (ID) | yes | Stable identifier. Format: a short lowercase-hyphenated name describing the artifact (e.g., `vision`, `architecture`, `api-gateway-openapi`). |
 | `kind` | string (enum) | yes | Artifact kind. See [Artifact Kind Enum](#artifact-kind-enum). |
 | `path` | string | yes | Relative path from the repository root to the artifact file or registered store directory allowed by its `kind`. |
-| `digest` | string | yes | Content digest for integrity verification. Format: `<algorithm>:<value>` (e.g., `sha256:...`). Updated by `ears-manager` on every write. |
+| `digest` | string | yes | Content digest for integrity verification. Format: `<algorithm>:<value>` (e.g., `sha256:...`). For a registered store directory, the digest is over the sorted canonical member-path and member-digest list. Updated by `ears-manager` on every write. |
 | `owner` | string | yes | The component or role responsible for this artifact (e.g., `ears-manager`, `user`, `kit`). |
 | `validator` | string (enum) | no | A name drawn from `ears-manager`'s built-in validator registry. `ears-manager` ships a fixed set of validator names (e.g., `markdownlint`, `openapi-lint`, `protoc`) and resolves each to a known, bundled validation routine. `ears-manager` never executes a caller-supplied command line; unrecognized names are rejected. When absent, no content validation is performed beyond path and digest tracking. |
 
@@ -337,7 +337,7 @@ logical structure of each entry within that file.
 | `interface-idl` | An interface specification in a machine-readable IDL format (OpenAPI, protobuf, etc.). |
 | `interface-prose` | An interface specification in prose form. |
 | `requirement-store` | The structured requirement store directory managed by `ears-manager`. |
-| `change-set` | A change-set manifest file, or the fixed change-set store directory registry aggregate. |
+| `change-set` | The fixed `.protobot/change-sets/` directory registry aggregate. Individual manifests are change-set records, not artifact-registry entries. |
 
 ---
 

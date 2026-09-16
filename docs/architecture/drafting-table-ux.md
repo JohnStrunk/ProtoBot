@@ -255,11 +255,13 @@ The protocol enforces six non-negotiable invariants:
 The user starts a new project by providing an initial description or IdeaBot
 artifacts. The Drafting Table:
 
-1. Identifies or initializes the `.protobot/` control namespace through
-   `ears-manager project init` (project identity, artifact paths, and schema
-   version). See the [project initialization grammar][project-init-grammar].
-2. Creates a contributor branch for the initial Sketch.
-3. Enters the Sketching phase.
+1. Creates and checks out `cs/001-project-init` from the default branch.
+2. Runs `ears-manager project init` and `change-set create` on that branch.
+   See the [project initialization grammar][project-init-grammar].
+3. On explicit approval, commits the control namespace and initial manifest,
+   opens the pull request, and completes the required merge ceremony.
+4. Creates and checks out the contributor branch for the initial Sketch, then
+   enters the Sketching phase.
 
 If IdeaBot artifacts are provided, the agent uses them to seed the Vision and
 Architecture proposals. The handoff is manual in the MVP: the user pastes or

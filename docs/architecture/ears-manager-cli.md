@@ -21,6 +21,8 @@
 - [Decision for Q18](#decision-for-q18)
 - [Related Documents](#related-documents)
 
+---
+
 ## Purpose and scope
 
 This document answers issue #30: _How does the Drafting Table use
@@ -54,6 +56,8 @@ This contract does not redefine:
 
 Callers use this CLI even when the underlying storage format, directory
 layout, or validator implementation changes.
+
+---
 
 ## Boundary and authority
 
@@ -171,6 +175,8 @@ deployments. Hosted credential isolation remains the Bridge/Gate concern;
 credentials never appear in CLI arguments, project configuration, JSON
 results, or diagnostics.
 
+---
+
 ## Command grammar
 
 The canonical invocation is:
@@ -247,6 +253,11 @@ the binary version without reading the project.
 - Text values may be supplied as ordinary option values. `artifact put` also
   accepts `--content-file PATH` or `--content-stdin`; the input source is
   never itself a registered destination.
+- `--content-file PATH` and `--impact-file PATH` are caller-owned read
+  sources, not project destinations. They may be outside the project root or
+  use `-` for stdin, are opened read-only as regular files, and are never
+  written or staged. A source that is missing, a directory, or a symlink is
+  rejected with `input.invalid_source`, status `4`, and `mutation: "none"`.
 
 ### Project initialization grammar
 
@@ -270,10 +281,22 @@ classifies registered specification paths as `shared` in
 merge anything. The caller follows the project-initialization sequence in
 [Git and Project-Repository Integration][git-init].
 
+The selected Vision and Architecture paths must already exist so initialization
+can compute their registry digests without writing content. The fixture seeds
+those files as pre-existing project content. A missing selected path returns
+`project.invalid_path` before the control namespace is created.
+
 `--canonical-remote` must use a credential-free `https://` or `ssh://` URL,
-or the standard `git@host:path` SSH form. `project init` and `check` reject
-URL passwords, tokens, and other embedded secret userinfo with
+or the standard `git@host:path` SSH form. Any URL userinfo, including a
+username without a password, is rejected for `https://` and `ssh://` URLs.
+For SCP-style remotes, only the fixed `git@host:path` form is accepted.
+`project init` and `check` reject other userinfo with
 `project.remote_credentials`, status `4`, and no echoed remote value.
+
+`--branch-prefix` may not be the reserved `wi/` prefix or another prefix
+reserved by the project repository contract. `project init` rejects a
+reserved prefix with `project.invalid_configuration` before writing the
+control namespace; `check` applies the same rule to existing configuration.
 
 ### Record mutation grammar
 
@@ -344,6 +367,8 @@ impact --change-set CS-ID [--at FULL-SHA]
 identifies a change set in every command that operates on an existing change
 set. `--at` selects the immutable read revision; `--against` selects the
 comparison baseline.
+
+---
 
 ## Request and result protocol
 
@@ -432,6 +457,8 @@ Each structured diagnostic has this shape:
 not localized prose. Implementations may add diagnostic codes, but they must
 not change the meaning of an existing code within schema version `1`.
 
+---
+
 ## Exit statuses and diagnostics
 
 The process status is part of the contract:
@@ -454,6 +481,8 @@ Warnings do not change a successful status. A command that reports candidates,
 duplicates, or conflicts as analysis data still exits `0`; malformed input or
 an invalid store exits non-zero.
 
+---
+
 ## Operation contracts
 
 The tables below define the minimum request and result for every Toolkit-used
@@ -474,8 +503,8 @@ sequence; initialization itself does not approve or commit the project.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator, and UTF-8 content | The complete registry entry, content digest, changed path, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.write_not_allowed`, or a validator diagnostic |
-| `artifact get` | Exactly one of artifact ID or kind, where kind must match one entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
+| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.write_not_allowed`, or a validator diagnostic |
+| `artifact get` | Exactly one of artifact ID or kind, where kind must match one entry; optional `--at` | A file artifact returns its registry entry and UTF-8 content. A directory aggregate returns its registry entry, aggregate digest, and sorted member paths without content. | `artifact.not_found`, `artifact.ambiguous`, `artifact.not_readable_as_content`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
 `artifact put` is the only route for Vision, Architecture, interface prose,
@@ -517,7 +546,7 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNN>` ID, full base commit, branch name, manifest path, empty proposed manifest, and updated change-set-store aggregate digest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
@@ -533,6 +562,10 @@ and does not return `change_set.branch_exists`. This is the only branch
 reuse case and corresponds to [Git and Project-Repository
 Integration](git-integration.md#project-initialization). A failed creation
 leaves neither a manifest nor a new branch.
+
+Creating a manifest also updates the registered `change-set` directory
+aggregate and its digest in `.protobot/project.yaml`. The manifest itself is
+not an artifact-registry entry; it is a change-set record under the aggregate.
 
 Every successful `change-set update` returns a `before` and `after` manifest
 summary, the resulting `assessment_status`, and sorted `changed_paths`.
@@ -550,9 +583,10 @@ ears-manager check [--at FULL-SHA] [--change-set CS-ID]
 
 `check` is read-only. Without `--change-set`, it validates the complete
 project store, registry, projection classification, all records, and all
-referential, relationship, EARS, digest, and change-set rules. With a change
-set it additionally verifies that the proposed manifest is complete and its
-impact assessment matches the current deterministic candidate set. "Matches"
+referential, relationship, EARS, digest, and change-set rules, and verifies
+the impact assessment for every proposed change set found in the working tree.
+With `--change-set`, it narrows that impact check to the named proposed
+manifest. "Matches"
 means that every current mechanical candidate has exactly one final recorded
 disposition, every recorded `mechanical` entry is still a current mechanical
 candidate, and every `semantic` entry names an unchanged active requirement
@@ -651,6 +685,8 @@ new schema field in the manifest. `recommended_disposition` is a conservative
 review recommendation, not an approval. `assessment_status` is one of
 `complete`, `incomplete`, or `stale`.
 
+---
+
 ## Impact review protocol
 
 Impact review is a four-step protocol. The CLI makes each boundary visible:
@@ -688,6 +724,8 @@ assessment was computed from different inputs, and `complete` only when the
 matching rule above passes. Approval is blocked for either incomplete or
 stale status.
 
+---
+
 ## Atomicity and failure behavior
 
 Every mutating command follows this sequence:
@@ -722,6 +760,8 @@ path as a workaround. Safe retries are:
 | `6` with `mutation: unknown` | Reconcile first; retry the same request only when the result proves it was not applied |
 | `70` | Preserve the input and diagnostics for implementation triage; do not repeat blindly |
 
+---
+
 ## Golden fixture
 
 [`fixtures/ears-manager-cli-golden.jsonl`](fixtures/ears-manager-cli-golden.jsonl)
@@ -746,6 +786,8 @@ final `same_as` assertion compares the post-failure `change-set compare`
 response byte-for-byte with the earlier comparison step, while the preceding
 read proves that the rejected requirement was not created.
 
+---
+
 ## Acceptance evidence
 
 An implementation satisfies this contract when its offline fixture suite
@@ -767,6 +809,8 @@ demonstrates:
 
 The fixture is local-only. It requires no WMS, Git host, network service,
 OAuth token, or hosted agent runtime.
+
+---
 
 ## Decision for Q18
 

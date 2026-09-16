@@ -138,7 +138,7 @@ This document adds a `repository` block for the Git-facing fields:
 | `repository.canonical_remote` | URL of the canonical repository. The Drafting Table pushes to this remote only. |
 | `repository.default_branch` | The branch that holds approved specification state. `main` by default. |
 | `repository.review_mode` | `single-player` or `multi-player`. Declares the review ceremony. |
-| `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager check` rejects it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
+| `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager project init` and `check` reject it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
 | `schema_versions` | One version per store, as decided by [ADR-0002][adr2-versioning]. |
 | `artifacts` | The artifact registry: `id`, `kind`, `path`, `digest`, `owner`, and optional `validator` per entry ([ADR-0002][adr2-registry]). |
 
@@ -259,9 +259,9 @@ has.
 Two of these entries name a directory rather than a file. ADR-0002
 defines `requirement-store` as a directory. This contract also defines
 the fixed `.protobot/change-sets/` entry as a `change-set` registry
-aggregate; individual `cs-<nnn>.yaml` manifests use the same kind as
-their own entries. The directory digest covers its canonical manifest
-set, so additions and deletions are integrity-visible.
+aggregate; individual `cs-<nnn>.yaml` manifests are change-set records,
+not artifact-registry entries. The directory digest covers its canonical
+manifest set, so additions and deletions are integrity-visible.
 
 ### One change set, one file
 
@@ -543,8 +543,10 @@ report is a view of the Finding Ledger.
 
 ### Gates and labels
 
-- CI runs `ears-manager check` on every branch push and as the
-  merge gate.
+- CI runs `ears-manager check` on every branch push and as the merge gate.
+  A bare `check` resolves and validates every proposed change-set manifest in
+  the branch, including its impact assessment; interactive callers may pass
+  `--change-set CS-<NNN>` to narrow the check.
 - Path ownership in CI rejects a change that edits files outside
   the owning component's paths.
 - Branch protection on the default branch requires the pull
