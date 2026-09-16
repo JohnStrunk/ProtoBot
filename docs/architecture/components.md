@@ -620,9 +620,12 @@ The API surface includes:
   the expected current state and monotonically increasing contract
   version. Claiming compares `ready-for-building` and atomically writes
   `building`, owner identity, renewable lease, and a new fencing token.
-  Every execution mutation must present that token. A stale owner or
-  duplicate claim fails without mutation even if the item later cycles
-  through the same state.
+  Every Job Site execution mutation and Job Site merge operation must
+  present that token. Reconciler recovery operations use Git/WMS
+  reconciliation proof instead; they cannot issue an execution lease or
+  mutate the implementation branch. A stale owner or duplicate claim
+  fails without mutation even if the item later cycles through the same
+  state.
 - **Queries:** Read items by ID, state, dependency, owner, or
   idempotency key, including "all ready items" and "all blocked items."
 - **Git references:** Record source specification and code commits,
@@ -634,7 +637,10 @@ The API surface includes:
   resulting merge commit.
 - **Idempotent completion:** Complete only a `merging` item whose tested
   product-tree digest, sealed Inspection Run, post-attestation integration
-  head, target, contract version, and fencing token match. Repeating the
+  head, target, and contract version match. A Job Site completion also
+  requires the current fencing token. A reconciler replay after Git
+  already merged instead requires the recorded merge envelope and
+  reconciliation proof, with no active Job Site fence. Repeating the
   operation with the same resulting merge commit returns the prior result;
   a different result is rejected for reconciliation.
 - **Finding ledger:** Create a finding by stable producer idempotency key
