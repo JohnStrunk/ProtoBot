@@ -82,13 +82,13 @@ must follow these rules:
    interfaces, and constraints from `components.md` and
    `overview.md`. Findings should include coverage gaps, not
    only formatting and cross-reference text matching.
-   Checks must go beyond link freshness and heading alignment.
-   A new capability must be registered where the architecture
-   enumerates capabilities (`components.md`). New content must
-   not conflict with principles in `overview.md` (for example,
-   harness-agnostic Toolkit packaging). Terminology must match
-   defined ProtoBot keywords and relationship terms; an
-   undeclared alias for a defined keyword is a defect.
+   Checks must go beyond link freshness and heading alignment:
+   register new capabilities where `components.md` enumerates
+   them, avoid conflicting with principles in `overview.md`
+   or `components.md` (for example, the harness-agnostic
+   Toolkit principle in `components.md`), and match defined
+   ProtoBot keywords and relationship terms; an undeclared
+   alias for a defined keyword is a defect.
 
 ## Agent skills
 
@@ -138,9 +138,16 @@ skill, agents must:
    relationships are `depends-on`, `conflicts-with`,
    `supersedes`, and `related-to`.
 
-4. **Emit machine-separable fields.** Where the specifications
-   require responsible system, affected interfaces, or
-   verification mode, emit them as fields, not only as prose.
+4. **Emit machine-separable fields.** Distinguish vocabulary
+   by layer: host-independent elicitation skills emit the
+   [Agent Harness Adapter Contract][agent-harness-doc]'s
+   portable-response field names (`Responsible system`,
+   `Affected interfaces`, `Observable at the named boundary alone`),
+   while ProtoBot host or Toolkit skills that persist records emit
+   ADR-0002's fields (`applies_to`, `verification.mode`). Do not
+   demand host-specific persistence fields from host-independent
+   skills, and emit required properties as fields, not only as
+   prose.
 
 5. **Review agents must check skill-to-spec alignment.** When
    reviewing a PR that creates or modifies a skill file, verify
