@@ -198,7 +198,16 @@ Priority is a request-owned business value. Before materialization, an
 authorized update refreshes the linked proposed change-set priority
 snapshot. After a build work item exists, the same authorized operation
 updates its WMS priority snapshot atomically with the request revision; it
-does not change lifecycle state or dispatch/scheduling decisions.
+ does not change lifecycle state or dispatch/scheduling decisions.
+
+### Harness operation-name mapping
+
+The dotted names in this document are canonical operation identifiers.
+Harness bindings mechanically normalize the dot to an underscore for tool
+names: OpenCode uses `wms_request_create`, while Claude Code and Codex use
+`mcp__wms__request_create`. The mapping is owned by #33 and does not alter
+the operation or authorization names. Unknown logical operations are
+rejected before dispatch.
 
 ---
 
@@ -306,21 +315,30 @@ The WMS Adapter validates the resource write against the named preconditions
 but does not pass it to the Validation Rules evaluator as `resolve-block`.
 A successful submission writes only the resolution-submission record; it is
 not an unblock. The Materializer later invokes the authoritative
-`resolve-block` lifecycle operation, consumes the approval atomically, and
-applies these outcomes:
+`resolve-block` lifecycle operation only after its full refresh preconditions
+pass, consumes the approval atomically, and produces the single
+`blocked -> ready-for-building` transition defined by Validation Rules.
+Before that operation can be applied, the submission records these
+resolution-specific prerequisites:
 
 - `add-requirement`: the original item records a dependency on the linked
-  change-set build work and remains `waiting` until that dependency completes;
+  change-set build work and remains `blocked` until that dependency completes;
 - `out-of-scope`: the item remains `blocked` until the required independent
   Inspector confirmation is recorded;
 - `impact-amendment`: the linked change set must validate and its full refresh
-  must pass before the item can become `ready-for-building`; and
-- `acknowledge`: the item remains `blocked` until the control plane clears the
-  informational condition.
+  must pass; and
+- `acknowledge`: the control plane clears the informational condition and the
+  Materializer does not invoke `resolve-block` for the acknowledgement.
 
 Any failed refresh leaves the item `blocked` and returns the shared
 diagnostic. The Materializer, not the Drafting Table, owns the lifecycle
 transition and contract-version increment.
+
+Only one nonterminal lifecycle resolution submission may be active for a
+work item at a time. An exact retry replays its existing submission; a
+different lifecycle resolution is rejected until the current submission is
+consumed or superseded. Informational acknowledgements are separate audit
+records and do not compete with the lifecycle submission.
 
 ---
 
