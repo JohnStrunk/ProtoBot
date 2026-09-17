@@ -581,5 +581,13 @@ implementations) succeed at much higher rates than those without.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
+  Harness-neutral adapter core, the guard, and harness obligations
+- [OpenCode Harness Binding](agent-harness/opencode.md) — The first
+  harness binding
+- [Claude Code Harness Binding](agent-harness/claude-code.md) — The
+  second harness binding
+- [Codex Harness Binding](agent-harness/codex.md) — The third harness
+  binding
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas

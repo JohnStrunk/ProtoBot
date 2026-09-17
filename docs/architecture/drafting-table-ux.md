@@ -62,8 +62,12 @@ define _how_ the underlying systems respond:
   operations and result shapes for Drafting Table use.
 - **#32** ([Validation Rules](validation-rules.md)) defines lifecycle
   validation and rejection schemas.
-- **#33** (OpenCode Specification Toolkit adapter) defines skill discovery, tool
-  permissions, and the harness-specific adapter layer.
+- **#33** ([Agent Harness Adapter Contract](agent-harness/adapter-contract.md),
+  with the [OpenCode](agent-harness/opencode.md),
+  [Claude Code](agent-harness/claude-code.md), and
+  [Codex](agent-harness/codex.md) bindings) defines skill discovery, tool
+  permissions, and the harness adapter layer, and records where a
+  harness sandbox makes the user run a step the agent would.
 - **#34** (single-player Git integration) defines branch, commit, and PR
   behavior for turning governed changes into reviewable Git history.
 
@@ -911,6 +915,17 @@ OAuth tokens, hosted session manager, or live cloud services.
   authorization, transitions, and rejection semantics
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
+- [Git and Project-Repository Integration](git-integration.md) —
+  Project identification, branches, commits, PR preparation, and
+  approved specification state
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
+  Harness-neutral adapter core, the guard, and harness obligations
+- [OpenCode Harness Binding](agent-harness/opencode.md) — The first
+  harness binding
+- [Claude Code Harness Binding](agent-harness/claude-code.md) — The
+  second harness binding
+- [Codex Harness Binding](agent-harness/codex.md) — The third harness
+  binding
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas
 - [Related Work](related-work.md) — Red Hat internal projects,

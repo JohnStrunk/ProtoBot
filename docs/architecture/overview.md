@@ -255,10 +255,12 @@ completion records immutable, commit-scoped conformance evidence.
 ## Platform
 
 The interactive Drafting Table uses **OpenCode** as its first agent
-harness, with the Specification Toolkit loaded as skills. The autonomous
-Job Site targets **Fullsend** as its first execution backend. Fullsend's
-OpenShell-based sandbox runs Workers and Inspectors through a ProtoBot
-backend adapter; a direct **OpenShell** adapter is the fallback and the
+harness, with the Specification Toolkit loaded as skills; other
+harnesses such as Claude Code and Codex join through their own bindings
+([Agent Harness Adapter Contract](agent-harness/adapter-contract.md)). The
+autonomous Job Site targets **Fullsend** as its first execution backend.
+Fullsend's OpenShell-based sandbox runs Workers and Inspectors through a
+ProtoBot backend adapter; a direct **OpenShell** adapter is the fallback and the
 starting point if ProtoBot implements a custom Job Site. A portable
 rootless-OCI/microVM containment profile with external network and
 credential brokers is the independent sandbox fallback when OpenShell
@@ -323,6 +325,14 @@ ProtoBot's own components need (CLI tools, Go binaries, etc.).
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state.
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
+  Harness-neutral adapter core, the guard, and harness obligations.
+- [OpenCode Harness Binding](agent-harness/opencode.md) — The first
+  harness binding.
+- [Claude Code Harness Binding](agent-harness/claude-code.md) — The
+  second harness binding.
+- [Codex Harness Binding](agent-harness/codex.md) — The third harness
+  binding.
 - [Open Design Questions](open-questions.md) — Unresolved design
   questions across all areas.
 - [Related Work](related-work.md) — Red Hat internal projects,

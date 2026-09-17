@@ -157,6 +157,14 @@ to the WMS via MCP or API.
 - For urgency between sessions, external notification channels
   (email, Slack) can alert the user that something needs attention.
   The TUI itself doesn't need to be the notification mechanism.
+- Any coding-agent harness can host the TUI Drafting Table through a
+  harness binding. The shared adapter core — a manifest, the Drafting
+  Table role, the permitted shell operations, and one guard command
+  that every harness calls before each tool call — is defined in
+  [Agent Harness Adapter Contract](agent-harness/adapter-contract.md).
+  The first bindings are [OpenCode](agent-harness/opencode.md),
+  [Claude Code](agent-harness/claude-code.md), and
+  [Codex](agent-harness/codex.md).
 
 ### Responsibilities (common to all implementations)
 
@@ -224,9 +232,10 @@ shared asset consumed by the agent harness.
   interface types), how to conduct Dimensioning (translate
   Architecture into EARS requirements, surface spec gaps, handle
   each EARS pattern type).
-- **Tool definitions** — MCP tool schemas or API client code for
-  interacting with the WMS Adapter (creating/reading/updating work
-  items, querying blocked items) and `ears-manager` (adding,
+- **Tool definitions** — MCP tool schemas for interacting with the
+  WMS Adapter (creating/reading/updating work items, querying blocked
+  items). `ears-manager` is a CLI that the agent runs through the
+  harness's shell tool; the skills describe its commands (adding,
   listing, and validating specifications on the active change-set or
   build-work-item branch).
 - **Prompts** — System prompts, templates, and reference material:
@@ -277,13 +286,20 @@ The final cross-harness packaging boundary remains an open question.
 - **Toolkit packaging format.** What does the toolkit look like on
   disk? A directory of markdown skills + JSON tool schemas (like
   OpenCode's skill system)? A plugin/extension package? The answer
-  depends partly on what the target harnesses support.
-- **Tool surface split.** The toolkit needs tools for two systems:
-  the WMS Adapter (work item lifecycle CRUD and queries) and the
-  spec store (via `ears-manager`). The WMS Adapter tools handle
-  work item lifecycle; `ears-manager` handles all spec read/write
-  operations. The agent should not need to manipulate spec files
-  directly.
+  depends partly on what the target harnesses support. The on-disk
+  half is resolved for every harness:
+  [Agent Harness Adapter Contract](agent-harness/adapter-contract.md#the-three-layers)
+  decides skills as `<name>/SKILL.md` directories under
+  `.agents/skills/` and tool definitions as MCP servers. Still open:
+  how the toolkit reaches a project other than ProtoBot, and how it is
+  versioned.
+- **Tool surface split.** The toolkit reaches two systems: the WMS
+  Adapter through MCP tools (work item lifecycle CRUD and queries)
+  and the spec store through the `ears-manager` CLI, which the
+  skills describe and the agent runs through the harness's shell
+  tool. The WMS Adapter tools handle work item lifecycle;
+  `ears-manager` handles all spec read/write operations. The agent
+  should not need to manipulate spec files directly.
 
 ---
 
@@ -1587,7 +1603,11 @@ instrumentation.
 
 - **Trace format and storage.** What structured trace data does each
   component emit beyond git commits? Logs? OpenTelemetry spans?
-  Something custom? Where is it stored and how is it queried?
+  Something custom? Where is it stored and how is it queried? For the
+  TUI Drafting Table, the interim trace source is the harness's own
+  session record
+  ([Adapter contract — Traces](agent-harness/adapter-contract.md#traces));
+  a harness-neutral format is still open.
 - **Eval harness.** How do you run an eval? Feed a component
   recorded inputs and compare outputs against a reference? The
   Eval Hub and
@@ -1888,6 +1908,15 @@ confirmation.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
+  Harness-neutral adapter core, governed tools, the guard, and harness
+  obligations
+- [OpenCode Harness Binding](agent-harness/opencode.md) — The first
+  harness binding
+- [Claude Code Harness Binding](agent-harness/claude-code.md) — The
+  second harness binding
+- [Codex Harness Binding](agent-harness/codex.md) — The third harness
+  binding
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Drafting Table UX](drafting-table-ux.md) — Stable interaction
