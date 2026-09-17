@@ -621,9 +621,10 @@ tracker while specification content lives in the git repo. The Drafting
 Table reads that state for status and blocked-work UX; the Job Site owns
 execution transitions.
 
-The Drafting Table operation subset is defined in the
-[Drafting Table WMS Integration Contract](drafting-table-wms.md). It does
-not authorize the Job Site execution operations listed below.
+The API surface below includes both Drafting Table operations (requests and
+queries) and Job Site/Materializer operations. The Drafting Table subset is
+defined in the [Drafting Table WMS Integration Contract](drafting-table-wms.md)
+and is not authorized to invoke the execution-lifecycle operations below.
 
 The API surface includes:
 
