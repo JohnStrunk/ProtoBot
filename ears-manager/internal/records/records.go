@@ -58,12 +58,10 @@ type RepositoryConfig struct {
 type ArtifactKind string
 
 const (
-	ArtifactVision           ArtifactKind = "vision"
-	ArtifactArchitecture     ArtifactKind = "architecture"
-	ArtifactInterfaceIDL     ArtifactKind = "interface-idl"
-	ArtifactInterfaceProse   ArtifactKind = "interface-prose"
-	ArtifactRequirementStore ArtifactKind = "requirement-store"
-	ArtifactChangeSet        ArtifactKind = "change-set"
+	ArtifactVision         ArtifactKind = "vision"
+	ArtifactArchitecture   ArtifactKind = "architecture"
+	ArtifactInterfaceIDL   ArtifactKind = "interface-idl"
+	ArtifactInterfaceProse ArtifactKind = "interface-prose"
 )
 
 type ArtifactEntry struct {

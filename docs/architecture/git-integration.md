@@ -730,16 +730,17 @@ fire.
 ### The pre-stage digest comparison
 
 Before staging anything, the Drafting Table recomputes the content
-digest of every registered artifact the change set touches and
-compares it with the `digest` recorded in the registry.
+digest of every registered artifact the change set touches using the
+canonical text rules in [ADR-0002][adr2-digest], then compares it with the
+`digest` recorded in the registry.
 `ears-manager` updates that digest on every governed write
 ([ADR-0002][adr2-registry]), so a mismatch means the file changed
-by some other route.
+by some other route beyond an allowed line-ending representation.
 
-When a registry entry names a directory rather than a file, the
-digest covers that directory's canonical file set, so an added or
-deleted record is a mismatch too. This holds for the requirement
-store and for the change-set folder alike.
+Artifact registry entries name regular files. The structured requirement,
+interface, and change-set directories are configured through the `stores`
+block rather than registered as artifacts; directory digesting is outside
+the v1 artifact registry and is not part of EM-03.
 
 On a mismatch the Drafting Table:
 
@@ -1001,6 +1002,7 @@ resurface.
 [adr1-history]: ../decisions/0001-requirements-storage-format.md#change-set-history-representation
 [adr1-pr]: ../decisions/0001-requirements-storage-format.md#4-pr-reviewability-plan
 [adr2-changeset]: ../decisions/0002-ears-specification-record-schema.md#change-set-manifests
+[adr2-digest]: ../decisions/0002-ears-specification-record-schema.md#digest-calculation
 [adr2-registry]: ../decisions/0002-ears-specification-record-schema.md#artifact-registry-entries
 [adr2-versioning]: ../decisions/0002-ears-specification-record-schema.md#schema-versioning
 [change-types]: user-interaction-flow.md#incremental-development-and-change-types
