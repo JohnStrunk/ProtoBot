@@ -642,7 +642,7 @@ ceremony and the credential path differ.
 | How a change reaches the default branch | Pull request | Pull request |
 | Who approves | The author merges their own pull request. No reviewer is required. | A reviewer merges; CODEOWNERS and required reviews apply |
 | Registration trigger | Local `register-approved-change-set` | Merge hook on the default branch |
-| Git host credential | The user's own Git host token | OAuth 2.1 through the Bridge/Gate pattern; the agent runtime never sees the credential |
+| Git host credential | The user's own Git host token | On a local harness, the user's own token through Git's credential helper and `gh`, never readable by the role ([#33 Credentials](agent-harness/adapter-contract.md#credentials)); hosted and Web, OAuth 2.1 through the Bridge/Gate pattern, and the agent runtime never sees the credential |
 | Merge strategy | Merge commit | Merge commit |
 | Where code lands | Job Site merges `wi/` branches | Identical |
 
@@ -723,8 +723,9 @@ Adapter, but `ears-manager` and Git run through the harness's own
 shell tool
 ([Drafting Table Boundary](../architecture.md#drafting-table-boundary)).
 There is no Git tool schema to constrain, so this allowlist is
-what bounds the agent. In every bound harness, #33 also enforces it
-before each shell command runs, as the optional early layer
+what bounds the agent. In every bound harness, #33 also enforces a
+stricter subset of it before each shell command runs, as the optional
+early layer
 ([Shell operations](agent-harness/adapter-contract.md#shell-operations));
 the later layers hold when that layer is off.
 
@@ -741,7 +742,7 @@ the later layers hold when that layer is off.
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
 | Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |
-| Merge the default branch into the change-set branch | Merge commit; followed by `change-set update` |
+| Merge the default branch into the change-set branch | Merge commit; followed by `change-set update`. A conflicted merge is aborted with `git merge --abort` and resolved as the failure table says |
 | Merge one's own pull request | Single-player only, merge commit, followed by registration |
 | Delete a merged change-set branch | Only after the merge commit exists on the default branch |
 

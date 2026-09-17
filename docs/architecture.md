@@ -104,9 +104,9 @@ artifacts.
 **Interaction surface:**
 
 - Conversational input/output between human and agent
-- Agent-initiated tool calls to `ears-manager` and the WMS
-  Adapter, mediated by the Specification Toolkit's tool
-  definitions
+- Agent-initiated calls to the WMS Adapter through the
+  Specification Toolkit's tool definitions, and to `ears-manager`
+  through the harness's shell tool
 - Display of work-item status from the WMS Adapter
 - Blocked-work-item notifications via a pull model: on session
   start, the harness checks the WMS for blocked items and
@@ -115,8 +115,9 @@ artifacts.
 **Scope for specification:** The REPL interface type has no
 established IDL. The contract is defined by the Specification
 Toolkit's skills and prompts (which govern what the agent can
-do) and the tool definitions (which govern how the agent
-interacts with `ears-manager` and the WMS Adapter). The user's
+do, and describe the `ears-manager` commands) and the tool
+definitions (which govern how the agent interacts with the WMS
+Adapter). The user's
 interaction surface is the conversational protocol — what
 questions the agent asks, how it presents suggestions, and how
 approval flows.

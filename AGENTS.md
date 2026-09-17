@@ -34,12 +34,9 @@ following hierarchy:
   sequence diagrams, and testing strategy.
 - `docs/architecture/drafting-table-ux.md` — stable interaction
   contract for the first local Drafting Table.
-- [`docs/architecture/git-integration.md`](docs/architecture/git-integration.md)
-  — Git and project-repository integration: branches, commits, pull
-  requests, and permitted Git operations.
-- [`docs/architecture/agent-harness/`](docs/architecture/agent-harness/)
-  — the Agent Harness Adapter Contract (`adapter-contract.md`) and its
-  harness bindings (`opencode.md`, `claude-code.md`, `codex.md`).
+- [`docs/architecture/agent-harness/`][agent-harness-doc] — the Agent
+  Harness Adapter Contract (`adapter-contract.md`) and its harness
+  bindings (`opencode.md`, `claude-code.md`, `codex.md`).
 - `docs/architecture/related-work.md` — internal and external
   projects informing the design.
 - `docs/architecture/open-questions.md` — unresolved design
@@ -48,6 +45,7 @@ following hierarchy:
 
 [git-integration-doc]: docs/architecture/git-integration.md
 [validation-rules-doc]: docs/architecture/validation-rules.md
+[agent-harness-doc]: docs/architecture/agent-harness/
 
 ### Rules for creating or modifying specification documents
 

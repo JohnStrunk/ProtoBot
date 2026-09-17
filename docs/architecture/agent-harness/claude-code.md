@@ -110,7 +110,8 @@ agent:
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/drafting-table-guard.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/drafting-table-guard.sh",
+            "timeout": 10
           }
         ]
       }
@@ -124,7 +125,11 @@ agent:
   so it binds the Drafting Table role too, which is correct: the role
   never writes there either.
 - **The hook** calls the guard before every tool call of every session
-  (H8). The matcher covers MCP tools as well.
+  (H8). The matcher covers MCP tools as well. The `timeout` bounds
+  the guard; a hook that times out, a killed guard, or a shim the
+  shell cannot run (status 126 or 127 from an unset
+  `CLAUDE_PROJECT_DIR` or a lost execute bit) yields no status 2, and
+  Claude Code lets that call through. H8 records the gap.
 - The file holds no allow rule, so it changes nothing else for other
   sessions.
 
@@ -150,8 +155,9 @@ with the line "Adapter: ProtoBot adapter layout 1, Claude Code binding."
 Follow the drafting-specifications skill.
 
 Toolkit skills name operations. In Claude Code:
-- an `ears-manager` operation is one shell command with
-  `--output json`, and its long text goes on standard input;
+- an `ears-manager` operation is one shell command,
+  `ears-manager --output json <command> ...`; artifact content and
+  the impact file go on standard input;
 - a WMS operation is the tool `mcp__wms__<operation>`; and
 - a Git or Git host operation is one shell command.
 ```
@@ -192,12 +198,14 @@ holds the native copy of the role's rules:
       "Read", "Grep", "Glob", "TodoWrite", "AskUserQuestion",
       "Skill(drafting-specifications)", "Skill(eliciting-requirements)",
       "mcp__wms", "Bash(ears-manager *)",
+      "Bash(date -u +%Y-%m-%dT%H:%M:%SZ)",
       "Bash(git rev-parse --show-toplevel)",
       "Bash(git rev-parse --abbrev-ref HEAD)",
       "Bash(git rev-parse --verify *)", "Bash(git status --porcelain)",
       "Bash(git merge-base *)", "Bash(git remote -v)",
       "Bash(git fetch origin)",
-      "Bash(git switch -c cs/*)", "Bash(git switch cs/*)",
+      "Bash(git switch -c cs/00001-project-init main)",
+      "Bash(git switch cs/*)",
       "Bash(git add -- *)", "Bash(git commit -F - *)",
       "Bash(git merge --no-ff --no-edit origin/main)",
       "Bash(git merge --abort)", "Bash(git push origin cs/*)",
@@ -207,7 +215,9 @@ holds the native copy of the role's rules:
     ],
     "deny": [
       "Edit", "Write", "NotebookEdit", "Agent", "WebFetch", "WebSearch",
-      "Read(/.env)", "Read(/.env.*)", "Read(/.git/**)", "Read(/.protobot/**)"
+      "Read(/.env)", "Read(/.env.*)", "Read(/.git/**)",
+      "Read(/.protobot/requirements/**)", "Read(/.protobot/interfaces/**)",
+      "Read(/.protobot/change-sets/**)", "Read(/.protobot/projection.yaml)"
     ]
   },
   "skillOverrides": {
@@ -232,17 +242,21 @@ holds the native copy of the role's rules:
   [shell operations](adapter-contract.md#shell-operations)** with the
   defaults `origin`, `cs/`, and `main`, and `*` where the form has
   `<repo>`, `<branch>`, `<rev>`, or `<path>`. A rule without `*`
-  matches only that exact command, so seven of the eighteen Git, `gh`,
-  and registration rules leave no room for an extra option. A rule
+  matches only that exact command, so eight of the eighteen Git,
+  `gh`, and registration rules leave no room for an extra option. A rule
   with a trailing `*` matches a command prefix and cannot express a
   forbidden option inside a command, such as `--force` after the
   branch, so those forms have no native deny and the guard refuses
   them. This early layer is weaker than OpenCode's, and H8 carries the
   difference.
 - **The deny list hides the file-writing, subagent, and web tools
-  (H9)** and copies the role table's `.protobot/` and `.git/` denies
-  and its `.env` deny; the guard refuses the other credential files
-  that the contract names.
+  (H9)** and copies the role table's `.git/` and `.env` denies. The
+  `.protobot/` deny names the three default store directories and
+  `projection.yaml` instead of `.protobot/**`, because a Claude Code
+  deny cannot be carved and the role may read `project.yaml`; a
+  project with other store paths edits those four rules, and the guard
+  refuses every other read under `.protobot/` and the other credential
+  files that the contract names.
 - **`skillOverrides` hides every skill the binding can name (H10).**
   The first six names are the project's maintenance skills in
   `.agents/skills/`; the rest are the Claude Code 2.1.273 built-in
@@ -271,6 +285,9 @@ holds the native copy of the role's rules:
 - The `wms` server is the manifest's only MCP server (H2). Claude Code
   names its tools `mcp__wms__<operation>`. `ears-manager` needs no
   entry: it is a shell operation, allowed by `Bash(ears-manager *)`.
+  The `mcp__wms` allow covers every tool of the server; the guard
+  allows only the tools the manifest lists, and once #31 names them the
+  allow can list them as `mcp__wms__<operation>` rules.
 - **It is loaded at launch, with `--strict-mcp-config`, and is not in
   `.mcp.json`.** A deny rule in project settings would bind the role
   too, so the `wms` tools cannot be denied for every session and
@@ -289,14 +306,18 @@ and adds the two arguments the guard needs (H8):
 
 ```sh
 #!/bin/sh
+command -v drafting-table-guard >/dev/null 2>&1 ||
+  { echo "drafting-table-guard: not on PATH" >&2; exit 2; }
 exec drafting-table-guard --harness claude-code \
   --role "${PROTOBOT_ROLE:-other}"
 ```
 
 Claude Code sends the `PreToolUse` JSON on standard input, blocks the
 call when the command exits 2, and shows the guard's line to the model.
-Exit 0 lets Claude Code's own rules decide. The shim holds no rule,
-reads no file, and registers no `Stop` or `SessionEnd` hook (H5).
+Exit 0 lets Claude Code's own rules decide. Any other status is a
+pass, so the shim exits 0 or 2 and nothing else: a missing guard is a
+refusal, not the shell's exit 127. The shim holds no rule, reads no
+file, and registers no `Stop` or `SessionEnd` hook (H5).
 
 ---
 
@@ -338,8 +359,13 @@ of the pinned Claude Code version. It works for built-in skills too.
 
 A skill that the binding cannot name in advance stays in the list: one
 in another user's `~/.claude/skills/`, or one from a plugin that user
-enabled. The guard refuses a call to it (guard rule 5), so the gap is
-what the model sees, not what it can load. H10 records that gap.
+enabled. The guard refuses a call to it, and a `Read` of its
+`SKILL.md` or of a file below it, which counts as a load (guard rule
+5), so the gap is what the model sees, not what it can load. H10
+records that gap. `Grep` and `Glob` are allowed natively without a
+path pattern; the guard treats them as reads of everything below their
+path, so a search of `.git/config`, of a credential file, or of the
+project root is refused.
 
 ### Invocation
 
@@ -374,7 +400,7 @@ through `Read`. It needs no binding file.
 | H5 | Nothing on idle or exit | No `Stop` or `SessionEnd` hook | Designed |
 | H6 | Replayable session record | The transcript under `~/.claude/projects/` and the `stream-json` output with `--include-hook-events` | Designed; no export or redaction command exists |
 | H7 | Headless replay with no permission prompt | `-p`, `dontAsk`, `--permission-prompts none`, and `ANTHROPIC_BASE_URL` to a replay endpoint | Designed; the replay endpoint is unverified |
-| H8 | Guard before every tool call | The project hook and the shim | Designed |
+| H8 | Guard before every tool call | The project hook and the shim | Designed. A hook timeout, a killed guard, or a shim the shell cannot run lets that call through (gap); the role signal is `PROTOBOT_ROLE` from the launch, which an exported variable in the user's own shell can also set |
 | H9 | Hide file-writing, subagent, and web tools | The agent's `tools` list and the deny rules | Designed |
 | H10 | Toolkit skills only | `skillOverrides` turns off every skill the binding can name; the guard refuses a call to any other | Observed for project and built-in skills; a user-scope or plugin skill stays in the model's list (gap) |
 | H11 | No credential in binding files; no session upload | Placeholders; no `--remote-control`, `--cloud`, or `/feedback`; `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` in the fixture | Designed |
@@ -419,7 +445,9 @@ also observed in headless test runs on 2026-09-16.
    the session.
 5. A `PreToolUse` command hook receives the call as JSON on standard
    input; exit status 2 blocks the call and shows standard error to the
-   model. `SessionStart` reports `compact` as a source.
+   model; every other status, and a hook that exceeds its `timeout`,
+   lets the call through, so the shim never exits with a status other
+   than 0 or 2. `SessionStart` reports `compact` as a source.
 6. A Bash rule without `*` matches the exact command, and a trailing
    `*` matches a command prefix; Read and Edit rules take
    gitignore-style path patterns.
@@ -448,7 +476,7 @@ harness commands. For Claude Code:
 
 | Fixture need | Claude Code |
 | --- | --- |
-| List discovered skills (step 1) | The `system` init message of a `stream-json` run; to confirm that it lists skills |
+| List discovered skills (step 1) | The `skills` list of the `system` init message of a `stream-json` run |
 | Headless turn in the role (steps 2 to 14) | `claude -p --agent drafting-table --setting-sources project --settings .claude/settings.drafting-table.json --mcp-config .claude/mcp.drafting-table.json --strict-mcp-config --permission-prompts none --output-format stream-json --include-hook-events "<intent>"`; add `--continue` or `--resume <id>` to continue |
 | Headless turn outside the role (steps 2, 7, 9) | The same without `--agent`, `--setting-sources`, `--settings`, and the MCP flags |
 | Resolved native rules | No command prints them; the fixture keeps the three settings and MCP files next to the export |
@@ -513,8 +541,12 @@ met:
   platform.
 - [System Components](../components.md) — The Drafting Table and the
   Specification Toolkit.
+- [`ears-manager` CLI Integration Contract](../ears-manager-cli.md) —
+  The command grammar the role's shell commands follow.
 - [Git and Project-Repository Integration](../git-integration.md) —
   Permitted Git operations and ungoverned-edit detection.
+- [Validation Rules](../validation-rules.md) — The WMS boundary that
+  rejects a lifecycle transition from the Drafting Table.
 - [User Interaction Flow](../user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Drafting Table UX](../drafting-table-ux.md) — Stable interaction

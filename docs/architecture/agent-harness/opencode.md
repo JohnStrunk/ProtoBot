@@ -96,7 +96,11 @@ needs the `external_directory` rule in
   even when plugins do not load.
 - **The `wms` tools are denied here and allowed only in the
   `drafting-table` agent**, a native copy of the MCP half of guard rule
-  4. The `ears-manager` half lives in the agent's `bash` rules.
+  4. The `ears-manager` half has no native copy: the agent's `bash`
+  rules allow it in the role, and the guard refuses it elsewhere. The
+  agent's `wms_*` allow is wider than the guard, which allows only the
+  tools the manifest lists; once #31 names them, the allow can list
+  them one by one.
 
 This file adds denies and nothing else;
 [How the rules combine](#how-the-rules-combine) explains why.
@@ -118,6 +122,7 @@ permission:
     "*.env.*": deny
     ".git/**": deny
     ".protobot/**": deny
+    ".protobot/project.yaml": allow
   glob: allow
   grep: allow
   question: allow
@@ -139,8 +144,9 @@ Load the drafting-specifications skill before anything else, and
 follow it.
 
 Toolkit skills name operations. In OpenCode:
-- an `ears-manager` operation is one shell command with
-  `--output json`, and its long text goes on standard input;
+- an `ears-manager` operation is one shell command,
+  `ears-manager --output json <command> ...`; artifact content and
+  the impact file go on standard input;
 - a WMS operation is the tool `wms_<operation>`; and
 - a Git or Git host operation is one shell command.
 ```
@@ -151,15 +157,21 @@ Toolkit skills name operations. In OpenCode:
   catch-all denies `doom_loop`, so an identical call repeated three
   times is refused rather than asked about.
 - **The `read` denies are the native copy of the role's read denies.**
-  They cover `.env` files, `.git/`, and `.protobot/`; the guard refuses
-  the other credential files that the contract names
+  They cover `.env` files, `.git/`, and `.protobot/`; the
+  `project.yaml` allow follows the `.protobot/**` deny, so it wins for
+  that one file, which the role may read. The guard refuses the other
+  credential files that the contract names
   ([The Drafting Table role](adapter-contract.md#the-drafting-table-role)).
 - **The `skill` rule is the manifest's `toolkit_skills` (H10).** Its
   `"*": deny` comes first, so every other skill is left out of the
   model's list and refused when called
   ([Skill visibility](#skill-visibility)). A new Toolkit skill adds one
   line here and one in the manifest; the fixture checks that the two
-  lists match.
+  lists match. OpenCode adds a read allow for each discovered skill's
+  directory, so a `read` of another skill's `SKILL.md` passes the
+  native rules; the guard refuses it as a load (guard rule 5). `glob`
+  and `grep` are allowed natively; the guard treats them as reads of
+  everything below their path.
 - **No rule is `ask`.** In `opencode run`, a rule that resolves to `ask`
   is rejected automatically and the run ends, so an agent with only
   allow and deny rules behaves the same headless and in the TUI (H7).
@@ -182,6 +194,8 @@ bash:
   "*": deny
   # Specification reads and writes
   "ears-manager *": allow
+  # The clock, for --created
+  "date -u +%Y-%m-%dT%H:%M:%SZ": allow
   # Read repository state
   "git rev-parse --show-toplevel": allow
   "git rev-parse --abbrev-ref HEAD": allow
@@ -191,7 +205,7 @@ bash:
   "git remote -v": allow
   "git fetch origin": allow
   # Work on a change-set branch
-  "git switch -c cs/*": allow
+  "git switch -c cs/00001-project-init main": allow
   "git switch cs/*": allow
   "git add -- *": allow
   "git commit -F -*": allow
@@ -220,7 +234,7 @@ bash:
   "gh pr edit *--base*": deny
 ```
 
-A pattern without `*` matches only that exact command, so seven of the
+A pattern without `*` matches only that exact command, so eight of the
 Git rules leave no room for an extra option. A pattern with `*` still
 matches a longer command, and the denies above catch only the most
 harmful additions. The guard refuses every other option, and every
@@ -260,7 +274,7 @@ record ([Traces](adapter-contract.md#traces)).
 1. **Tracks the role.** OpenCode's `tool.execute.before` hook does not
    name the agent, but `chat.params` does. The shim records the agent of
    each session: `drafting-table` is the Drafting Table role, and every
-   other agent is `other`.
+   other agent, and a session the shim has not seen yet, is `other`.
 2. **Builds the guard input.** For each tool call it writes the
    `PreToolUse` JSON — `hook_event_name`, `session_id`, `cwd`,
    `tool_name`, and `tool_input` from the call's arguments — and runs
@@ -427,7 +441,7 @@ binding, never in a Toolkit or adapter-core file.
 
 ## Running the fixture on OpenCode
 
-The [fixture session](adapter-contract.md#fixture-session) needs three
+The [fixture session](adapter-contract.md#fixture-session) needs these
 harness commands. For OpenCode:
 
 | Fixture need | OpenCode |
@@ -489,8 +503,12 @@ clients, and shell.
   platform.
 - [System Components](../components.md) — The Drafting Table and the
   Specification Toolkit.
+- [`ears-manager` CLI Integration Contract](../ears-manager-cli.md) —
+  The command grammar the role's shell commands follow.
 - [Git and Project-Repository Integration](../git-integration.md) —
   Permitted Git operations and ungoverned-edit detection.
+- [Validation Rules](../validation-rules.md) — The WMS boundary that
+  rejects a lifecycle transition from the Drafting Table.
 - [User Interaction Flow](../user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Drafting Table UX](../drafting-table-ux.md) — Stable interaction

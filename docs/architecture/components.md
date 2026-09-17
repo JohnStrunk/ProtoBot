@@ -293,12 +293,13 @@ The final cross-harness packaging boundary remains an open question.
   `.agents/skills/` and tool definitions as MCP servers. Still open:
   how the toolkit reaches a project other than ProtoBot, and how it is
   versioned.
-- **Tool surface split.** The toolkit needs tools for two systems:
-  the WMS Adapter (work item lifecycle CRUD and queries) and the
-  spec store (via `ears-manager`). The WMS Adapter tools handle
-  work item lifecycle; `ears-manager` handles all spec read/write
-  operations. The agent should not need to manipulate spec files
-  directly.
+- **Tool surface split.** The toolkit reaches two systems: the WMS
+  Adapter through MCP tools (work item lifecycle CRUD and queries)
+  and the spec store through the `ears-manager` CLI, which the
+  skills describe and the agent runs through the harness's shell
+  tool. The WMS Adapter tools handle work item lifecycle;
+  `ears-manager` handles all spec read/write operations. The agent
+  should not need to manipulate spec files directly.
 
 ---
 

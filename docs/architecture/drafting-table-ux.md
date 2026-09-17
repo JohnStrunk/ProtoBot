@@ -66,7 +66,8 @@ define _how_ the underlying systems respond:
   with the [OpenCode](agent-harness/opencode.md),
   [Claude Code](agent-harness/claude-code.md), and
   [Codex](agent-harness/codex.md) bindings) defines skill discovery, tool
-  permissions, and the harness adapter layer.
+  permissions, and the harness adapter layer, and records where a
+  harness sandbox makes the user run a step the agent would.
 - **#34** (single-player Git integration) defines branch, commit, and PR
   behavior for turning governed changes into reviewable Git history.
 
