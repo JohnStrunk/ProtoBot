@@ -24,7 +24,7 @@ func validateChangeSet(result *Result, document Document[records.ChangeSet], req
 	validateAffectedInterfaces(result, path, value, interfaces)
 	validateChangeSetPolicy(result, document, path, value)
 	validateImpactAssessment(result, path, value, requirements)
-	validateCreated(result, path, value.ID, "created", value.Created)
+	validateCreated(result, path, changeSetKind, value.ID, "created", value.Created)
 }
 
 func validateChangeSetIdentity(result *Result, document Document[records.ChangeSet], value records.ChangeSet, seen map[string]bool) {

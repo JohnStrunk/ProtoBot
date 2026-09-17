@@ -103,12 +103,13 @@ var (
 func Validate(snapshot Snapshot) Result {
 	result := Result{}
 	config := records.CanonicalProjectConfig(snapshot.Config)
+	projectPath := projectConfigPath(snapshot.ConfigPath)
 
 	validateProject(&result, snapshot, config)
 
 	interfaces := indexInterfaces(&result, snapshot.Interfaces)
 	requirements := indexRequirements(&result, snapshot.Requirements)
-	artifacts := indexArtifacts(&result, config.Artifacts)
+	artifacts := indexArtifacts(&result, projectPath, config.Artifacts)
 
 	validateInterfaces(&result, snapshot.Interfaces)
 	validateRequirements(&result, snapshot.Requirements, interfaces)
@@ -120,10 +121,7 @@ func Validate(snapshot Snapshot) Result {
 }
 
 func validateProject(result *Result, snapshot Snapshot, config records.ProjectConfig) {
-	path := snapshot.ConfigPath
-	if path == "" {
-		path = filepath.ToSlash(filepath.Join(".protobot", "project.yaml"))
-	}
+	path := projectConfigPath(snapshot.ConfigPath)
 	validateProjectMetadata(result, snapshot.ConfigFields, path, config)
 	validateStorePaths(result, snapshot.Root, path, config.Stores)
 	validateArtifacts(result, snapshot, config.Artifacts)
@@ -158,15 +156,19 @@ func validateStorePath(result *Result, root, projectPath, name, value string) {
 	}
 	field := "stores." + name
 	if root == "" {
-		clean := filepath.Clean(value)
-		if filepath.IsAbs(value) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		if _, err := canonicalProjectPath(value); err != nil {
 			result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path must remain relative to the project root.", "Use a relative path inside the project root."))
 		}
 		return
 	}
-	resolved, err := storage.ValidatePathWithin(root, value)
+	canonical, err := canonicalProjectPath(value)
 	if err != nil {
-		result.add(diagnostic("project.invalid_path", projectPath, "", field, err.Error(), "Use a relative path that resolves inside the project root."))
+		result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path must use slash-separated project-relative form.", "Use a relative path inside the project root."))
+		return
+	}
+	resolved, err := storage.ValidatePathWithin(root, filepath.FromSlash(canonical))
+	if err != nil {
+		result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path cannot be resolved inside the project root.", "Use a relative path that resolves inside the project root."))
 		return
 	}
 	if info, statErr := os.Stat(resolved); statErr == nil && !info.IsDir() {
@@ -219,14 +221,14 @@ func indexInterfaces(result *Result, documents []Document[records.InterfaceRecor
 	return index
 }
 
-func indexArtifacts(result *Result, artifacts []records.ArtifactEntry) map[string]records.ArtifactEntry {
+func indexArtifacts(result *Result, projectPath string, artifacts []records.ArtifactEntry) map[string]records.ArtifactEntry {
 	index := make(map[string]records.ArtifactEntry, len(artifacts))
 	for _, artifact := range artifacts {
 		if artifact.ID == "" || records.ValidateArtifactID(artifact.ID) != nil {
 			continue
 		}
 		if _, exists := index[artifact.ID]; exists {
-			result.add(diagnostic("artifact.duplicate_id", ".protobot/project.yaml", artifact.ID, "artifacts", fmt.Sprintf("Artifact ID %q is declared more than once.", artifact.ID), "Use a unique stable artifact ID."))
+			result.add(diagnostic("artifact.duplicate_id", projectPath, artifact.ID, "artifacts", fmt.Sprintf("Artifact ID %q is declared more than once.", artifact.ID), "Use a unique stable artifact ID."))
 			continue
 		}
 		index[artifact.ID] = artifact
@@ -255,7 +257,7 @@ func validateInterface(result *Result, document Document[records.InterfaceRecord
 	if value.Type == "" || !interfaceTypes[value.Type] {
 		result.add(diagnostic("interface.invalid_type", path, value.ID, "type", fmt.Sprintf("Unsupported interface type %q.", value.Type), "Use one of the interface types defined by ADR-0002."))
 	}
-	validateCreated(result, path, value.ID, "created", value.Created)
+	validateCreated(result, path, interfaceKind, value.ID, "created", value.Created)
 	if value.Status != "" && !recordStatuses[value.Status] {
 		result.add(diagnostic("interface.invalid_status", path, value.ID, "status", fmt.Sprintf("Unsupported interface status %q.", value.Status), "Use active or retired."))
 	}
@@ -291,7 +293,7 @@ func validateRequirement(result *Result, document Document[records.Requirement],
 	if value.Provenance == "" || !provenanceValues[value.Provenance] {
 		result.add(diagnostic("requirement.invalid_provenance", path, value.ID, "provenance", fmt.Sprintf("Unsupported provenance %q.", value.Provenance), "Use user-authored, agent-suggested, or kit-imported."))
 	}
-	validateCreated(result, path, value.ID, "created", value.Created)
+	validateCreated(result, path, requirementKind, value.ID, "created", value.Created)
 	if value.Status != "" && !recordStatuses[value.Status] {
 		result.add(diagnostic("requirement.invalid_status", path, value.ID, "status", fmt.Sprintf("Unsupported requirement status %q.", value.Status), "Use active or retired."))
 	}
@@ -356,9 +358,9 @@ func validateVerification(result *Result, document Document[records.Requirement]
 	}
 }
 
-func validateCreated(result *Result, path, recordID, field, value string) {
+func validateCreated(result *Result, path string, kind recordKind, recordID, field, value string) {
 	if strings.TrimSpace(value) == "" {
-		result.add(diagnostic(missingFieldCode(recordID), path, recordID, field, fmt.Sprintf("Required field %q is missing.", field), fmt.Sprintf("Provide an ISO 8601 UTC timestamp in %s format.", timestampLayout)))
+		result.add(diagnostic(missingFieldCode(kind), path, recordID, field, fmt.Sprintf("Required field %q is missing.", field), fmt.Sprintf("Provide an ISO 8601 UTC timestamp in %s format.", timestampLayout)))
 		return
 	}
 	if _, err := time.Parse(timestampLayout, value); err != nil {
@@ -431,6 +433,13 @@ func safePath(path string) string {
 		return ""
 	}
 	return filepath.ToSlash(filepath.Clean(path))
+}
+
+func projectConfigPath(path string) string {
+	if path == "" {
+		return filepath.ToSlash(filepath.Join(".protobot", "project.yaml"))
+	}
+	return safePath(path)
 }
 
 func sortRequirementDocuments(documents []Document[records.Requirement]) []Document[records.Requirement] {
