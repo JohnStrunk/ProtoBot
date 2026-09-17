@@ -58,8 +58,8 @@ define _how_ the underlying systems respond:
 - **#30** (`ears-manager` CLI integration) defines the governed command and
   result boundary for specification reads and writes. See the
   [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
-- **#31** (Drafting Table WMS operations) defines the exact WMS Adapter
-  operations and result shapes for Drafting Table use.
+- **#31** ([Drafting Table WMS Integration](drafting-table-wms.md)) defines
+  the exact WMS Adapter operations and result shapes for Drafting Table use.
 - **#32** ([Validation Rules](validation-rules.md)) defines lifecycle
   validation and rejection schemas.
 - **#33** ([Agent Harness Adapter Contract](agent-harness/adapter-contract.md),
@@ -913,6 +913,8 @@ OAuth tokens, hosted session manager, or live cloud services.
   Command grammar, results, diagnostics, and impact review
 - [Validation Rules](validation-rules.md) — Lifecycle validation,
   authorization, transitions, and rejection semantics
+- [Drafting Table WMS Integration](drafting-table-wms.md) — Backend-neutral
+  request, query, linking, and blocked-resolution operations
 - [User Interaction Flow](user-interaction-flow.md) — Phase details
   and sequence diagrams
 - [Git and Project-Repository Integration](git-integration.md) —

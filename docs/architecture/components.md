@@ -591,8 +591,8 @@ Each adapter maps ProtoBot's build work-item model onto a backend:
   typed request relationships. Specification content remains in Git.
 - **Persist materialized work idempotently:** atomically create-or-return
   the complete contract already assembled by the Job Site Materializer
-  under a stable idempotency key. Dispatch must never observe a partial
-  item.
+  under a stable materialization key, with a per-operation idempotency key
+  for retries. Dispatch must never observe a partial item.
 - **Transition work items atomically:** compare the expected current
   state before applying a claim or any other lifecycle mutation.
 - **Translate** between ProtoBot's work item model and the backend's
@@ -620,6 +620,10 @@ the Job Site both talk to. Build work-item state persists in the issue
 tracker while specification content lives in the git repo. The Drafting
 Table reads that state for status and blocked-work UX; the Job Site owns
 execution transitions.
+
+The Drafting Table operation subset is defined in the
+[Drafting Table WMS Integration Contract](drafting-table-wms.md). It does
+not authorize the Job Site execution operations listed below.
 
 The API surface includes:
 
@@ -1905,6 +1909,8 @@ confirmation.
   constraints
 - [Validation Rules Contract](validation-rules.md) — Lifecycle states,
   authorization, transitions, rejection semantics, and acceptance matrix
+- [Drafting Table WMS Integration Contract](drafting-table-wms.md) —
+  Backend-neutral request, query, linking, and blocked-resolution operations
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state

@@ -299,7 +299,8 @@ implementation is active per project.
   requests. Update business priority (authorized maintainer
   only).
 - **Materialization:** Atomically create or return a build work
-  item by stable idempotency key, writing the complete contract
+  item by stable materialization key, using a per-operation
+  idempotency key for retry safety and writing the complete contract
   in one durable operation.
 - **Lifecycle transitions:** Atomic update of work-item state.
   Every state mutation is atomic and returns the new state or
@@ -344,6 +345,11 @@ OAuth 2.1 with Bridge/Gate is required only in the hosted modes.
 See [System Components — WMS
 Adapter](architecture/components.md#wms-adapter) for the full API surface
 and lifecycle state machine.
+
+The Drafting Table subset of this API, including request refinement,
+read-only status queries, and reviewed blocked-work resolution, is defined
+in the
+[Drafting Table WMS Integration Contract](architecture/drafting-table-wms.md).
 
 ---
 
@@ -875,6 +881,8 @@ that contract.
   — Command grammar, results, diagnostics, and impact review
 - [Validation Rules](architecture/validation-rules.md) — Lifecycle state,
   authorization, transition, rejection, and conformance contract
+- [Drafting Table WMS Integration](architecture/drafting-table-wms.md) —
+  Backend-neutral WMS operations and blocked-work resolution
 - [Git and Project-Repository
   Integration](architecture/git-integration.md) — Project
   identification, branches, commits, PR preparation, and approved

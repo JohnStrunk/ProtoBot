@@ -30,6 +30,8 @@ following hierarchy:
   and project-repository integration.
 - [`docs/architecture/validation-rules.md`][validation-rules-doc] — lifecycle
   validation, authorization, transition, and rejection contract.
+- [`docs/architecture/drafting-table-wms.md`][drafting-table-wms-doc] —
+  backend-neutral Drafting Table WMS operations and fixture.
 - `docs/architecture/user-interaction-flow.md` — phase details,
   sequence diagrams, and testing strategy.
 - `docs/architecture/drafting-table-ux.md` — stable interaction
@@ -47,6 +49,7 @@ following hierarchy:
 [validation-rules-doc]: docs/architecture/validation-rules.md
 [agent-harness-doc]: docs/architecture/agent-harness/
 [ears-and-review-doc]: .agents/skills/eliciting-requirements/references/ears-and-review.md
+[drafting-table-wms-doc]: docs/architecture/drafting-table-wms.md
 
 ### Rules for creating or modifying specification documents
 
