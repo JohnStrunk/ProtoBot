@@ -45,8 +45,8 @@ func validateRelationships(result *Result, documents []Document[records.Requirem
 			continue
 		}
 		paths[value.ID] = safePath(document.Path)
-		for _, relationship := range value.Relationships {
-			validateRelationshipEdge(result, document, value, relationship, requirements)
+		for index, relationship := range value.Relationships {
+			validateRelationshipEdge(result, document, value, index, relationship, requirements)
 			switch relationship.Type {
 			case relationshipDependsOn, relationshipSupersedes:
 				if _, exists := requirements[relationship.Target]; !exists {
@@ -62,8 +62,8 @@ func validateRelationships(result *Result, documents []Document[records.Requirem
 	}
 }
 
-func validateRelationshipEdge(result *Result, document Document[records.Requirement], value records.Requirement, relationship records.Relationship, requirements map[string]records.Requirement) {
-	field := relationshipField(value, relationship)
+func validateRelationshipEdge(result *Result, document Document[records.Requirement], value records.Requirement, index int, relationship records.Relationship, requirements map[string]records.Requirement) {
+	field := fmt.Sprintf("relationships[%d]", index)
 	path := safePath(document.Path)
 	target, exists := requirements[relationship.Target]
 	if !exists {
@@ -78,16 +78,6 @@ func validateRelationshipEdge(result *Result, document Document[records.Requirem
 	if relationship.Type == relationshipSupersedes && records.CanonicalRequirement(target).Status != records.StatusRetired {
 		result.add(diagnostic("relationship.superseded_requirement_active", path, value.ID, field, fmt.Sprintf("Superseded requirement %q is not retired.", relationship.Target), "Retire the superseded requirement in this or an earlier change set."))
 	}
-}
-
-func relationshipField(value records.Requirement, target records.Relationship) string {
-	canonical := records.CanonicalRequirement(value)
-	for index, relationship := range canonical.Relationships {
-		if relationship == target {
-			return fmt.Sprintf("relationships[%d]", index)
-		}
-	}
-	return "relationships"
 }
 
 func hasRelationship(value records.Requirement, relationType, target string) bool {

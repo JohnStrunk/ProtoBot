@@ -179,6 +179,7 @@ func TestValidateRejectsInvalidArtifactsAndNormalizesLineEndings(t *testing.T) {
 		{ID: "bad-kind", Kind: records.ArtifactKind("requirement-store"), Path: "docs/good.md", Digest: goodDigest, Owner: "user"},
 		{ID: "directory", Kind: records.ArtifactVision, Path: "docs/directory", Digest: goodDigest, Owner: "user"},
 		{ID: "outside", Kind: records.ArtifactVision, Path: "../outside.md", Digest: goodDigest, Owner: "user"},
+		{ID: "windows-path", Kind: records.ArtifactVision, Path: `docs\\bad.md`, Digest: goodDigest, Owner: "user"},
 	}
 	result := Validate(Snapshot{
 		Root: root,

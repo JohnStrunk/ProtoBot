@@ -3,7 +3,6 @@ package specvalidation
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
 // Diagnostic is the stable machine-readable validation finding shared with
@@ -102,14 +101,21 @@ func diagnostic(code, path, recordID, field, message, hint string) Diagnostic {
 	}
 }
 
-func missingFieldCode(recordID string) string {
-	if strings.HasPrefix(recordID, "REQ-") {
+type recordKind string
+
+const (
+	requirementKind recordKind = "requirement"
+	interfaceKind   recordKind = "interface"
+	changeSetKind   recordKind = "change_set"
+)
+
+func missingFieldCode(kind recordKind) string {
+	switch kind {
+	case requirementKind:
 		return "requirement.missing_field"
-	}
-	if strings.HasPrefix(recordID, "CS-") {
+	case changeSetKind:
 		return "change_set.missing_field"
-	}
-	if recordID != "" {
+	case interfaceKind:
 		return "interface.missing_field"
 	}
 	return "project.missing_field"

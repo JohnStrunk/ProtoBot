@@ -97,11 +97,12 @@ func validateArtifactLocation(result *Result, snapshot Snapshot, artifact record
 		return
 	}
 	validateArtifactPath(result, snapshot, artifact, field)
-	canonicalPath := filepath.ToSlash(filepath.Clean(artifact.Path))
-	if previous, exists := seenPaths[canonicalPath]; exists && previous != artifact.ID {
-		result.add(diagnostic("artifact.duplicate_path", path, artifact.ID, field+".path", fmt.Sprintf("Artifact path is already registered by %q.", previous), "Register each artifact path once."))
+	if canonicalPath, pathErr := canonicalProjectPath(artifact.Path); pathErr == nil {
+		if previous, exists := seenPaths[canonicalPath]; exists && previous != artifact.ID {
+			result.add(diagnostic("artifact.duplicate_path", path, artifact.ID, field+".path", fmt.Sprintf("Artifact path is already registered by %q.", previous), "Register each artifact path once."))
+		}
+		seenPaths[canonicalPath] = artifact.ID
 	}
-	seenPaths[canonicalPath] = artifact.ID
 }
 
 func validateArtifactDigest(result *Result, artifact records.ArtifactEntry, path, field string) {
@@ -131,17 +132,17 @@ func validateArtifactPolicy(result *Result, artifact records.ArtifactEntry, path
 
 func validateArtifactPath(result *Result, snapshot Snapshot, artifact records.ArtifactEntry, field string) {
 	path := ".protobot/project.yaml"
-	clean := filepath.ToSlash(filepath.Clean(artifact.Path))
-	if filepath.IsAbs(artifact.Path) || clean == ".." || strings.HasPrefix(clean, "../") || isReservedArtifactPath(clean) {
+	clean, pathErr := canonicalProjectPath(artifact.Path)
+	if pathErr != nil || isReservedArtifactPath(clean) {
 		result.add(diagnostic("artifact.invalid_path", path, artifact.ID, field+".path", fmt.Sprintf("Artifact path %q is not an allowed project-relative path.", artifact.Path), "Use a regular file inside the project outside reserved control paths."))
 		return
 	}
 	if snapshot.Root == "" {
 		return
 	}
-	resolved, err := storage.ValidatePathWithin(snapshot.Root, artifact.Path)
+	resolved, err := storage.ValidatePathWithin(snapshot.Root, filepath.FromSlash(clean))
 	if err != nil {
-		result.add(diagnostic("artifact.invalid_path", path, artifact.ID, field+".path", err.Error(), "Use a path that resolves inside the project root."))
+		result.add(diagnostic("artifact.invalid_path", path, artifact.ID, field+".path", "Artifact path cannot be resolved inside the project root.", "Use a path that resolves inside the project root."))
 		return
 	}
 	info, err := os.Lstat(resolved)
@@ -150,7 +151,7 @@ func validateArtifactPath(result *Result, snapshot Snapshot, artifact records.Ar
 			result.add(diagnostic("artifact.path_not_found", path, artifact.ID, field+".path", fmt.Sprintf("Registered artifact path %q does not exist.", artifact.Path), "Create the artifact through ears-manager before registering it."))
 			return
 		}
-		result.add(diagnostic("artifact.path_unreadable", path, artifact.ID, field+".path", fmt.Sprintf("Inspect artifact path: %v.", err), "Make the registered artifact readable."))
+		result.add(diagnostic("artifact.path_unreadable", path, artifact.ID, field+".path", "Inspect artifact path.", "Make the registered artifact readable."))
 		return
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
@@ -159,7 +160,7 @@ func validateArtifactPath(result *Result, snapshot Snapshot, artifact records.Ar
 	}
 	data, err := os.ReadFile(resolved)
 	if err != nil {
-		result.add(diagnostic("artifact.path_unreadable", path, artifact.ID, field+".path", fmt.Sprintf("Read registered artifact: %v.", err), "Make the registered artifact readable."))
+		result.add(diagnostic("artifact.path_unreadable", path, artifact.ID, field+".path", "Read registered artifact.", "Make the registered artifact readable."))
 		return
 	}
 	actual, err := CanonicalTextDigest(data)
@@ -170,6 +171,22 @@ func validateArtifactPath(result *Result, snapshot Snapshot, artifact records.Ar
 	if digestPattern.MatchString(artifact.Digest) && actual != artifact.Digest {
 		result.add(diagnostic("artifact.digest_mismatch", path, artifact.ID, field+".digest", fmt.Sprintf("Registered digest %q does not match the artifact content.", artifact.Digest), "Rewrite the artifact through ears-manager or update the registry in a reviewed change set."))
 	}
+}
+
+func canonicalProjectPath(path string) (string, error) {
+	if path == "" {
+		return "", fmt.Errorf("path must not be empty")
+	}
+	if strings.ContainsAny(path, "\\\x00") || strings.HasPrefix(path, "/") || strings.Contains(path, ":") {
+		return "", fmt.Errorf("path must use slash-separated project-relative form")
+	}
+	parts := strings.Split(path, "/")
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return "", fmt.Errorf("path contains an invalid component")
+		}
+	}
+	return strings.Join(parts, "/"), nil
 }
 
 func canonicalText(data []byte) ([]byte, error) {
