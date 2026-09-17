@@ -95,6 +95,14 @@ be rejected merely because it is not a lifecycle transition, and a
 lifecycle operation must not bypass Validation Rules by using request
 policy alone.
 
+The request namespace is closed to the operations in the matrix above:
+unknown request names and unknown lifecycle names are rejected with
+`UNAUTHORIZED_ACTION`. Its Gate context is subject to the same fail-closed
+requirements as Validation Rules: a known role, non-empty actions and refs,
+valid policy version, unexpired context, no wildcards, and payload refs
+within the allowed set. Request idempotency keys are bound to the trusted
+subject; untrusted actor fields cannot widen them.
+
 ---
 
 ## Resources and revisions

@@ -727,6 +727,8 @@ met:
   Permitted Git operations and ungoverned-edit detection.
 - [Validation Rules](../validation-rules.md) — The WMS boundary that
   rejects a lifecycle transition from the Drafting Table.
+- [Drafting Table WMS Integration](../drafting-table-wms.md) — The WMS
+  operations exposed through the `wms` MCP server.
 - [User Interaction Flow](../user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Drafting Table UX](../drafting-table-ux.md) — Stable interaction

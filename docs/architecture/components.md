@@ -633,10 +633,11 @@ The API surface includes:
   priority, or typed relationship; and link a request to its change set or
   direct true-bug build work item.
 - **Materialization:** Create or return a build work item by stable
-  idempotency key. The operation writes its source specification and
-  code commits, source change set or bug report, changed and applicable
-  requirement IDs, impact dispositions, dependencies, and provenance as
-  one durable contract.
+  materialization key, using a per-operation idempotency key for retry
+  safety. The operation writes its source specification and code commits,
+  source change set or bug report, changed and applicable requirement IDs,
+  impact dispositions, dependencies, and provenance as one durable
+  contract.
 - **Lifecycle transitions:** Update state only when the caller supplies
   the expected current state and monotonically increasing contract
   version. Claiming compares `ready-for-building` and atomically writes
@@ -659,10 +660,10 @@ The API surface includes:
 - **Idempotent completion:** Complete only a `merging` item whose tested
   product-tree digest, sealed Inspection Run, post-attestation integration
   head, target, and contract version match. A Job Site completion also
-   requires the current fencing token. A reconciler replay after Git
-   already merged instead requires the WMS-observed merge envelope and
-   reconciliation evidence; the reconciler does not present a live Job
-   Site fence. Repeating the
+  requires the current fencing token. A reconciler replay after Git
+  already merged instead requires the WMS-observed merge envelope and
+  reconciliation evidence; the reconciler does not present a live Job
+  Site fence. Repeating the
   operation with the same resulting merge commit returns the prior result;
   a different result is rejected for reconciliation.
 - **Finding ledger:** Create a finding by stable producer idempotency key

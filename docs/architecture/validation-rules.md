@@ -686,7 +686,7 @@ decisions.
 
 | Topic | Owner or reason |
 | --- | --- |
-| WMS request/backlog operation shapes | #31, Drafting Table WMS Integration. |
+| WMS request/backlog operation shapes | #31, [Drafting Table WMS Integration](drafting-table-wms.md). |
 | Backend-specific issue/card/API mapping | WMS Adapter implementation behind this contract. |
 | EARS, artifact, relationship, or impact-record validation | `ears-manager`, #30 and its implementation issues. |
 | Job Site scheduling, worker isolation, sandboxing, and Finding Ledger schema | Job Site contracts and project policy. |

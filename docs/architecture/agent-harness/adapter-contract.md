@@ -86,8 +86,9 @@ and every harness already owns its sessions.
   document decides that the role runs that CLI through the harness's
   shell tool, and takes the command grammar, the JSON envelope, and
   the exit statuses from that contract.
-- **#31** (Drafting Table WMS integration) defines the WMS operations.
-  This document registers them as tools and does not name them.
+- **#31** ([Drafting Table WMS integration](../drafting-table-wms.md))
+  defines the WMS operations. This document registers them as tools and
+  does not name them.
 - **#32** ([Validation Rules](../validation-rules.md)) defines lifecycle
   validation. #32 places preflight with the caller; in a harness the
   caller is the `wms` server acting for the role, which offers
@@ -1242,6 +1243,8 @@ material.
 - [Validation Rules](../validation-rules.md) — Lifecycle
   authorization, preflight, and the rejection of a Drafting Table
   transition.
+- [Drafting Table WMS Integration](../drafting-table-wms.md) — Backend-neutral
+  WMS operations, result shapes, and blocked-work resolution.
 - [User Interaction Flow](../user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Drafting Table UX](../drafting-table-ux.md) — Stable interaction
