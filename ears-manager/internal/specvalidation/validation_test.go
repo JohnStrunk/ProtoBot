@@ -257,6 +257,30 @@ func TestValidateDoesNotMutateSnapshot(t *testing.T) {
 	}
 }
 
+func TestValidateArtifactDiagnosticsUseConfiguredProjectPath(t *testing.T) {
+	digest := "sha256:" + strings.Repeat("0", 64)
+	result := Validate(Snapshot{
+		ConfigPath: "control/project.yaml",
+		Config: records.ProjectConfig{
+			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+			SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+			Artifacts: []records.ArtifactEntry{
+				{ID: "vision", Kind: records.ArtifactVision, Path: "docs/vision.md", Digest: digest, Owner: "user"},
+				{ID: "vision", Kind: records.ArtifactVision, Path: "docs/other.md", Digest: digest, Owner: "user"},
+			},
+		},
+	})
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "artifact.duplicate_id" {
+			if diagnostic.Path != "control/project.yaml" {
+				t.Fatalf("duplicate artifact path = %q, want control/project.yaml", diagnostic.Path)
+			}
+			return
+		}
+	}
+	t.Fatalf("duplicate artifact diagnostic absent: %#v", result.Diagnostics)
+}
+
 func TestValidateProjectLoadsPresenceAwareRecords(t *testing.T) {
 	root := t.TempDir()
 	for _, directory := range []string{
