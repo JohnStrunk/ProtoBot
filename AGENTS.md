@@ -82,6 +82,13 @@ must follow these rules:
    interfaces, and constraints from `components.md` and
    `overview.md`. Findings should include coverage gaps, not
    only formatting and cross-reference text matching.
+   Checks must go beyond link freshness and heading alignment.
+   A new capability must be registered where the architecture
+   enumerates capabilities (`components.md`). New content must
+   not conflict with principles in `overview.md` (for example,
+   harness-agnostic Toolkit packaging). Terminology must match
+   defined ProtoBot keywords and relationship terms; an
+   undeclared alias for a defined keyword is a defect.
 
 ## Agent skills
 
@@ -108,3 +115,37 @@ agents must follow these rules:
    by the skill's own requirements, not copied from siblings.
    Blindly copying behavioral configuration from a sibling can
    produce incorrect dispatch or workflow behavior.
+
+### Aligning skills with the specification hierarchy
+
+A skill that implements or describes a ProtoBot or Specification
+Toolkit capability must remain consistent with the documents
+listed above. When creating, modifying, or reviewing such a
+skill, agents must:
+
+1. **Register new Toolkit capabilities.** Add the capability to
+   `components.md`, and distinguish it from repository process
+   skills.
+
+2. **Keep Toolkit frontmatter harness-agnostic.** Use `name`
+   and `description` only, as required by the
+   [Agent Harness Adapter Contract][agent-harness-doc]. Do not
+   add harness-specific fields or placeholders such as
+   `user-invocable`, `allowed-tools`, or `$ARGUMENTS`.
+
+3. **Use ProtoBot's defined vocabulary.** State-driven EARS
+   uses `While`, not undeclared aliases. Requirement
+   relationships are `depends-on`, `conflicts-with`,
+   `supersedes`, and `related-to`.
+
+4. **Emit machine-separable fields.** Where the specifications
+   require responsible system, affected interfaces, or
+   verification mode, emit them as fields, not only as prose.
+
+5. **Review agents must check skill-to-spec alignment.** When
+   reviewing a PR that creates or modifies a skill file, verify
+   the skill against the specification hierarchy, not only
+   against sibling skills. Findings should include
+   capability-registration gaps, harness-specific frontmatter
+   that violates Toolkit skill rules, and terminology that
+   conflicts with `overview.md` or `components.md`.
