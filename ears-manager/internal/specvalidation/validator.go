@@ -124,7 +124,7 @@ func validateProject(result *Result, snapshot Snapshot, config records.ProjectCo
 	path := projectConfigPath(snapshot.ConfigPath)
 	validateProjectMetadata(result, snapshot.ConfigFields, path, config)
 	validateStorePaths(result, snapshot.Root, path, config.Stores)
-	validateArtifacts(result, snapshot, config.Artifacts)
+	validateArtifacts(result, snapshot, path, config.Artifacts)
 }
 
 func validateProjectMetadata(result *Result, fields map[string]bool, path string, config records.ProjectConfig) {
