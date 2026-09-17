@@ -16,8 +16,10 @@
 
 ## Specification document hierarchy
 
-ProtoBot's specification documents live under `docs/` in the
-following hierarchy:
+Every Markdown file under `docs/` is a governed hierarchy member,
+including files added later. Membership is the `docs/` prefix, not
+the list. Omission from the list does not exclude a file or leave
+membership undecided.
 
 - `docs/vision.md` — project Vision (purpose, users, outcomes).
 - `docs/architecture.md` — Architecture artifact (external
@@ -54,7 +56,7 @@ must follow these rules:
 
 1. **Read all sibling specification documents first.** Before
    writing or revising a specification document, read every
-   other document in the hierarchy above. Cross-document
+   other governed Markdown document under `docs/`. Cross-document
    consistency cannot be verified without knowing what the
    sibling documents say.
 
@@ -81,7 +83,8 @@ must follow these rules:
    document, verify that the document accounts for components,
    interfaces, and constraints from `components.md` and
    `overview.md`. Findings should include coverage gaps, not
-   only formatting and cross-reference text matching.
+   only formatting and cross-reference text matching. Do not raise
+   a hierarchy-membership finding for an unlisted `docs/` file.
 
 ## Agent skills
 
