@@ -46,6 +46,7 @@ following hierarchy:
 [git-integration-doc]: docs/architecture/git-integration.md
 [validation-rules-doc]: docs/architecture/validation-rules.md
 [agent-harness-doc]: docs/architecture/agent-harness/
+[ears-and-review-doc]: .agents/skills/eliciting-requirements/references/ears-and-review.md
 
 ### Rules for creating or modifying specification documents
 
@@ -134,20 +135,22 @@ skill, agents must:
    `user-invocable`, `allowed-tools`, or `$ARGUMENTS`.
 
 3. **Use ProtoBot's defined vocabulary.** State-driven EARS
-   uses `While`, not undeclared aliases. Requirement
-   relationships are `depends-on`, `conflicts-with`,
-   `supersedes`, and `related-to`.
+   uses `While`, not undeclared aliases. Skills persisting
+   records use ADR-0002 relationships (`depends-on`,
+   `conflicts-with`, `supersedes`, `related-to`); host-independent
+   skills use non-persisted companion-role labels for suggested
+   companions.
 
 4. **Emit machine-separable fields.** Distinguish vocabulary
-   by layer: host-independent elicitation skills emit the
-   [Agent Harness Adapter Contract][agent-harness-doc]'s
-   portable-response field names (`Responsible system`,
-   `Affected interfaces`, `Observable at the named boundary alone`),
-   while ProtoBot host or Toolkit skills that persist records emit
-   ADR-0002's fields (`applies_to`, `verification.mode`). Do not
-   demand host-specific persistence fields from host-independent
-   skills, and emit required properties as fields, not only as
-   prose.
+   by layer: host-independent elicitation skills emit portable-response
+   fields defined in [`ears-and-review.md`][ears-and-review-doc]
+   ("Portable Response", including `Responsible system`). Cite the
+   [Adapter Contract][agent-harness-doc] only for host-mapping the
+   subset of those fields it names (`Affected interfaces`,
+   `Observable at the named boundary alone`) onto ADR-0002
+   persistence fields (`applies_to`, `verification.mode`). Do not
+   demand persistence fields from host-independent skills, and
+   emit required properties as fields, not only as prose.
 
 5. **Review agents must check skill-to-spec alignment.** When
    reviewing a PR that creates or modifies a skill file, verify
