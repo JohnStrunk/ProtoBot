@@ -17,7 +17,7 @@ type loadError struct {
 }
 
 func (e loadError) Error() string {
-	return fmt.Sprintf("load %s: %v", e.Path, e.Err)
+	return fmt.Sprintf("unable to load %s", e.Path)
 }
 
 // Load reads a complete project snapshot using the storage layer's safe YAML
@@ -89,21 +89,25 @@ func ValidateProject(root string) Result {
 }
 
 func loadDocuments[T any](root, relativeDirectory string, kind records.StoreKind, decode func([]byte) (T, map[string]bool, error)) ([]Document[T], error) {
-	resolved, err := storage.ValidatePathWithin(root, relativeDirectory)
+	canonical, err := canonicalProjectPath(relativeDirectory)
 	if err != nil {
 		return nil, loadError{Path: relativeDirectory, Err: err}
+	}
+	resolved, err := storage.ValidatePathWithin(root, filepath.FromSlash(canonical))
+	if err != nil {
+		return nil, loadError{Path: canonical, Err: err}
 	}
 	entries, err := os.ReadDir(resolved)
 	if os.IsNotExist(err) {
 		return []Document[T]{}, nil
 	}
 	if err != nil {
-		return nil, loadError{Path: relativeDirectory, Err: err}
+		return nil, loadError{Path: canonical, Err: err}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	result := make([]Document[T], 0, len(entries))
 	for _, entry := range entries {
-		document, include, err := loadDocumentEntry(root, resolved, relativeDirectory, entry.Name(), kind, decode)
+		document, include, err := loadDocumentEntry(root, resolved, canonical, entry.Name(), kind, decode)
 		if err != nil {
 			return nil, err
 		}
