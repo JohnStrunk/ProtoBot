@@ -543,6 +543,43 @@ func TestValidateProjectRejectsReservedStoreBeforeReading(t *testing.T) {
 	t.Fatalf("reserved store was not rejected before reading: %#v", result.Diagnostics)
 }
 
+func TestValidateProjectReportsStableLoadCause(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{".protobot/requirements", ".protobot/interfaces", ".protobot/change-sets"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) returned error: %v", directory, err)
+		}
+	}
+	config := records.ProjectConfig{
+		Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+		Repository: records.RepositoryConfig{
+			CanonicalRemote: "https://example.com/protobot.git",
+			DefaultBranch:   "main",
+			ReviewMode:      "single-player",
+			BranchPrefix:    "cs/",
+		},
+		SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
+	}
+	writeYAML(t, filepath.Join(root, ".protobot", "project.yaml"), config)
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "bad.yaml"), []byte("id: [unterminated\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	result := ValidateProject(root)
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "storage.decode_failed" {
+			if !strings.Contains(diagnostic.Message, "YAML decoding failed") {
+				t.Fatalf("load diagnostic = %q, want stable YAML cause", diagnostic.Message)
+			}
+			if strings.Contains(diagnostic.Message, root) {
+				t.Fatalf("load diagnostic exposed absolute root: %q", diagnostic.Message)
+			}
+			return
+		}
+	}
+	t.Fatalf("stable load diagnostic absent: %#v", result.Diagnostics)
+}
+
 func validSnapshot(t *testing.T) Snapshot {
 	t.Helper()
 	root := t.TempDir()
