@@ -58,6 +58,12 @@ func CanonicalTextDigest(data []byte) (string, error) {
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
+// CanonicalText returns the exact UTF-8 text bytes used for artifact digests.
+// It is also the representation artifact writes must persist.
+func CanonicalText(data []byte) ([]byte, error) {
+	return canonicalText(data)
+}
+
 func validateArtifacts(result *Result, snapshot Snapshot, projectPath string, stores records.StorePaths, artifacts []records.ArtifactEntry) {
 	ordered := append([]records.ArtifactEntry(nil), artifacts...)
 	sort.SliceStable(ordered, func(i, j int) bool {
@@ -143,34 +149,56 @@ func validateArtifactPath(result *Result, snapshot Snapshot, stores records.Stor
 		return
 	}
 	relativePath := filepath.FromSlash(clean)
-	if _, err := storage.ValidatePathWithin(snapshot.Root, relativePath); err != nil {
+	if _, err := storage.ValidatePathWithinNoSymlinks(snapshot.Root, relativePath); err != nil {
 		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", "Artifact path cannot be resolved inside the project root.", "Use a path that resolves inside the project root."))
 		return
 	}
-	rootHandle, err := os.OpenRoot(snapshot.Root)
-	if err != nil {
-		result.add(diagnostic("artifact.path_unreadable", projectPath, artifact.ID, field+".path", "Open project root.", "Make the project root readable."))
+	if data, proposed := snapshot.ArtifactContents[clean]; proposed {
+		validateArtifactData(result, artifact, projectPath, field, data)
 		return
+	}
+	data, status := readArtifactData(snapshot.Root, relativePath)
+	if status != "" {
+		code := "artifact.path_unreadable"
+		message := "Inspect artifact path."
+		if status == "not-found" {
+			code = "artifact.path_not_found"
+			message = fmt.Sprintf("Registered artifact path %q does not exist.", artifact.Path)
+		}
+		if status == "invalid" {
+			code = "artifact.invalid_path"
+			message = "Registered artifact path must name a regular file, not a symlink or directory."
+		}
+		result.add(diagnostic(code, projectPath, artifact.ID, field+".path", message, "Make the registered artifact a readable regular file."))
+		return
+	}
+	validateArtifactData(result, artifact, projectPath, field, data)
+}
+
+func readArtifactData(root string, relativePath string) ([]byte, string) {
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, "unreadable"
 	}
 	defer func() { _ = rootHandle.Close() }()
 	info, err := rootHandle.Lstat(relativePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			result.add(diagnostic("artifact.path_not_found", projectPath, artifact.ID, field+".path", "Registered artifact path does not exist.", "Create the artifact through ears-manager before registering it."))
-			return
+			return nil, "not-found"
 		}
-		result.add(diagnostic("artifact.path_unreadable", projectPath, artifact.ID, field+".path", "Inspect artifact path.", "Make the registered artifact readable."))
-		return
+		return nil, "unreadable"
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", "Registered artifact path must name a regular file, not a symlink or directory.", "Register a regular specification file."))
-		return
+		return nil, "invalid"
 	}
 	data, err := rootHandle.ReadFile(relativePath)
 	if err != nil {
-		result.add(diagnostic("artifact.path_unreadable", projectPath, artifact.ID, field+".path", "Read registered artifact.", "Make the registered artifact readable."))
-		return
+		return nil, "unreadable"
 	}
+	return data, ""
+}
+
+func validateArtifactData(result *Result, artifact records.ArtifactEntry, projectPath, field string, data []byte) {
 	actual, err := CanonicalTextDigest(data)
 	if err != nil {
 		result.add(diagnostic("artifact.invalid_content", projectPath, artifact.ID, field+".path", err.Error(), "Store valid UTF-8 text without a BOM."))
@@ -195,6 +223,12 @@ func canonicalProjectPath(path string) (string, error) {
 		}
 	}
 	return strings.Join(parts, "/"), nil
+}
+
+// CanonicalProjectPath validates and returns the stable slash-separated path
+// form used by project configuration and artifact records.
+func CanonicalProjectPath(path string) (string, error) {
+	return canonicalProjectPath(path)
 }
 
 func canonicalText(data []byte) ([]byte, error) {
