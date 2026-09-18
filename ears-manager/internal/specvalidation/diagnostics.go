@@ -29,7 +29,7 @@ type ValidationError struct {
 	Diagnostics []Diagnostic
 }
 
-func (e ValidationError) Error() string {
+func (e *ValidationError) Error() string {
 	if len(e.Diagnostics) == 0 {
 		return "specification validation failed"
 	}
@@ -40,7 +40,7 @@ func (r Result) Err() error {
 	if r.Valid {
 		return nil
 	}
-	return ValidationError{Diagnostics: append([]Diagnostic(nil), r.Diagnostics...)}
+	return &ValidationError{Diagnostics: append([]Diagnostic(nil), r.Diagnostics...)}
 }
 
 func (r *Result) add(diagnostic Diagnostic) {

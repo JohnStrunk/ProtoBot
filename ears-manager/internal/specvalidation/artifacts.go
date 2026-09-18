@@ -131,19 +131,25 @@ func validateArtifactPolicy(result *Result, artifact records.ArtifactEntry, proj
 
 func validateArtifactPath(result *Result, snapshot Snapshot, artifact records.ArtifactEntry, projectPath, field string) {
 	clean, pathErr := canonicalProjectPath(artifact.Path)
-	if pathErr != nil || isReservedArtifactPath(clean) {
+	if pathErr != nil || isReservedProjectPath(clean) {
 		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", fmt.Sprintf("Artifact path %q is not an allowed project-relative path.", artifact.Path), "Use a regular file inside the project outside reserved control paths."))
 		return
 	}
 	if snapshot.Root == "" {
 		return
 	}
-	resolved, err := storage.ValidatePathWithin(snapshot.Root, filepath.FromSlash(clean))
-	if err != nil {
+	relativePath := filepath.FromSlash(clean)
+	if _, err := storage.ValidatePathWithin(snapshot.Root, relativePath); err != nil {
 		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", "Artifact path cannot be resolved inside the project root.", "Use a path that resolves inside the project root."))
 		return
 	}
-	info, err := os.Lstat(resolved)
+	rootHandle, err := os.OpenRoot(snapshot.Root)
+	if err != nil {
+		result.add(diagnostic("artifact.path_unreadable", projectPath, artifact.ID, field+".path", "Open project root.", "Make the project root readable."))
+		return
+	}
+	defer func() { _ = rootHandle.Close() }()
+	info, err := rootHandle.Lstat(relativePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			result.add(diagnostic("artifact.path_not_found", projectPath, artifact.ID, field+".path", fmt.Sprintf("Registered artifact path %q does not exist.", artifact.Path), "Create the artifact through ears-manager before registering it."))
@@ -156,7 +162,7 @@ func validateArtifactPath(result *Result, snapshot Snapshot, artifact records.Ar
 		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", "Registered artifact path must name a regular file, not a symlink or directory.", "Register a regular specification file."))
 		return
 	}
-	data, err := os.ReadFile(resolved)
+	data, err := rootHandle.ReadFile(relativePath)
 	if err != nil {
 		result.add(diagnostic("artifact.path_unreadable", projectPath, artifact.ID, field+".path", "Read registered artifact.", "Make the registered artifact readable."))
 		return
@@ -222,23 +228,35 @@ func fieldSuffix(field string) string {
 	return "." + field
 }
 
-func isReservedArtifactPath(path string) bool {
-	for _, reserved := range []string{
-		".git",
-		".github",
-		".agents",
-		".claude",
-		".codex",
-		".opencode",
-		".protobot/attestations",
-		".protobot/test-catalog.jsonl",
-		"AGENTS.md",
-		"CLAUDE.md",
-		"opencode.json",
-	} {
-		if path == reserved || strings.HasPrefix(path, reserved+"/") {
+func isReservedProjectPath(path string) bool {
+	parts := strings.Split(strings.ToLower(path), "/")
+	for index, part := range parts {
+		if reservedProjectDirectories[part] {
 			return true
 		}
+		if index > 0 && parts[index-1] == ".protobot" {
+			if part == "attestations" || part == "project.yaml" || part == "projection.yaml" || part == "test-catalog.jsonl" {
+				return true
+			}
+		}
 	}
-	return false
+	return reservedProjectFiles[strings.Join(parts, "/")] || reservedProjectFiles[parts[len(parts)-1]]
+}
+
+var reservedProjectDirectories = map[string]bool{
+	".agents":   true,
+	".claude":   true,
+	".codex":    true,
+	".github":   true,
+	".git":      true,
+	".opencode": true,
+}
+
+var reservedProjectFiles = map[string]bool{
+	".protobot/project.yaml":       true,
+	".protobot/projection.yaml":    true,
+	".protobot/test-catalog.jsonl": true,
+	"agents.md":                    true,
+	"claude.md":                    true,
+	"opencode.json":                true,
 }

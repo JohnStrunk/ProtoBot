@@ -40,13 +40,14 @@ func validateRelationships(result *Result, documents []Document[records.Requirem
 	}
 
 	for _, document := range ordered {
-		value := records.CanonicalRequirement(document.Value)
-		if value.ID == "" {
+		rawValue := document.Value
+		value := records.CanonicalRequirement(rawValue)
+		if rawValue.ID == "" {
 			continue
 		}
 		paths[value.ID] = safePath(document.Path)
-		for index, relationship := range value.Relationships {
-			validateRelationshipEdge(result, document, value, index, relationship, requirements)
+		for index, relationship := range rawValue.Relationships {
+			validateRelationshipEdge(result, document, rawValue, index, relationship, requirements)
 			switch relationship.Type {
 			case relationshipDependsOn, relationshipSupersedes:
 				if _, exists := requirements[relationship.Target]; !exists {

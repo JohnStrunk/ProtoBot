@@ -15,7 +15,7 @@ func validateChangeSets(result *Result, documents []Document[records.ChangeSet],
 }
 
 func validateChangeSet(result *Result, document Document[records.ChangeSet], requirements map[string]records.Requirement, interfaces map[string]records.InterfaceRecord, artifacts map[string]records.ArtifactEntry, seen map[string]bool) {
-	value := records.CanonicalChangeSet(document.Value)
+	value := document.Value
 	path := safePath(document.Path)
 	validateRecordPath(result, document.Path, records.ChangeSetStore, value.ID)
 	validateChangeSetIdentity(result, document, value, seen)
