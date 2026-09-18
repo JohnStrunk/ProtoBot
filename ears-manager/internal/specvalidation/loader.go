@@ -199,7 +199,7 @@ func loadDocumentEntry[T any](rootHandle *os.Root, relativeDirectory, name strin
 		return Document[T]{}, false, loadError{Path: relativePath, Err: err}
 	}
 	if info.IsDir() {
-		return Document[T]{}, false, nil
+		return Document[T]{}, false, loadError{Path: relativePath, Err: fmt.Errorf("unexpected file in record store")}
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return Document[T]{}, false, loadError{Path: relativePath, Err: fmt.Errorf("record path must be a regular file")}

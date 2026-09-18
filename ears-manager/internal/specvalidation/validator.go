@@ -221,7 +221,7 @@ func validateCanonicalRemote(result *Result, path, remote string) {
 	}
 	if strings.Contains(remote, "://") {
 		parsed, err := url.Parse(remote)
-		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "ssh") || parsed.Host == "" || parsed.Path == "" || parsed.Path == "/" {
+		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "ssh") || parsed.Host == "" || parsed.Path == "" || parsed.Path == "/" || parsed.RawQuery != "" || parsed.Fragment != "" {
 			addInvalidRemoteDiagnostic(result, path, "project.invalid_configuration", "Canonical repository remote must be a credential-free https:// or ssh:// URL.")
 			return
 		}
