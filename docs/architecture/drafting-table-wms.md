@@ -113,10 +113,11 @@ the approval from trusted Gate state and verifies the approved subject,
 delegated principal, work-item ID, resolution kind, expected state/version,
 request fingerprint, policy version, expiry, and single-use status. For
 `blocked-work.submit-resolution`, the delegated principal must match the
-Materializer that will later `resolve-block`. For
+configured Materializer subject from trusted project/Gate configuration (the
+same identity `resolve-block` will later present). For
 `blocked-work.acknowledge`, the delegated principal must match the trusted
 Drafting Table subject that writes the acknowledgement. Missing, unknown,
-cross-item, wrong-kind, digest-mismatched, expired, consumed, or
+cross-item, wrong-kind, digest-mismatched, expired, consumed, revoked, or
 delegated-principal-mismatched approvals return `UNAUTHORIZED_ACTION`
 before any resource write. The same checks apply to an informational
 acknowledgement.
@@ -462,9 +463,10 @@ The fixture asserts:
   revokes the prior approval, while an acknowledgement remains an
   independent audit record;
 - approval checks reject missing, forged, cross-item, wrong-digest, expired,
-  consumed, and delegated-principal-mismatched approvals;
+  consumed, revoked, and delegated-principal-mismatched approvals;
 - an exact resolution retry replays the frozen original result;
-- Materializer `resolve-block` rejects a superseded submission's approval;
+- Materializer `resolve-block` independently rejects a revoked prior
+  approval and a non-active submission ID;
 - stale resolution state/version is rejected;
 - a Drafting Table caller cannot claim, execute, complete, schedule, or
   mutate findings, and direct `resolve-block` is rejected; and
