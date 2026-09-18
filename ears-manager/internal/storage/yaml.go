@@ -128,6 +128,9 @@ func inspectNode(node *yaml.Node, location string) error {
 	if node.Kind == yaml.AliasNode {
 		return fmt.Errorf("unsafe YAML alias at %s", location)
 	}
+	if node.Tag == "!!null" {
+		return fmt.Errorf("YAML null values are not allowed at %s", location)
+	}
 	if node.Style&yaml.TaggedStyle != 0 {
 		return fmt.Errorf("unsafe YAML tag at %s", location)
 	}

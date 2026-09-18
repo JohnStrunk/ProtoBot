@@ -82,14 +82,23 @@ This ADR defines four record types that live in two of the
 Architecture's six stores: requirements, interfaces, and
 change sets in the specification store, and artifact-registry
 entries in `.protobot/project.yaml`. Each store carries one
-version key; the initial version for both is `1`. The version
-number is a monotonically increasing integer. Any change to a
+version key; the initial version for both was `1`. The project
+configuration is now version `2` because the artifact registry's
+owner enum and digest format are normative constraints; the
+specification store remains version `1`. The version number is a
+monotonically increasing integer. Any change to a
 store's field names, types, required constraints, or enum
 values increments its version. This ADR establishes the
 following increment policy: additive changes (new optional
 fields, new enum values) and breaking changes both increment
 the version; `ears-manager` uses the version to decide
 whether migration is needed.
+
+Project schema version `1` is not interpreted as version `2`.
+Existing version-1 configurations require an explicit reviewed
+migration that rewrites artifact entries to the version-2 owner
+and digest constraints; the validator refuses them until that
+migration is complete.
 
 ### Requirement Records
 
@@ -270,7 +279,7 @@ change:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `action` | string (enum) | yes | One of `add`, `revise`, or `retire`. |
-| `requirement_id` | string (ID) | yes | The requirement being operated on. For `add`, this is the new ID. For `revise` and `retire`, this must resolve to an existing requirement. |
+| `requirement_id` | string (ID) | yes | The requirement being operated on. For `add`, this is the new ID. For `revise` and `retire`, this must resolve to an existing requirement. A `retire` operation is valid only when the corresponding current record has `status: retired`. |
 | `rationale` | string | no | Why this operation is included. Particularly useful for `revise` and `retire`. |
 
 #### Interface Operations
@@ -329,9 +338,9 @@ logical structure of each entry within that file.
 | --- | --- | --- | --- |
 | `id` | string (ID) | yes | Stable identifier. Format: a short lowercase-hyphenated name describing the artifact (e.g., `vision`, `architecture`, `api-gateway-openapi`). |
 | `kind` | string (enum) | yes | Artifact kind. See [Artifact Kind Enum](#artifact-kind-enum). |
-| `path` | string | yes | Relative path from the repository root to the artifact file. |
+| `path` | string | yes | Relative path from the repository root to the artifact file. It must not identify a control file or a structured record-store path. |
 | `digest` | string | yes | Content digest for integrity verification. Format: `sha256:<64 lowercase hexadecimal characters>`. Updated by `ears-manager` on every write. |
-| `owner` | string (enum) | yes | The responsible authority for the artifact, not the last mutator. Version 1 permits `user` and `ears-manager`; Git and change-set history record who last changed it. Kit imports are re-owned by `ears-manager`, with Kit provenance retained separately. |
+| `owner` | string (enum) | yes | The responsible authority for the artifact, not the last mutator. Project schema version 2 permits `user` and `ears-manager`; Git and change-set history record who last changed it. Kit imports are re-owned by `ears-manager`, with Kit provenance retained separately. |
 | `validator` | string (enum) | no | A name drawn from `ears-manager`'s built-in validator registry. Initial entries include `markdownlint`, `openapi-lint`, and `protoc`; the registry is code-controlled and extensible for additional specification formats such as Smithy. Each name resolves to a known, bundled validation routine and declares the artifact formats it accepts. `ears-manager` never executes a caller-supplied command line; unrecognized or incompatible names are rejected. When absent, no content validation is performed beyond path and digest tracking. |
 
 #### Artifact Kind Enum

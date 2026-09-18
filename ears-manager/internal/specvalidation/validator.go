@@ -2,12 +2,14 @@ package specvalidation
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/redhat-et/protobot/ears-manager/internal/records"
 	"github.com/redhat-et/protobot/ears-manager/internal/storage"
@@ -95,6 +97,16 @@ var (
 		"mechanical": true,
 		"semantic":   true,
 	}
+	repositoryReviewModes = map[string]bool{
+		"single-player": true,
+		"multi-player":  true,
+	}
+)
+
+const (
+	defaultRepositoryBranch = "main"
+	defaultBranchPrefix     = "cs/"
+	reservedBranchPrefix    = "wi/"
 )
 
 // Validate checks the complete snapshot without reading or modifying the
@@ -114,7 +126,7 @@ func Validate(snapshot Snapshot) Result {
 	validateInterfaces(&result, snapshot.Interfaces)
 	validateRequirements(&result, snapshot.Requirements, interfaces)
 	validateRelationships(&result, snapshot.Requirements, requirements)
-	validateChangeSets(&result, snapshot.ChangeSets, requirements, interfaces, artifacts)
+	validateChangeSets(&result, snapshot.ChangeSets, snapshot.Requirements, requirements, interfaces, artifacts)
 
 	result.finish()
 	return result
@@ -124,12 +136,13 @@ func validateProject(result *Result, snapshot Snapshot, config records.ProjectCo
 	path := projectConfigPath(snapshot.ConfigPath)
 	validateProjectMetadata(result, snapshot.ConfigFields, path, config)
 	validateStorePaths(result, snapshot.Root, path, config.Stores)
-	validateArtifacts(result, snapshot, path, config.Artifacts)
+	validateArtifacts(result, snapshot, path, config.Stores, config.Artifacts)
 }
 
 func validateProjectMetadata(result *Result, fields map[string]bool, path string, config records.ProjectConfig) {
 	validateRequiredString(result, fields, path, "", "project.id", config.Project.ID, "project.missing_field")
 	validateRequiredString(result, fields, path, "", "project.name", config.Project.Name, "project.missing_field")
+	validateRepositoryConfig(result, fields, path, config.Repository)
 	validateSchemaVersion(result, fields, path, "project", config.SchemaVersions.Project, records.CurrentProjectSchemaVersion)
 	validateSchemaVersion(result, fields, path, "specification", config.SchemaVersions.Specification, records.CurrentSpecificationSchemaVersion)
 }
@@ -155,13 +168,9 @@ func validateStorePath(result *Result, root, projectPath, name, value string) {
 		return
 	}
 	field := "stores." + name
-	canonical, err := canonicalProjectPath(value)
+	canonical, err := canonicalStorePath(value)
 	if err != nil {
 		result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path must use slash-separated project-relative form.", "Use a relative path inside the project root."))
-		return
-	}
-	if isReservedProjectPath(canonical) {
-		result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path uses a reserved project path.", "Use a dedicated structured-record directory."))
 		return
 	}
 	if root == "" {
@@ -175,6 +184,101 @@ func validateStorePath(result *Result, root, projectPath, name, value string) {
 	if info, statErr := os.Stat(resolved); statErr == nil && !info.IsDir() {
 		result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path is not a directory.", "Point the store at a directory."))
 	}
+}
+
+func validateRepositoryConfig(result *Result, fields map[string]bool, path string, repository records.RepositoryConfig) {
+	validateRequiredString(result, fields, path, "", "repository.canonical_remote", repository.CanonicalRemote, "project.missing_field")
+	if strings.TrimSpace(repository.CanonicalRemote) != "" {
+		validateCanonicalRemote(result, path, repository.CanonicalRemote)
+	}
+	validateRequiredString(result, fields, path, "", "repository.review_mode", repository.ReviewMode, "project.missing_field")
+	if strings.TrimSpace(repository.ReviewMode) != "" && !repositoryReviewModes[repository.ReviewMode] {
+		result.add(diagnostic("project.invalid_configuration", path, "", "repository.review_mode", "Repository review mode is unsupported.", "Use single-player or multi-player."))
+	}
+
+	defaultBranch := repository.DefaultBranch
+	if defaultBranch == "" && !fieldPresent(fields, "repository.default_branch", false) {
+		defaultBranch = defaultRepositoryBranch
+	}
+	if !validGitRefName(defaultBranch) {
+		result.add(diagnostic("project.invalid_configuration", path, "", "repository.default_branch", "Repository default branch is not a valid Git branch name.", "Use a valid branch name such as main."))
+	}
+
+	branchPrefix := repository.BranchPrefix
+	if branchPrefix == "" && !fieldPresent(fields, "repository.branch_prefix", false) {
+		branchPrefix = defaultBranchPrefix
+	}
+	if !strings.HasSuffix(branchPrefix, "/") || !validGitRefName(strings.TrimSuffix(branchPrefix, "/")) || strings.HasPrefix(branchPrefix, reservedBranchPrefix) {
+		result.add(diagnostic("project.invalid_configuration", path, "", "repository.branch_prefix", "Repository branch prefix is not allowed.", "Use a slash-terminated non-reserved branch prefix."))
+	}
+}
+
+func validateCanonicalRemote(result *Result, path, remote string) {
+	if strings.TrimSpace(remote) != remote || strings.ContainsAny(remote, " \t\r\n") {
+		addInvalidRemoteDiagnostic(result, path, "project.invalid_configuration", "Canonical repository remote must be a credential-free supported remote.")
+		return
+	}
+	if strings.Contains(remote, "://") {
+		parsed, err := url.Parse(remote)
+		if err != nil || (parsed.Scheme != "https" && parsed.Scheme != "ssh") || parsed.Host == "" || parsed.Path == "" || parsed.Path == "/" {
+			addInvalidRemoteDiagnostic(result, path, "project.invalid_configuration", "Canonical repository remote must be a credential-free https:// or ssh:// URL.")
+			return
+		}
+		if parsed.User != nil {
+			addInvalidRemoteDiagnostic(result, path, "project.remote_credentials", "Canonical repository remote must not contain credentials.")
+		}
+		return
+	}
+	if validSCPRemote(remote) {
+		return
+	}
+	if colon := strings.IndexByte(remote, ':'); colon >= 0 && strings.Contains(remote[:colon], "@") {
+		addInvalidRemoteDiagnostic(result, path, "project.remote_credentials", "Canonical repository remote must not contain credentials.")
+		return
+	}
+	addInvalidRemoteDiagnostic(result, path, "project.invalid_configuration", "Canonical repository remote must be a credential-free https://, ssh://, or git@host:path remote.")
+}
+
+func addInvalidRemoteDiagnostic(result *Result, path, code, message string) {
+	result.add(diagnostic(code, path, "", "repository.canonical_remote", message, "Use a credential-free supported repository remote."))
+}
+
+func validSCPRemote(remote string) bool {
+	colon := strings.IndexByte(remote, ':')
+	if colon <= len("git@") || !strings.HasPrefix(remote, "git@") {
+		return false
+	}
+	host := remote[len("git@"):colon]
+	path := remote[colon+1:]
+	return host != "" && path != "" && !strings.ContainsAny(host, "/\\@") && !strings.ContainsAny(path, "\x00\r\n")
+}
+
+func validGitRefName(name string) bool {
+	if name == "" || name == "@" || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//") || strings.Contains(name, "..") || strings.Contains(name, "@{") {
+		return false
+	}
+	for _, character := range name {
+		if unicode.IsSpace(character) || character < 0x20 || character == 0x7f || strings.ContainsRune("~^:?*[\\", character) {
+			return false
+		}
+	}
+	for _, part := range strings.Split(name, "/") {
+		if part == "" || part == "." || part == ".." || strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalStorePath(path string) (string, error) {
+	canonical, err := canonicalProjectPath(path)
+	if err != nil {
+		return "", err
+	}
+	if isReservedStorePath(canonical) {
+		return "", fmt.Errorf("store path uses a reserved project path")
+	}
+	return canonical, nil
 }
 
 func validateSchemaVersion(result *Result, fields map[string]bool, path, store string, found, supported int) {
