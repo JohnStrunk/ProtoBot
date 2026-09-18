@@ -644,7 +644,7 @@ artifacts:
   - id: architecture
     kind: architecture
     path: docs/architecture.md
-     digest: "sha256:e1bc4fc7df69cdced24b2a22486b16eca8b1aa4be49b3bcf1094d4cc9cd1cff5"
+    digest: "sha256:e1bc4fc7df69cdced24b2a22486b16eca8b1aa4be49b3bcf1094d4cc9cd1cff5"
     owner: user
   - id: api-gateway-openapi
     kind: interface-idl
