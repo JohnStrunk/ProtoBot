@@ -447,6 +447,21 @@ func TestValidateRequiresRetireOperationToBeApplied(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsFractionalCreatedTimestamp(t *testing.T) {
+	requirement := validRequirement("REQ-TIME-00001", records.EARSUbiquitous, "The system shall provide an exact timestamp.")
+	requirement.Created = "2026-09-15T10:00:00.123Z"
+	result := Validate(Snapshot{Config: records.ProjectConfig{
+		Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+		SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
+	}, Requirements: []Document[records.Requirement]{{
+		Path:  ".protobot/requirements/" + requirement.ID + ".yaml",
+		Value: requirement,
+	}}})
+	if !hasDiagnosticForField(result, "record.invalid_timestamp", "created") {
+		t.Fatalf("fractional timestamp diagnostic absent: %#v", result.Diagnostics)
+	}
+}
+
 func TestValidateProjectLoadsPresenceAwareRecords(t *testing.T) {
 	root := t.TempDir()
 	for _, directory := range []string{
