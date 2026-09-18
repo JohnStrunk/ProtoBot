@@ -66,19 +66,19 @@ func DiscoverWithGitRoot(start string, gitRoot GitRootFunc) (Project, error) {
 	}
 }
 
-func (p Project) RequirementStore() (*storage.Store[records.Requirement], error) {
+func (p *Project) RequirementStore() (*storage.Store[records.Requirement], error) {
 	return newRecordStore(p.Root, p.Config.Stores.Requirements, records.RequirementStore, func(value records.Requirement) string { return value.ID })
 }
 
-func (p Project) InterfaceStore() (*storage.Store[records.InterfaceRecord], error) {
+func (p *Project) InterfaceStore() (*storage.Store[records.InterfaceRecord], error) {
 	return newRecordStore(p.Root, p.Config.Stores.Interfaces, records.InterfaceStore, func(value records.InterfaceRecord) string { return value.ID })
 }
 
-func (p Project) ChangeSetStore() (*storage.Store[records.ChangeSet], error) {
+func (p *Project) ChangeSetStore() (*storage.Store[records.ChangeSet], error) {
 	return newRecordStore(p.Root, p.Config.Stores.ChangeSets, records.ChangeSetStore, func(value records.ChangeSet) string { return value.ID })
 }
 
-func (p Project) Artifact(id string) (records.ArtifactEntry, error) {
+func (p *Project) Artifact(id string) (records.ArtifactEntry, error) {
 	if err := records.ValidateArtifactID(id); err != nil {
 		return records.ArtifactEntry{}, err
 	}
