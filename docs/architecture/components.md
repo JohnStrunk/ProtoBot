@@ -1752,14 +1752,18 @@ input:
    undefined behavior. The work item is marked blocked in the WMS.
 2. **Any team member** writes the missing spec changes and opens
    a linked change-set PR against main (the normal contribution flow).
-3. **Reviewer** merges the PR. Its build work item becomes an explicit
-   dependency of the blocked item when implementation is required.
-4. After the dependency completes, the original item follows the full
-   contract-refresh policy. It returns to `ready-for-building` only after
-   all pre-claim checks pass; otherwise it remains blocked for an impact
-   amendment or is superseded. A previously executing item follows the
-   blocked-item resume path, obtains a new fenced claim before touching
-   its branch, and reruns all execution gates.
+3. **Reviewer** merges the PR. The blocked-work resolution submission
+   records a planned dependency on the linked change-set build work when
+   implementation is required; that edge is not written onto the blocked
+   work item.
+4. After the planned dependency completes, Materializer `resolve-block`
+   observes it during full refresh and performs the single
+   `blocked -> ready-for-building` transition. The original item returns
+   to `ready-for-building` only after all pre-claim checks pass; otherwise
+   it remains blocked for an impact amendment or is superseded. A
+   previously executing item follows the blocked-item resume path,
+   obtains a new fenced claim before touching its branch, and reruns all
+   execution gates.
 
 This uses the same PR → merge flow as initial contributions —
 no special escalation mechanism needed.

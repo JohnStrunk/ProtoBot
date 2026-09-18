@@ -1,6 +1,7 @@
 # ProtoBot: Drafting Table WMS Integration Contract
 
 > Interface contract — issue #31 — September 2026
+> Contract version: `wms-contract/v1`
 >
 > Defines the backend-neutral WMS operations available to the Drafting
 > Table during backlog refinement and blocked-work resolution.
@@ -129,9 +130,14 @@ pending submission; that write marks the prior submission `superseded` and
 revokes its Gate approval so the approval is terminal. Authoritative
 `resolve-block` must name the currently-active `resolution_submission_id`
 and consume only that submission's approval. A superseded submission's
-revoked approval cannot unblock the item. `blocked-work.acknowledge` has
-no later lifecycle consumer, so its approval is consumed atomically when
-the acknowledgement is written.
+revoked approval cannot unblock the item.
+_(Note: Corrected from prior contract text, which required only
+`human_approval_id` and `approval_resolution_digest`; authoritative
+`resolve-block` now additionally requires the currently-active
+`resolution_submission_id` to bind approval consumption to that specific
+active submission and prevent replay of superseded approvals.)_
+`blocked-work.acknowledge` has no later lifecycle consumer, so its approval
+is consumed atomically when the acknowledgement is written.
 
 ---
 
@@ -174,6 +180,9 @@ mutate the work item's lifecycle state, `contract_version`, or
 confirmation reference. The only authoritative work-item mutation is later
 Materializer `resolve-block`, whose full refresh observes that recorded
 planned dependency without a pre-transition work-item write.
+_(Note: Corrected from prior contract text, which implied Materializer
+processing created or refreshed a dependency directly onto the blocked work
+item for `add-requirement`.)_
 
 ### Work-item read projection
 
@@ -467,6 +476,10 @@ The fixture asserts:
 - an exact resolution retry replays the frozen original result;
 - Materializer `resolve-block` independently rejects a revoked prior
   approval and a non-active submission ID;
+- Materializer `resolve-block` rejects an active `add-requirement`
+  submission whose planned dependency is incomplete with
+  `PRECONDITION_FAILED` while ordinary dependencies are satisfied,
+  leaving approval unused and work-item dependencies unchanged;
 - stale resolution state/version is rejected;
 - a Drafting Table caller cannot claim, execute, complete, schedule, or
   mutate findings, and direct `resolve-block` is rejected; and
