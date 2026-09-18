@@ -1,7 +1,8 @@
 # ProtoBot: Drafting Table WMS Integration Contract
 
 > Interface contract — issue #31 — September 2026
-> Contract version: `wms-contract/v1`
+> Document revision: `wms-contract-doc/v1` (document revision,
+> distinct from the per-work-item `contract_version` field)
 >
 > Defines the backend-neutral WMS operations available to the Drafting
 > Table during backlog refinement and blocked-work resolution.
@@ -227,7 +228,7 @@ HTTP, or local adapter binding may choose a transport-specific spelling.
 | `work-item.get` | Drafting Table with project read visibility. | `work_item_id`; return current contract version. | One sanitized work-item projection. | Return visibility-safe `NOT_FOUND` or `WMS_UNAVAILABLE`; never mutate state. |
 | `work-item.query` | Drafting Table with project read visibility. | No expected version. | Filtered sanitized work-item projections by state, owner, dependency, or priority; each result includes its current contract version. | Return `INVALID_REQUEST`, visibility-safe not-found, or `WMS_UNAVAILABLE`; never mutate state. |
 | `blocked-work.query` | Drafting Table on session start/resume or explicit user request. | No expected version; every item includes current state and contract version. | Sanitized blocked items with reason class, next action, dependencies, and resolution options. | Mark blocked-work status unavailable if WMS is unavailable; never claim review is complete. |
-| `lifecycle.preflight` | Drafting Table, Job Site, or Materializer before an authoritative operation. | Caller snapshot includes expected state/version; no mutation key is required for a read-only preflight. | `authority: preflight` decision and diagnostics from the shared Validation Rules evaluator. | Advisory rejection only; the caller must still submit the authoritative operation. |
+| `lifecycle.preflight` | Drafting Table, Job Site, or Materializer before an authoritative operation. | Caller snapshot includes expected state/version; no mutation key is required for a read-only preflight. A pre-submission `add-requirement` preflight payload may carry `change_set_id` directly (rather than `resolution_submission_id`) to preview the planned-dependency check, and the evaluator treats it as the hypothetical planned dependency for that preview only. | `authority: preflight` decision and diagnostics from the shared Validation Rules evaluator. | Advisory rejection only; the caller must still submit the authoritative operation. |
 | `blocked-work.submit-resolution` | Drafting Table submits `add-requirement`, `out-of-scope`, or `impact-amendment` with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, `human_approval_id`, `approval_resolution_digest`, and idempotency key. | A durable resolution-submission record at the next `resolution_submission_revision` (or its existing revision on replay); a new reviewed submission may supersede one pending submission atomically and revoke that submission's Gate approval. The work item remains `blocked` and its `contract_version` is unchanged until Materializer `resolve-block`. | Return `UNAUTHORIZED_ACTION`, `STALE_STATE`, `STALE_CONTRACT_VERSION`, `PRECONDITION_FAILED`, or replay the frozen original result. |
 | `blocked-work.acknowledge` | Drafting Table submits an informational acknowledgement with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, `human_approval_id`, `approval_resolution_digest`, and idempotency key. | A durable acknowledgement record at `resolution_submission_revision: 1`; the work item remains `blocked`. The approval is consumed atomically with this resource write; an exact retry replays without consuming it again. | Apply the same authorization, stale-state/version, precondition, and replay behavior as `blocked-work.submit-resolution`. |
 
@@ -294,6 +295,10 @@ single-use state. The adapter rejects a missing, mismatched, expired, or
 already-consumed approval before changing the request. A successful refine
 consumes `human_approval_id` in the same durable write as the request
 revision; an exact idempotent replay does not consume it again.
+_(Note: Corrected from prior contract text, which did not explicitly
+require `approval_status: consumed` on successful refinement or verify that
+a consumed refine approval cannot be replayed under a different idempotency
+key.)_
 
 ### Result envelope
 
@@ -374,8 +379,13 @@ currently-active `resolution_submission_id`, and produces the single
 only after that command's full refresh preconditions pass. `resolve-block`
 consumes only the named active submission's approval, atomically with the
 transition. There is no same-state `blocked` work-item mutation and no
-`blocked -> waiting` transition. Before `resolve-block` can be applied,
-the active submission records these resolution-specific refresh
+`blocked -> waiting` transition. Before a resolution is submitted, a caller
+may run `lifecycle.preflight` for `resolve-block` to preview refresh
+preconditions; for an `add-requirement` preview where no
+`resolution_submission_id` exists yet, the preflight payload may carry
+`change_set_id` directly, and the evaluator treats it as the hypothetical
+planned dependency for that preview only. Before `resolve-block` can be
+applied, the active submission records these resolution-specific refresh
 preconditions:
 
 - `add-requirement`: the submission records a planned dependency on the
