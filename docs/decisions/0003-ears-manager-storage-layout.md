@@ -2,6 +2,13 @@
 
 > Status: **Accepted** — September 2026
 
+**Contents:**
+
+- [Context](#context)
+- [Decision](#decision)
+- [Consequences](#consequences)
+- [Related Documents](#related-documents)
+
 ## Context
 
 ADR-0001 selected one-file-per-record YAML, and ADR-0002 defined the
