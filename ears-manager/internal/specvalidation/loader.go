@@ -19,11 +19,33 @@ type loadError struct {
 }
 
 func (e loadError) Error() string {
-	return fmt.Sprintf("unable to load %s", e.Path)
+	if e.Err == nil {
+		return fmt.Sprintf("unable to load %s", e.Path)
+	}
+	return fmt.Sprintf("unable to load %s: %s", e.Path, stableLoadCause(e.Err))
 }
 
 func (e loadError) Unwrap() error {
 	return e.Err
+}
+
+func stableLoadCause(err error) string {
+	if nested, ok := err.(loadError); ok && nested.Err != nil {
+		return stableLoadCause(nested.Err)
+	}
+	lower := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(lower, "yaml"), strings.Contains(lower, "decode"), strings.Contains(lower, "parse"):
+		return "YAML decoding failed"
+	case strings.Contains(lower, "unexpected file"):
+		return "unexpected file in record store"
+	case strings.Contains(lower, "does not match filename"):
+		return "record filename does not match its ID"
+	case strings.Contains(lower, "store path"), strings.Contains(lower, "record store"):
+		return "record store path is invalid"
+	default:
+		return "filesystem or project data access failed"
+	}
 }
 
 // Load reads a complete project snapshot using the storage layer's safe YAML
