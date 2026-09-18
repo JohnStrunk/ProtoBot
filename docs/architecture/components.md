@@ -652,6 +652,13 @@ The API surface includes:
   mutate the implementation branch. A stale owner or duplicate claim
   fails without mutation even if the item later cycles through the same
   state.
+- **Blocked-work resolution submissions:** Durable
+  `blocked-work.submit-resolution` and `blocked-work.acknowledge` records
+  as defined in the [Drafting Table WMS Integration
+  Contract](drafting-table-wms.md). These writes do not change work-item
+  lifecycle state, `contract_version`, or `dependencies`.
+- **Lifecycle preflight:** Advisory `lifecycle.preflight` using the shared
+  Validation Rules evaluator; never an authoritative mutation.
 - **Queries:** Read items by ID, state, dependency, owner, or
   idempotency key, including "all ready items" and "all blocked items."
 - **Git references:** Record source specification and code commits,
