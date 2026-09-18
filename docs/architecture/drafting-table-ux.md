@@ -689,16 +689,16 @@ Agent: Welcome back. Project "protobot" detected from .protobot/project.yaml.
 
        Resolve WI-009 now, or continue CS-00005?
 
- User:  Continue CS-00005.
+User:  Continue CS-00005.
 
-        Agent: Resuming change set CS-00005. Intent: "Add --help requirements for
+Agent: Resuming change set CS-00005. Intent: "Add --help requirements for
        ears-manager subcommands."
        Affected interface: ears-manager CLI.
-        Current draft: REQ-CLI-00004 and REQ-CLI-00005 cover "requirement add"
+       Current draft: REQ-CLI-00004 and REQ-CLI-00005 cover "requirement add"
        and "requirement list". Next subcommand: "requirement show".
 
        Proposed requirement:
-        ID: REQ-CLI-00006
+       ID: REQ-CLI-00006
        Type: event-driven
        Text: "When the user invokes 'ears-manager requirement show' with
        the '--help' flag, the ears-manager CLI shall display a usage
@@ -712,8 +712,8 @@ Agent: Welcome back. Project "protobot" detected from .protobot/project.yaml.
 
 User:  Accept.
 
-        Agent: REQ-CLI-00006 added to draft change set.
-        [Subcommand requirements REQ-CLI-00007 through REQ-CLI-00014 are reviewed.]
+Agent: REQ-CLI-00006 added to draft change set.
+       [Subcommand requirements REQ-CLI-00007 through REQ-CLI-00014 are reviewed.]
 
        Critical gap surfaced inline: The current requirements define
        subcommand help, but do not specify behavior when an unrecognized
@@ -721,7 +721,7 @@ User:  Accept.
        as an undocumented implementation assumption.
 
        Proposed gap-closing requirement:
-        ID: REQ-CLI-00018
+       ID: REQ-CLI-00018
        Type: unwanted-behavior
        Text: "If the user provides an unrecognized flag to any ears-manager
        subcommand, then the ears-manager CLI shall exit with status 2 and
@@ -735,10 +735,10 @@ User:  Accept.
 
 User:  Accept.
 
-        Agent: REQ-CLI-00018 added to draft.
+Agent: REQ-CLI-00018 added to draft.
 
        Interface checkpoint: ears-manager CLI
-        Draft requirements: REQ-CLI-00004..00014, REQ-CLI-00018.
+       Draft requirements: REQ-CLI-00004..00014, REQ-CLI-00018.
        Gaps resolved inline: unrecognized flag handling.
        Remaining candidate gap: exit code value for successful --help invocation.
        Add requirement, declare out of scope, or leave unresolved?
@@ -746,7 +746,7 @@ User:  Accept.
 User:  Add requirement: exit code must be 0.
 
 Agent: Proposed requirement:
-        ID: REQ-CLI-00019
+       ID: REQ-CLI-00019
        Type: event-driven
        Text: "When the user invokes any ears-manager subcommand with the
        '--help' flag, the ears-manager CLI shall exit with status code 0."
@@ -762,21 +762,21 @@ Agent: Interface checkpoint complete: ears-manager CLI. No unresolved gaps.
        Running impact analysis via ears-manager impact...
 
        Impact candidates identified:
-        1. REQ-CLI-00001 (top-level '--version' flag). Deterministic candidate.
-          Recommendation: applicable (shares flag-parsing path).
-        2. REQ-CLI-00003 (top-level usage summary). Deterministic candidate.
-          Recommendation: applicable (top-level and subcommand help alignment).
+       1. REQ-CLI-00001 (top-level '--version' flag). Deterministic candidate.
+       Recommendation: applicable (shares flag-parsing path).
+       2. REQ-CLI-00003 (top-level usage summary). Deterministic candidate.
+       Recommendation: applicable (top-level and subcommand help alignment).
 
        Confirm each disposition or revise scope.
 
 User:  Both are applicable.
 
-        Agent: Final Review for Change Set CS-00005:
+Agent: Final Review for Change Set CS-00005:
        - Base specification commit: 8c31a2f
        - Draft revision: d7e18bc on branch cs/add-cli-help-requirements
-        - Added requirements: REQ-CLI-00004..00014, REQ-CLI-00018..00019 (13 total)
+       - Added requirements: REQ-CLI-00004..00014, REQ-CLI-00018..00019 (13 total)
        - Revised / retired: none
-        - Applicable unchanged requirements: REQ-CLI-00001, REQ-CLI-00003 (2 total)
+       - Applicable unchanged requirements: REQ-CLI-00001, REQ-CLI-00003 (2 total)
        - Scope exclusions: none
        - Unresolved gaps / impact items: none
        - Validation: ears-manager check passed
@@ -784,10 +784,10 @@ User:  Both are applicable.
 
        Approve this exact proposal, request revision, reject, or exit?
 
-        User:  Revise REQ-CLI-00018: diagnostic message must go to stderr.
+User:  Revise REQ-CLI-00018: diagnostic message must go to stderr.
 
 Agent: Returning to ears-manager CLI draft.
-        Revised REQ-CLI-00018:
+       Revised REQ-CLI-00018:
        "If the user provides an unrecognized flag to any ears-manager
        subcommand, then the ears-manager CLI shall print a diagnostic
        message to stderr naming the flag and exit with status 2."
@@ -797,17 +797,17 @@ User:  Accept. Show final review.
 
 Agent: Validation passed. Impact unchanged.
        Draft revision updated to e8f29ab.
-        Approve change set CS-00005 at revision e8f29ab?
+       Approve change set CS-00005 at revision e8f29ab?
 
-       User:  Approved.
+User:  Approved.
 
-       Agent: Approval recorded for revision e8f29ab.
+Agent: Approval recorded for revision e8f29ab.
        Staging artifacts and committing to branch cs/add-cli-help-requirements.
        Committed revision e8f29ab.
        Pushing branch and opening a PR against main.
        PR merged to main as commit f4a21c7.
        Running single-player registration hook...
-        Change set CS-00005 registered against main commit f4a21c7.
+       Change set CS-00005 registered against main commit f4a21c7.
        Work item WI-078 materialized in WMS with status
        'ready-for-building'.
 ```
