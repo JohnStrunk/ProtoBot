@@ -69,6 +69,9 @@ func Load(root string) (Snapshot, error) {
 		ConfigFields: fields,
 	}
 	paths := config.Stores.WithDefaults()
+	if pathErr := validateLoadStorePaths(paths); pathErr != nil {
+		return Snapshot{}, loadError{Path: pathErr.Path, Err: pathErr.Err}
+	}
 	snapshot.Requirements, err = loadDocuments(absoluteRoot, rootHandle, paths.Requirements, records.RequirementStore, func(data []byte) (records.Requirement, map[string]bool, error) {
 		var value records.Requirement
 		fields, err := storage.DecodeFields(data, &value)
@@ -94,6 +97,15 @@ func Load(root string) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	return snapshot, nil
+}
+
+func validateLoadStorePaths(paths records.StorePaths) *loadError {
+	for _, path := range []string{paths.Requirements, paths.Interfaces, paths.ChangeSets} {
+		if _, pathErr := canonicalStorePath(path); pathErr != nil {
+			return &loadError{Path: path, Err: pathErr}
+		}
+	}
+	return nil
 }
 
 // ValidateProject loads and validates a project in read-only mode.

@@ -35,7 +35,7 @@ func TestValidateRejectsRequiredFieldsAndEARSForms(t *testing.T) {
 		Root: root,
 		Config: records.ProjectConfig{
 			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
-			SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
 		},
 		Requirements: []Document[records.Requirement]{
 			{
@@ -74,7 +74,7 @@ func TestValidateRejectsRequiredFieldsAndEARSForms(t *testing.T) {
 	for index, test := range badPatterns {
 		requirement := validRequirement(fmtRequirementID(index+10), test.kind, test.text)
 		result := Validate(Snapshot{
-			Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1}},
+			Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion}},
 			Requirements: []Document[records.Requirement]{{Path: ".protobot/requirements/" + requirement.ID + ".yaml", Value: requirement}},
 		})
 		if !hasDiagnostic(result, "requirement.ears_pattern_mismatch", "text") {
@@ -87,7 +87,7 @@ func TestValidateRejectsUnsupportedSchemaVersions(t *testing.T) {
 	result := Validate(Snapshot{
 		Config: records.ProjectConfig{
 			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
-			SchemaVersions: records.SchemaVersions{Project: 2, Specification: 0},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion + 1, Specification: records.CurrentSpecificationSchemaVersion - 1},
 		},
 	})
 	if !hasDiagnosticForField(result, "schema.unsupported_version", "schema_versions.project") {
@@ -119,7 +119,7 @@ func TestValidateRejectsReferencesSymmetryAndCycles(t *testing.T) {
 		{Path: ".protobot/requirements/" + sixth.ID + ".yaml", Value: sixth},
 	}
 	result := Validate(Snapshot{
-		Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1}},
+		Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion}},
 		Requirements: requirements,
 	})
 	for _, code := range []string{"relationship.not_symmetric", "relationship.cycle", "relationship.superseded_requirement_active"} {
@@ -145,7 +145,7 @@ func TestValidateRejectsInvalidEnumsAndDanglingReferences(t *testing.T) {
 		Created:                "2026-09-15T10:00:00Z",
 	}
 	result := Validate(Snapshot{
-		Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1}},
+		Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion}},
 		Interfaces:   []Document[records.InterfaceRecord]{{Path: ".protobot/interfaces/bad-interface.yaml", Value: badInterface}},
 		Requirements: []Document[records.Requirement]{{Path: ".protobot/requirements/" + badRequirement.ID + ".yaml", Value: badRequirement}},
 		ChangeSets:   []Document[records.ChangeSet]{{Path: ".protobot/change-sets/cs-00001.yaml", Value: badChangeSet}},
@@ -189,8 +189,14 @@ func TestValidateRejectsInvalidArtifactsAndNormalizesLineEndings(t *testing.T) {
 	result := Validate(Snapshot{
 		Root: root,
 		Config: records.ProjectConfig{
-			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
-			SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+			Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+			Repository: records.RepositoryConfig{
+				CanonicalRemote: "https://example.com/protobot.git",
+				DefaultBranch:   "main",
+				ReviewMode:      "single-player",
+				BranchPrefix:    "cs/",
+			},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
 			Artifacts:      artifacts,
 		},
 	})
@@ -228,7 +234,7 @@ func TestValidateDiagnosticsAreDeterministic(t *testing.T) {
 	first := validRequirement("REQ-DET-00001", records.EARSEventDriven, "The system shall respond.")
 	second := validRequirement("REQ-DET-00002", records.EARSUbiquitous, "The system shall respond.")
 	one := Snapshot{
-		Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1}},
+		Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion}},
 		Requirements: []Document[records.Requirement]{{Path: "b.yaml", Value: first}, {Path: "a.yaml", Value: second}},
 	}
 	two := one
@@ -268,7 +274,7 @@ func TestValidateArtifactDiagnosticsUseConfiguredProjectPath(t *testing.T) {
 		ConfigPath: "control/project.yaml",
 		Config: records.ProjectConfig{
 			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
-			SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
 			Artifacts: []records.ArtifactEntry{
 				{ID: "vision", Kind: records.ArtifactVision, Path: "docs/vision.md", Digest: digest, Owner: "user"},
 				{ID: "vision", Kind: records.ArtifactVision, Path: "docs/other.md", Digest: digest, Owner: "user"},
@@ -290,7 +296,7 @@ func TestValidateRejectsReservedPathsCaseInsensitively(t *testing.T) {
 	result := Validate(Snapshot{
 		Config: records.ProjectConfig{
 			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
-			SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
 			Stores:         records.StorePaths{Requirements: ".protobot/project.yaml"},
 			Artifacts: []records.ArtifactEntry{{
 				ID: "reserved", Kind: records.ArtifactVision, Path: "vendor/.Git/config", Digest: "sha256:" + strings.Repeat("0", 64), Owner: "user",
@@ -302,6 +308,141 @@ func TestValidateRejectsReservedPathsCaseInsensitively(t *testing.T) {
 	}
 	if !hasDiagnosticForField(result, "artifact.invalid_path", "artifacts[id=reserved].path") {
 		t.Fatalf("reserved artifact path diagnostic absent: %#v", result.Diagnostics)
+	}
+}
+
+func TestValidateRejectsArtifactsInsideStructuredStores(t *testing.T) {
+	result := Validate(Snapshot{
+		Config: records.ProjectConfig{
+			Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+			Repository: records.RepositoryConfig{
+				CanonicalRemote: "https://example.com/protobot.git",
+				DefaultBranch:   "main",
+				ReviewMode:      "single-player",
+				BranchPrefix:    "cs/",
+			},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
+			Stores:         records.StorePaths{Requirements: "records/requirements", Interfaces: "records/interfaces", ChangeSets: "records/change-sets"},
+			Artifacts: []records.ArtifactEntry{{
+				ID: "store-record", Kind: records.ArtifactVision, Path: "records/requirements/REQ-A-00001.yaml", Digest: "sha256:" + strings.Repeat("0", 64), Owner: "user",
+			}},
+		},
+	})
+	if !hasDiagnosticForField(result, "artifact.invalid_path", "artifacts[id=store-record].path") {
+		t.Fatalf("structured-store artifact path diagnostic absent: %#v", result.Diagnostics)
+	}
+}
+
+func TestValidateRejectsCaseFoldedArtifactAliases(t *testing.T) {
+	result := Validate(Snapshot{
+		Config: records.ProjectConfig{
+			Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+			Repository: records.RepositoryConfig{
+				CanonicalRemote: "https://example.com/protobot.git",
+				DefaultBranch:   "main",
+				ReviewMode:      "single-player",
+				BranchPrefix:    "cs/",
+			},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
+			Artifacts: []records.ArtifactEntry{
+				{ID: "api-upper", Kind: records.ArtifactVision, Path: "docs/API.yaml", Digest: "sha256:" + strings.Repeat("0", 64), Owner: "user"},
+				{ID: "api-lower", Kind: records.ArtifactVision, Path: "docs/api.yaml", Digest: "sha256:" + strings.Repeat("0", 64), Owner: "user"},
+			},
+		},
+	})
+	if !hasDiagnosticCode(result, "artifact.duplicate_path") {
+		t.Fatalf("case-folded artifact alias diagnostic absent: %#v", result.Diagnostics)
+	}
+}
+
+func TestValidateRejectsInvalidRepositoryConfiguration(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*records.RepositoryConfig)
+		code  string
+		field string
+	}{
+		{
+			name: "credentials",
+			setup: func(repository *records.RepositoryConfig) {
+				repository.CanonicalRemote = "https://alice:secret@example.com/protobot.git"
+			},
+			code:  "project.remote_credentials",
+			field: "repository.canonical_remote",
+		},
+		{
+			name: "review mode",
+			setup: func(repository *records.RepositoryConfig) {
+				repository.ReviewMode = "unknown"
+			},
+			code:  "project.invalid_configuration",
+			field: "repository.review_mode",
+		},
+		{
+			name: "default branch",
+			setup: func(repository *records.RepositoryConfig) {
+				repository.DefaultBranch = "main..broken"
+			},
+			code:  "project.invalid_configuration",
+			field: "repository.default_branch",
+		},
+		{
+			name: "reserved prefix",
+			setup: func(repository *records.RepositoryConfig) {
+				repository.BranchPrefix = "wi/"
+			},
+			code:  "project.invalid_configuration",
+			field: "repository.branch_prefix",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			repository := records.RepositoryConfig{
+				CanonicalRemote: "https://example.com/protobot.git",
+				DefaultBranch:   "main",
+				ReviewMode:      "single-player",
+				BranchPrefix:    "cs/",
+			}
+			test.setup(&repository)
+			result := Validate(Snapshot{Config: records.ProjectConfig{
+				Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+				Repository:     repository,
+				SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
+			}})
+			if !hasDiagnosticForField(result, test.code, test.field) {
+				t.Fatalf("repository diagnostic absent: %#v", result.Diagnostics)
+			}
+			for _, diagnostic := range result.Diagnostics {
+				if diagnostic.Code == test.code && diagnostic.Field == test.field && strings.Contains(diagnostic.Message, "secret") {
+					t.Fatal("repository diagnostic exposed credential text")
+				}
+			}
+		})
+	}
+}
+
+func TestValidateRequiresCompleteMechanicalImpactAssessment(t *testing.T) {
+	snapshot := validSnapshot(t)
+	snapshot.ChangeSets[0].Value.ImpactAssessment = nil
+	result := Validate(snapshot)
+	if !hasDiagnosticForField(result, "change_set.missing_field", "impact_assessment") {
+		t.Fatalf("incomplete impact assessment diagnostic absent: %#v", result.Diagnostics)
+	}
+
+	snapshot = validSnapshot(t)
+	snapshot.Requirements[1].Value.Status = records.StatusRetired
+	result = Validate(snapshot)
+	if !hasDiagnosticCode(result, "change_set.invalid_impact") {
+		t.Fatalf("retired impact target diagnostic absent: %#v", result.Diagnostics)
+	}
+}
+
+func TestValidateRequiresRetireOperationToBeApplied(t *testing.T) {
+	snapshot := validSnapshot(t)
+	snapshot.ChangeSets[0].Value.Operations = []records.RequirementOperation{{Action: "retire", RequirementID: "REQ-A-00001"}}
+	result := Validate(snapshot)
+	if !hasDiagnosticForField(result, "change_set.invalid_operation", "operations[0].requirement_id") {
+		t.Fatalf("active retire target diagnostic absent: %#v", result.Diagnostics)
 	}
 }
 
@@ -318,7 +459,7 @@ func TestValidateProjectLoadsPresenceAwareRecords(t *testing.T) {
 	}
 	config := records.ProjectConfig{
 		Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
-		SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+		SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
 	}
 	writeYAML(t, filepath.Join(root, ".protobot", "project.yaml"), config)
 	interfaceRecord := records.InterfaceRecord{
@@ -353,6 +494,39 @@ func TestValidateProjectRejectsSymlinkedControlNamespace(t *testing.T) {
 	t.Fatalf("symlinked control namespace was not rejected: %#v", result.Diagnostics)
 }
 
+func TestValidateProjectRejectsReservedStoreBeforeReading(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".protobot", "policy.yaml"), 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "policy.yaml", "bad.yaml"), []byte("id: [unterminated\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+	config := records.ProjectConfig{
+		Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+		Repository: records.RepositoryConfig{
+			CanonicalRemote: "https://example.com/protobot.git",
+			DefaultBranch:   "main",
+			ReviewMode:      "single-player",
+			BranchPrefix:    "cs/",
+		},
+		SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
+		Stores:         records.StorePaths{Requirements: ".protobot/policy.yaml"},
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".protobot"), 0o755); err != nil {
+		t.Fatalf("MkdirAll control namespace returned error: %v", err)
+	}
+	writeYAML(t, filepath.Join(root, ".protobot", "project.yaml"), config)
+
+	result := ValidateProject(root)
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "storage.decode_failed" && diagnostic.Path == ".protobot/policy.yaml" {
+			return
+		}
+	}
+	t.Fatalf("reserved store was not rejected before reading: %#v", result.Diagnostics)
+}
+
 func validSnapshot(t *testing.T) Snapshot {
 	t.Helper()
 	root := t.TempDir()
@@ -377,8 +551,14 @@ func validSnapshot(t *testing.T) Snapshot {
 		Root:       root,
 		ConfigPath: ".protobot/project.yaml",
 		Config: records.ProjectConfig{
-			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
-			SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+			Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+			Repository: records.RepositoryConfig{
+				CanonicalRemote: "https://example.com/protobot.git",
+				DefaultBranch:   "main",
+				ReviewMode:      "single-player",
+				BranchPrefix:    "cs/",
+			},
+			SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion},
 			Stores:         records.StorePaths{Requirements: ".protobot/requirements", Interfaces: ".protobot/interfaces", ChangeSets: ".protobot/change-sets"},
 			Artifacts:      artifacts,
 		},
@@ -401,8 +581,13 @@ func validSnapshot(t *testing.T) Snapshot {
 				Operations:             []records.RequirementOperation{{Action: "add", RequirementID: first.ID}},
 				AffectedInterfaces:     []string{"api-gateway"},
 				ImplementationRequired: true,
-				ImpactAssessment:       []records.ImpactAssessment{{RequirementID: second.ID, Disposition: "applicable", Rationale: "The login behavior is part of the changed interface.", Origin: "mechanical"}},
-				Created:                "2026-09-15T10:00:00Z",
+				ImpactAssessment: []records.ImpactAssessment{
+					{RequirementID: second.ID, Disposition: "applicable", Rationale: "The login behavior is part of the changed interface.", Origin: "mechanical"},
+					{RequirementID: third.ID, Disposition: "not-applicable", Rationale: "Maintenance-mode behavior is unrelated to authentication.", Origin: "mechanical"},
+					{RequirementID: fourth.ID, Disposition: "not-applicable", Rationale: "Token expiry behavior is unrelated to this change.", Origin: "mechanical"},
+					{RequirementID: fifth.ID, Disposition: "not-applicable", Rationale: "Caching behavior is unrelated to authentication.", Origin: "mechanical"},
+				},
+				Created: "2026-09-15T10:00:00Z",
 			}},
 		},
 	}
