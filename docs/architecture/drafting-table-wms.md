@@ -103,6 +103,22 @@ valid policy version, unexpired context, no wildcards, and payload refs
 within the allowed set. Request idempotency keys are bound to the trusted
 subject; untrusted actor fields cannot widen them.
 
+For a blocked-work submission, `human_approval_id` and
+`approval_resolution_digest` are required inputs. The WMS Adapter resolves
+the approval from trusted Gate state and verifies the approved subject,
+delegated principal, work-item ID, resolution kind, expected state/version,
+request fingerprint, policy version, expiry, and single-use status. Missing,
+unknown, cross-item, wrong-kind, digest-mismatched, expired, or consumed
+approvals return `UNAUTHORIZED_ACTION` before any resource write. The same
+checks apply to an informational acknowledgement.
+
+Acceptance of `blocked-work.submit-resolution` verifies and reserves the
+approval for the durable submission; it does not consume the approval. The
+Materializer consumes that reserved approval only when authoritative
+`resolve-block` succeeds. `blocked-work.acknowledge` has no later lifecycle
+consumer, so its approval is consumed atomically when the acknowledgement is
+written.
+
 ---
 
 ## Resources and revisions
@@ -139,9 +155,11 @@ work-item contract version.
 owned by the WMS Adapter. It has its own `resolution_submission_id`,
 `resolution_submission_revision`, work-item ID, resolution kind, approval
 ID/digest, and submission status. Creating or replaying this record does not
-mutate
-the work item's lifecycle state or `contract_version`; the Materializer
-later consumes it through the authoritative `resolve-block` operation.
+mutate the work item's lifecycle state or `contract_version`; the Materializer
+later consumes it through the authoritative `resolve-block` operation. The
+submission record carries the planned dependency or confirmation reference;
+the authoritative lifecycle mutation and any dependency-state update happen
+only during Materializer processing.
 
 ### Work-item read projection
 
@@ -186,7 +204,7 @@ HTTP, or local adapter binding may choose a transport-specific spelling.
 | `blocked-work.query` | Drafting Table on session start/resume or explicit user request. | No expected version; every item includes current state and contract version. | Sanitized blocked items with reason class, next action, dependencies, and resolution options. | Mark blocked-work status unavailable if WMS is unavailable; never claim review is complete. |
 | `lifecycle.preflight` | Drafting Table, Job Site, or Materializer before an authoritative operation. | Caller snapshot includes expected state/version; no mutation key is required for a read-only preflight. | `authority: preflight` decision and diagnostics from the shared Validation Rules evaluator. | Advisory rejection only; the caller must still submit the authoritative operation. |
 | `blocked-work.submit-resolution` | Drafting Table submits `add-requirement`, `out-of-scope`, or `impact-amendment` with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, approval-resolution digest, and idempotency key. | A durable resolution-submission record at `resolution_submission_revision: 1` (or its existing revision on replay); the work item remains `blocked` and its `contract_version` is unchanged until Materializer processing. | Return `UNAUTHORIZED_ACTION`, `STALE_STATE`, `STALE_CONTRACT_VERSION`, `PRECONDITION_FAILED`, or replay the exact prior result. |
-| `blocked-work.acknowledge` | Drafting Table submits an informational acknowledgement with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, approval-resolution digest, and idempotency key. | A durable acknowledgement record at `resolution_submission_revision: 1`; the work item remains `blocked`. | Apply the same authorization, stale-state/version, precondition, and replay behavior as `blocked-work.submit-resolution`. |
+| `blocked-work.acknowledge` | Drafting Table submits an informational acknowledgement with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, approval-resolution digest, and idempotency key. | A durable acknowledgement record at `resolution_submission_revision: 1`; the work item remains `blocked`. The approval is consumed atomically with this resource write; an exact retry replays without consuming it again. | Apply the same authorization, stale-state/version, precondition, and replay behavior as `blocked-work.submit-resolution`. |
 
 The operation set is intentionally disjoint from Job Site execution. A
 fake adapter must reject a Drafting Table caller attempting `claim`,
@@ -203,11 +221,11 @@ updates its WMS priority snapshot atomically with the request revision; it
 ### Harness operation-name mapping
 
 The dotted names in this document are canonical operation identifiers.
-Harness bindings mechanically normalize the dot to an underscore for tool
-names: OpenCode uses `wms_request_create`, while Claude Code and Codex use
-`mcp__wms__request_create`. The mapping is owned by #33 and does not alter
-the operation or authorization names. Unknown logical operations are
-rejected before dispatch.
+Harness bindings replace each `.` and `-` separator with `_`: OpenCode uses
+`wms_blocked_work_submit_resolution`, while Claude Code and Codex use
+`mcp__wms__blocked_work_submit_resolution`. The mapping is owned by #33 and
+does not alter the operation or authorization names. Unknown logical
+operations are rejected before dispatch.
 
 ---
 
@@ -313,22 +331,28 @@ Drafting Table submits a reviewed resolution with:
 
 The WMS Adapter validates the resource write against the named preconditions
 but does not pass it to the Validation Rules evaluator as `resolve-block`.
-A successful submission writes only the resolution-submission record; it is
-not an unblock. The Materializer later invokes the authoritative
-`resolve-block` lifecycle operation only after its full refresh preconditions
+The submission result is not a Validation Rules decision and carries no
+authoritative lifecycle outcome. A successful submission writes only the
+resolution-submission record; it is not an unblock. The Materializer later
+invokes the authoritative `resolve-block` lifecycle operation only after its
+full refresh preconditions
 pass, consumes the approval atomically, and produces the single
 `blocked -> ready-for-building` transition defined by Validation Rules.
 Before that operation can be applied, the submission records these
 resolution-specific prerequisites:
 
-- `add-requirement`: the original item records a dependency on the linked
-  change-set build work and remains `blocked` until that dependency completes;
+- `add-requirement`: the submission records a planned dependency on the
+  linked change-set build work; the original item remains `blocked` until
+  Materializer processing creates or refreshes that dependency and it
+  completes;
 - `out-of-scope`: the item remains `blocked` until the required independent
   Inspector confirmation is recorded;
 - `impact-amendment`: the linked change set must validate and its full refresh
   must pass; and
-- `acknowledge`: the control plane clears the informational condition and the
-  Materializer does not invoke `resolve-block` for the acknowledgement.
+- `acknowledge`: the control plane may clear the informational condition, but
+  the acknowledgement does not make the item ready and does not invoke
+  `resolve-block`; any later lifecycle resolution must use its own approved
+  submission and Validation Rules preconditions.
 
 Any failed refresh leaves the item `blocked` and returns the shared
 diagnostic. The Materializer, not the Drafting Table, owns the lifecycle
@@ -337,8 +361,12 @@ transition and contract-version increment.
 Only one nonterminal lifecycle resolution submission may be active for a
 work item at a time. An exact retry replays its existing submission; a
 different lifecycle resolution is rejected until the current submission is
-consumed or superseded. Informational acknowledgements are separate audit
-records and do not compete with the lifecycle submission.
+consumed. There is no implicit supersession operation. Informational
+acknowledgements are separate audit records and do not compete with the
+lifecycle submission. The pending submission is the nonterminal state; a
+second lifecycle kind returns `PRECONDITION_FAILED` without creating a new
+record. A submission becomes consumed only when the Materializer's
+authoritative `resolve-block` succeeds.
 
 ---
 
@@ -393,6 +421,10 @@ The fixture asserts:
   `blocked` state/version checks;
 - resolution submissions own a separate revision and leave the work item
   blocked until Materializer processing;
+- a second lifecycle resolution is rejected while one is pending, while an
+  acknowledgement remains an independent audit record;
+- approval checks reject missing, forged, cross-item, wrong-digest, expired,
+  and consumed approvals;
 - an exact resolution retry replays without a second mutation;
 - stale resolution state/version is rejected;
 - a Drafting Table caller cannot claim, execute, complete, schedule, or

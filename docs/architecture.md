@@ -732,6 +732,21 @@ registered in `.protobot/project.yaml`.
 **Schema owner:** `ears-manager`. On version mismatch,
 `ears-manager` refuses and reports the expected version.
 
+### Request backlog and resolution-submission state (WMS backend)
+
+The WMS backend also stores request records and revisions, request-to-change-
+set/build-item links, priority audit events and snapshots, and durable
+blocked-work resolution-submission or acknowledgement records. A submission
+has its own revision and approval/digest binding; writing or replaying it
+does not change the work-item lifecycle state or contract version. The
+Materializer consumes an eligible submission through the authoritative
+Validation Rules boundary.
+
+**Where it lives:** The configured WMS backend, one per project.
+
+**Schema owner:** WMS Adapter. On version mismatch, the adapter refuses the
+operation.
+
 ### Work-item lifecycle state (WMS backend)
 
 Build work-item state — pipeline phase, blocked/ready status,

@@ -87,7 +87,9 @@ needs the `external_directory` rule in
 - **`share` is `disabled`**, because OpenCode's share feature uploads a
   session (H11).
 - **The `wms` server** is the manifest's only MCP server (H2). OpenCode
-  names its tools `wms_<operation>`. The command value is a placeholder
+  names its tools `wms_<normalized-operation>`, where separators in the
+  canonical operation name become underscores. The command value is a
+  placeholder
   until #31 names the server, and the entry holds no credential.
   `ears-manager` needs no entry: it is a shell operation.
 - **`edit` is denied under `.protobot/` for every agent.** The `edit`
@@ -98,9 +100,8 @@ needs the `external_directory` rule in
   `drafting-table` agent**, a native copy of the MCP half of guard rule
   4. The `ears-manager` half has no native copy: the agent's `bash`
   rules allow it in the role, and the guard refuses it elsewhere. The
-  agent's `wms_*` allow is wider than the guard, which allows only the
-  tools the manifest lists; once #31 names them, the allow can list
-  them one by one.
+  agent's named WMS allows match the normalized names in the manifest; the
+  guard independently enforces the same list.
 
 This file adds denies and nothing else;
 [How the rules combine](#how-the-rules-combine) explains why.
@@ -131,7 +132,19 @@ permission:
     "*": deny
     drafting-specifications: allow
     eliciting-requirements: allow
-  "wms_*": allow
+  wms_request_create: allow
+  wms_request_refine: allow
+  wms_request_update_priority: allow
+  wms_request_link_change_set: allow
+  wms_request_link_build_work_item: allow
+  wms_request_get: allow
+  wms_request_query: allow
+  wms_work_item_get: allow
+  wms_work_item_query: allow
+  wms_blocked_work_query: allow
+  wms_lifecycle_preflight: allow
+  wms_blocked_work_submit_resolution: allow
+  wms_blocked_work_acknowledge: allow
   bash:
     "*": deny
     # the native copy of the shell operations, below
@@ -147,7 +160,7 @@ Toolkit skills name operations. In OpenCode:
 - an `ears-manager` operation is one shell command,
   `ears-manager --output json <command> ...`; artifact content and
   the impact file go on standard input;
-- a WMS operation is the tool `wms_<operation>`; and
+- a WMS operation is the tool `wms_<normalized-operation>`; and
 - a Git or Git host operation is one shell command.
 ```
 
@@ -368,7 +381,7 @@ entry point's name must differ from every skill name.
 | # | Obligation | OpenCode binding | Status |
 | --- | --- | --- | --- |
 | H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Observed (behavior 1); the fixture has not run |
-| H2 | The `ears-manager` CLI and the `wms` tools for the role | `ears-manager *` in the bash rules; the `wms` entry and `wms_*` rules | Designed; pattern matching observed (behavior 5), the `wms` server not yet |
+| H2 | The `ears-manager` CLI and the `wms` tools for the role | `ears-manager *` in the bash rules; the `wms` entry and named normalized tool rules | Designed; pattern matching observed (behavior 5), the `wms` server not yet |
 | H3 | `drafting-table` entry point | The command and the agent | Designed; `--agent` observed in the stub runs, the command file not yet |
 | H4 | Resume on every entry, continued session, and compaction | Command prompt and session skill; `--continue` and `--session` continue a session | Designed |
 | H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Designed |

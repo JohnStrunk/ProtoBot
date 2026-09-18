@@ -158,7 +158,7 @@ Toolkit skills name operations. In Claude Code:
 - an `ears-manager` operation is one shell command,
   `ears-manager --output json <command> ...`; artifact content and
   the impact file go on standard input;
-- a WMS operation is the tool `mcp__wms__<operation>`; and
+- a WMS operation is the tool `mcp__wms__<normalized-operation>`; and
 - a Git or Git host operation is one shell command.
 ```
 
@@ -197,7 +197,14 @@ holds the native copy of the role's rules:
     "allow": [
       "Read", "Grep", "Glob", "TodoWrite", "AskUserQuestion",
       "Skill(drafting-specifications)", "Skill(eliciting-requirements)",
-      "mcp__wms", "Bash(ears-manager *)",
+      "mcp__wms__request_create", "mcp__wms__request_refine",
+      "mcp__wms__request_update_priority", "mcp__wms__request_link_change_set",
+      "mcp__wms__request_link_build_work_item", "mcp__wms__request_get",
+      "mcp__wms__request_query", "mcp__wms__work_item_get",
+      "mcp__wms__work_item_query", "mcp__wms__blocked_work_query",
+      "mcp__wms__lifecycle_preflight",
+      "mcp__wms__blocked_work_submit_resolution",
+      "mcp__wms__blocked_work_acknowledge", "Bash(ears-manager *)",
       "Bash(date -u +%Y-%m-%dT%H:%M:%SZ)",
       "Bash(git rev-parse --show-toplevel)",
       "Bash(git rev-parse --abbrev-ref HEAD)",
@@ -283,11 +290,10 @@ holds the native copy of the role's rules:
 ```
 
 - The `wms` server is the manifest's only MCP server (H2). Claude Code
-  names its tools `mcp__wms__<operation>`. `ears-manager` needs no
+  names its tools `mcp__wms__<normalized-operation>`. `ears-manager` needs no
   entry: it is a shell operation, allowed by `Bash(ears-manager *)`.
-  The `mcp__wms` allow covers every tool of the server; the guard
-  allows only the tools the manifest lists, and once #31 names them the
-  allow can list them as `mcp__wms__<operation>` rules.
+  The named `mcp__wms__<normalized-operation>` allows mirror the manifest;
+  the guard independently enforces the same list.
 - **It is loaded at launch, with `--strict-mcp-config`, and is not in
   `.mcp.json`.** A deny rule in project settings would bind the role
   too, so the `wms` tools cannot be denied for every session and

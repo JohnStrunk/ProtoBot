@@ -268,7 +268,7 @@ Toolkit skills name operations. In Codex:
 - an `ears-manager` operation is one shell command,
   `ears-manager --output json <command> ...`; artifact content and
   the impact file go on standard input;
-- a WMS operation is the tool `mcp__wms__<operation>`;
+- a WMS operation is the tool `mcp__wms__<normalized-operation>`;
 - a Git or Git host operation is one shell command; and
 - a file is read with one of the read forms of the Codex binding.
 """

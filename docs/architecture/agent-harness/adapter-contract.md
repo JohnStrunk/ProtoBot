@@ -220,7 +220,20 @@ governed_commands:
   - ears-manager
 governed_mcp_servers:
   wms:
-    tools: []   # the Drafting Table's WMS operations of #31, by tool name
+    tools:
+      - request_create
+      - request_refine
+      - request_update_priority
+      - request_link_change_set
+      - request_link_build_work_item
+      - request_get
+      - request_query
+      - work_item_get
+      - work_item_query
+      - blocked_work_query
+      - lifecycle_preflight
+      - blocked_work_submit_resolution
+      - blocked_work_acknowledge
 ```
 
 - A binding takes its entry-point name, its skill allowlist, its
@@ -229,9 +242,10 @@ governed_mcp_servers:
   into its own config, the binding copies them, and the fixture checks
   that the copy matches.
 - The tool list of a governed server is the role's allowlist for it.
-  #31 fills it when it names the Drafting Table's WMS operations; a
-  lifecycle transition is never on it. The fixture's manifest lists
-  the names its `wms` stub serves.
+  The names are the canonical operation names with `.` and `-` replaced by
+  `_`; a harness adds its server prefix (`wms_` or `mcp__wms__`). A lifecycle
+  transition is never on it. The fixture's manifest lists the names its
+  `wms` stub serves.
 - A new Toolkit skill is one manifest line, plus the same line in each
   binding's native copy.
 - The manifest holds no credential and no path rule.
@@ -307,8 +321,9 @@ manifest:
   ([WMS Adapter API](../../architecture.md#wms-adapter-api)). Its tools
   carry the operations and result shapes of #31, one tool per
   operation. Each harness adds its own prefix, for example
-  `wms_<operation>` in OpenCode and `mcp__wms__<operation>` in Claude
-  Code, and the binding's prompt states that mapping. MCP tool schemas
+  `wms_<normalized-operation>` in OpenCode and
+  `mcp__wms__<normalized-operation>` in Claude Code, and the binding's prompt
+  states that mapping. MCP tool schemas
   are the specification approach the Architecture names for the Toolkit
   ([Interface Specification Approach][interface-approach]), and
   OpenCode, Claude Code, and Codex all load MCP servers. The `wms`
