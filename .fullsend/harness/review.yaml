@@ -16,7 +16,6 @@ env:
         # wholesale under base: composition, so listing only the addition
         # would drop the default prefixes (harness/, .github/, ...).
         # .fullsend/ is a path prefix covering config.yaml and harness/.
-        REVIEW_PROTECTED_PATHS: ".claude/,.cursor/,.pi/,.gitattributes,.github/,.pre-commit-config.yaml,AGENTS.md,agents/,api-servers/,CLAUDE.md,CODEOWNERS,Containerfile,Dockerfile,harness/,images/,plugins/,policies/,profiles/,providers/,scripts/,skills/,.fullsend/"
-    # Keep in sync with sandbox: post-review.sh enforces independently.
+        REVIEW_PROTECTED_PATHS: &review_protected_paths ".claude/,.cursor/,.pi/,.gitattributes,.github/,.pre-commit-config.yaml,AGENTS.md,agents/,api-servers/,CLAUDE.md,CODEOWNERS,Containerfile,Dockerfile,harness/,images/,plugins/,policies/,profiles/,providers/,scripts/,skills/,.fullsend/"  # yamllint disable-line rule:line-length
     runner:
-        REVIEW_PROTECTED_PATHS: ".claude/,.cursor/,.pi/,.gitattributes,.github/,.pre-commit-config.yaml,AGENTS.md,agents/,api-servers/,CLAUDE.md,CODEOWNERS,Containerfile,Dockerfile,harness/,images/,plugins/,policies/,profiles/,providers/,scripts/,skills/,.fullsend/"
+        REVIEW_PROTECTED_PATHS: *review_protected_paths
