@@ -20,9 +20,9 @@ type loadError struct {
 
 func (e loadError) Error() string {
 	if e.Err == nil {
-		return fmt.Sprintf("unable to load %s", e.Path)
+		return fmt.Sprintf("unable to load %s", displayLoadPath(e.Path))
 	}
-	return fmt.Sprintf("unable to load %s: %s", e.Path, stableLoadCause(e.Err))
+	return fmt.Sprintf("unable to load %s: %s", displayLoadPath(e.Path), stableLoadCause(e.Err))
 }
 
 func (e loadError) Unwrap() error {
@@ -46,6 +46,13 @@ func stableLoadCause(err error) string {
 	default:
 		return "filesystem or project data access failed"
 	}
+}
+
+func displayLoadPath(path string) string {
+	if path == "" || filepath.IsAbs(path) || strings.Contains(path, "..") || strings.ContainsAny(path, "\\\x00") {
+		return "configured project path"
+	}
+	return filepath.ToSlash(path)
 }
 
 // Load reads a complete project snapshot using the storage layer's safe YAML
@@ -137,7 +144,7 @@ func ValidateProject(root string) Result {
 		var loadErr loadError
 		path := ""
 		if errors.As(err, &loadErr) {
-			path = loadErr.Path
+			path = displayLoadPath(loadErr.Path)
 		}
 		result := Result{}
 		result.add(diagnostic("storage.decode_failed", path, "", "", err.Error(), "Fix the reported file without modifying it through another route."))
