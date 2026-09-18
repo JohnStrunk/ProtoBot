@@ -24,6 +24,7 @@ const (
 
 var (
 	baseCommitPattern = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+	timestampPattern  = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$`)
 	timestampLayout   = "2006-01-02T15:04:05Z"
 	earsPatterns      = map[records.EARSStyle]*regexp.Regexp{
 		records.EARSUbiquitous:       regexp.MustCompile(`(?is)^The .+ shall .+$`),
@@ -467,6 +468,10 @@ func validateVerification(result *Result, document Document[records.Requirement]
 func validateCreated(result *Result, path string, kind recordKind, recordID, field, value string) {
 	if strings.TrimSpace(value) == "" {
 		result.add(diagnostic(missingFieldCode(kind), path, recordID, field, fmt.Sprintf("Required field %q is missing.", field), fmt.Sprintf("Provide an ISO 8601 UTC timestamp in %s format.", timestampLayout)))
+		return
+	}
+	if !timestampPattern.MatchString(value) {
+		result.add(diagnostic("record.invalid_timestamp", path, recordID, field, fmt.Sprintf("Timestamp %q is not in %s format.", value, timestampLayout), "Use YYYY-MM-DDTHH:MM:SSZ."))
 		return
 	}
 	if _, err := time.Parse(timestampLayout, value); err != nil {
