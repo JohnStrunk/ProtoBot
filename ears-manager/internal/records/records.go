@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	CurrentProjectSchemaVersion       = 1
+	CurrentProjectSchemaVersion       = 2
 	CurrentSpecificationSchemaVersion = 1
 )
 

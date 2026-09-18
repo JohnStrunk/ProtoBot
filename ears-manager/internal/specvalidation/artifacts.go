@@ -55,7 +55,7 @@ func CanonicalTextDigest(data []byte) (string, error) {
 	return "sha256:" + hex.EncodeToString(digest[:]), nil
 }
 
-func validateArtifacts(result *Result, snapshot Snapshot, projectPath string, artifacts []records.ArtifactEntry) {
+func validateArtifacts(result *Result, snapshot Snapshot, projectPath string, stores records.StorePaths, artifacts []records.ArtifactEntry) {
 	ordered := append([]records.ArtifactEntry(nil), artifacts...)
 	sort.SliceStable(ordered, func(i, j int) bool {
 		if ordered[i].ID == ordered[j].ID {
@@ -65,14 +65,14 @@ func validateArtifacts(result *Result, snapshot Snapshot, projectPath string, ar
 	})
 	seenPaths := make(map[string]string, len(ordered))
 	for _, artifact := range ordered {
-		validateArtifact(result, snapshot, projectPath, artifact, seenPaths)
+		validateArtifact(result, snapshot, projectPath, stores, artifact, seenPaths)
 	}
 }
 
-func validateArtifact(result *Result, snapshot Snapshot, projectPath string, artifact records.ArtifactEntry, seenPaths map[string]string) {
+func validateArtifact(result *Result, snapshot Snapshot, projectPath string, stores records.StorePaths, artifact records.ArtifactEntry, seenPaths map[string]string) {
 	field := artifactField(artifact.ID, "")
 	validateArtifactIdentity(result, artifact, projectPath, field)
-	validateArtifactLocation(result, snapshot, artifact, projectPath, field, seenPaths)
+	validateArtifactLocation(result, snapshot, stores, artifact, projectPath, field, seenPaths)
 	validateArtifactDigest(result, artifact, projectPath, field)
 	validateArtifactPolicy(result, artifact, projectPath, field)
 }
@@ -90,17 +90,18 @@ func validateArtifactIdentity(result *Result, artifact records.ArtifactEntry, pr
 	}
 }
 
-func validateArtifactLocation(result *Result, snapshot Snapshot, artifact records.ArtifactEntry, projectPath, field string, seenPaths map[string]string) {
+func validateArtifactLocation(result *Result, snapshot Snapshot, stores records.StorePaths, artifact records.ArtifactEntry, projectPath, field string, seenPaths map[string]string) {
 	if strings.TrimSpace(artifact.Path) == "" {
 		result.add(diagnostic("artifact.missing_field", projectPath, artifact.ID, field+".path", "Required artifact field \"path\" is missing.", "Provide a relative path to a regular file."))
 		return
 	}
-	validateArtifactPath(result, snapshot, artifact, projectPath, field)
+	validateArtifactPath(result, snapshot, stores, artifact, projectPath, field)
 	if canonicalPath, pathErr := canonicalProjectPath(artifact.Path); pathErr == nil {
-		if previous, exists := seenPaths[canonicalPath]; exists && previous != artifact.ID {
+		key := strings.ToLower(canonicalPath)
+		if previous, exists := seenPaths[key]; exists && previous != artifact.ID {
 			result.add(diagnostic("artifact.duplicate_path", projectPath, artifact.ID, field+".path", fmt.Sprintf("Artifact path is already registered by %q.", previous), "Register each artifact path once."))
 		}
-		seenPaths[canonicalPath] = artifact.ID
+		seenPaths[key] = artifact.ID
 	}
 }
 
@@ -129,9 +130,9 @@ func validateArtifactPolicy(result *Result, artifact records.ArtifactEntry, proj
 	}
 }
 
-func validateArtifactPath(result *Result, snapshot Snapshot, artifact records.ArtifactEntry, projectPath, field string) {
+func validateArtifactPath(result *Result, snapshot Snapshot, stores records.StorePaths, artifact records.ArtifactEntry, projectPath, field string) {
 	clean, pathErr := canonicalProjectPath(artifact.Path)
-	if pathErr != nil || isReservedProjectPath(clean) {
+	if pathErr != nil || isReservedProjectPath(clean) || pathInStructuredStore(clean, stores) {
 		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", fmt.Sprintf("Artifact path %q is not an allowed project-relative path.", artifact.Path), "Use a regular file inside the project outside reserved control paths."))
 		return
 	}
@@ -229,18 +230,50 @@ func fieldSuffix(field string) string {
 }
 
 func isReservedProjectPath(path string) bool {
+	return isReservedPath(path, false)
+}
+
+func isReservedStorePath(path string) bool {
+	return isReservedPath(path, true)
+}
+
+func isReservedPath(path string, allowProtobotRoot bool) bool {
 	parts := strings.Split(strings.ToLower(path), "/")
 	for index, part := range parts {
-		if reservedProjectDirectories[part] {
-			return true
-		}
-		if index > 0 && parts[index-1] == ".protobot" {
-			if part == "attestations" || part == "project.yaml" || part == "projection.yaml" || part == "test-catalog.jsonl" {
+		if part == ".protobot" {
+			if !allowProtobotRoot || index != 0 || len(parts) == 1 {
 				return true
 			}
+			continue
+		}
+		if reservedProjectDirectories[part] || isReservedProjectControlFile(parts, index) {
+			return true
 		}
 	}
+	return isReservedProjectFile(parts)
+}
+
+func isReservedProjectControlFile(parts []string, index int) bool {
+	return index > 0 && parts[index-1] == ".protobot" && reservedProjectControlFiles[parts[index]]
+}
+
+func isReservedProjectFile(parts []string) bool {
 	return reservedProjectFiles[strings.Join(parts, "/")] || reservedProjectFiles[parts[len(parts)-1]]
+}
+
+func pathInStructuredStore(path string, stores records.StorePaths) bool {
+	path = strings.ToLower(path)
+	for _, store := range []string{stores.Requirements, stores.Interfaces, stores.ChangeSets} {
+		canonical, err := canonicalProjectPath(store)
+		if err != nil {
+			continue
+		}
+		canonical = strings.ToLower(canonical)
+		if path == canonical || strings.HasPrefix(path, canonical+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 var reservedProjectDirectories = map[string]bool{
@@ -250,6 +283,16 @@ var reservedProjectDirectories = map[string]bool{
 	".github":   true,
 	".git":      true,
 	".opencode": true,
+	".protobot": true,
+}
+
+var reservedProjectControlFiles = map[string]bool{
+	"attestations":       true,
+	"kits.lock":          true,
+	"policy.yaml":        true,
+	"project.yaml":       true,
+	"projection.yaml":    true,
+	"test-catalog.jsonl": true,
 }
 
 var reservedProjectFiles = map[string]bool{
