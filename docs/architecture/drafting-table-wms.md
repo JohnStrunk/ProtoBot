@@ -38,6 +38,10 @@ The contract is a subset of the WMS Adapter API. It is stable across WMS
 backends and does not expose GitHub, GitLab, Jira, Beads, or Trello
 concepts to the Drafting Table.
 
+The human-maintainer priority operation is part of this integration surface
+but is invoked through a trusted human-maintainer WMS context, not through
+the Drafting Table agent role.
+
 ### Relationship to sibling contracts
 
 - [Drafting Table UX](drafting-table-ux.md) defines what the user sees,
@@ -112,12 +116,13 @@ unknown, cross-item, wrong-kind, digest-mismatched, expired, or consumed
 approvals return `UNAUTHORIZED_ACTION` before any resource write. The same
 checks apply to an informational acknowledgement.
 
-Acceptance of `blocked-work.submit-resolution` verifies and reserves the
-approval for the durable submission; it does not consume the approval. The
-Materializer consumes that reserved approval only when authoritative
-`resolve-block` succeeds. `blocked-work.acknowledge` has no later lifecycle
-consumer, so its approval is consumed atomically when the acknowledgement is
-written.
+Acceptance of `blocked-work.submit-resolution` verifies the approval binding
+and stores it with the durable submission; it does not consume or reserve the
+single-use approval. A new reviewed submission may supersede the one pending
+submission, leaving the prior approval unused. The Materializer rechecks and
+consumes the selected approval only when authoritative `resolve-block`
+succeeds. `blocked-work.acknowledge` has no later lifecycle consumer, so its
+approval is consumed atomically when the acknowledgement is written.
 
 ---
 
@@ -199,11 +204,13 @@ HTTP, or local adapter binding may choose a transport-specific spelling.
 | `request.update-priority` | `human-maintainer` only. | `expected_request_revision` and idempotency key. | New business priority, request revision, audit event, and an atomic priority snapshot update for linked proposed change sets/build items. | Reject agent/service caller, stale revision, invalid priority, or failed atomic WMS update. |
 | `request.link-change-set` | Drafting Table or human maintainer with visibility to both records. | Expected request revision, target change-set revision when mutable, and idempotency key. | Existing request-to-change-set link and updated request revision. | Reject missing/unauthorized target, duplicate link, stale endpoint, or invalid change-set state. This does not create a change set. |
 | `request.link-build-work-item` | Drafting Table may link only to an existing authorized build item; Materializer may create the automatic link as part of materialization. | Expected request revision, existing target ID, and idempotency key. | Existing request-to-build-item link and updated request revision. | Reject missing target, duplicate link, stale source, or any attempt to materialize the target as a side effect. |
-| `request.get/query` | Drafting Table with project read visibility. | No expected version; return current request revision. | One request or filtered requests by refinement state, owner, priority, interface, scope, or relationship. | Return typed query failure, visibility-safe not-found, or WMS-unavailable result. |
-| `work-item.get/query` | Drafting Table with project read visibility. | No expected version; return current contract version. | Work-item projection, status, owner/dependency summary, or filtered items. | Return typed visibility-safe not-found, invalid-query, or WMS-unavailable result; never mutate state. |
+| `request.get` | Drafting Table with project read visibility. | `request_id`; return current request revision. | One request record. | Return visibility-safe `NOT_FOUND` or `WMS_UNAVAILABLE`; never mutate state. |
+| `request.query` | Drafting Table with project read visibility. | No expected version. | Filtered requests by refinement state, owner, priority, interface, scope, or relationship; each result includes its current request revision. | Return `INVALID_REQUEST`, visibility-safe not-found, or `WMS_UNAVAILABLE`; never mutate state. |
+| `work-item.get` | Drafting Table with project read visibility. | `work_item_id`; return current contract version. | One sanitized work-item projection. | Return visibility-safe `NOT_FOUND` or `WMS_UNAVAILABLE`; never mutate state. |
+| `work-item.query` | Drafting Table with project read visibility. | No expected version. | Filtered sanitized work-item projections by state, owner, dependency, or priority; each result includes its current contract version. | Return `INVALID_REQUEST`, visibility-safe not-found, or `WMS_UNAVAILABLE`; never mutate state. |
 | `blocked-work.query` | Drafting Table on session start/resume or explicit user request. | No expected version; every item includes current state and contract version. | Sanitized blocked items with reason class, next action, dependencies, and resolution options. | Mark blocked-work status unavailable if WMS is unavailable; never claim review is complete. |
 | `lifecycle.preflight` | Drafting Table, Job Site, or Materializer before an authoritative operation. | Caller snapshot includes expected state/version; no mutation key is required for a read-only preflight. | `authority: preflight` decision and diagnostics from the shared Validation Rules evaluator. | Advisory rejection only; the caller must still submit the authoritative operation. |
-| `blocked-work.submit-resolution` | Drafting Table submits `add-requirement`, `out-of-scope`, or `impact-amendment` with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, approval-resolution digest, and idempotency key. | A durable resolution-submission record at `resolution_submission_revision: 1` (or its existing revision on replay); the work item remains `blocked` and its `contract_version` is unchanged until Materializer processing. | Return `UNAUTHORIZED_ACTION`, `STALE_STATE`, `STALE_CONTRACT_VERSION`, `PRECONDITION_FAILED`, or replay the exact prior result. |
+| `blocked-work.submit-resolution` | Drafting Table submits `add-requirement`, `out-of-scope`, or `impact-amendment` with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, approval-resolution digest, and idempotency key. | A durable resolution-submission record at the next `resolution_submission_revision` (or its existing revision on replay); a new reviewed submission may supersede one pending submission atomically. The work item remains `blocked` and its `contract_version` is unchanged until Materializer processing. | Return `UNAUTHORIZED_ACTION`, `STALE_STATE`, `STALE_CONTRACT_VERSION`, `PRECONDITION_FAILED`, or replay the exact prior result. |
 | `blocked-work.acknowledge` | Drafting Table submits an informational acknowledgement with Gate-bound human approval. | `expected_state: blocked`, `expected_contract_version`, approval-resolution digest, and idempotency key. | A durable acknowledgement record at `resolution_submission_revision: 1`; the work item remains `blocked`. The approval is consumed atomically with this resource write; an exact retry replays without consuming it again. | Apply the same authorization, stale-state/version, precondition, and replay behavior as `blocked-work.submit-resolution`. |
 
 The operation set is intentionally disjoint from Job Site execution. A
@@ -216,7 +223,14 @@ Priority is a request-owned business value. Before materialization, an
 authorized update refreshes the linked proposed change-set priority
 snapshot. After a build work item exists, the same authorized operation
 updates its WMS priority snapshot atomically with the request revision; it
- does not change lifecycle state or dispatch/scheduling decisions.
+does not dispatch work or change lifecycle state. Subsequent Job Site
+scheduling evaluates the updated authoritative priority snapshot under its
+own policy.
+
+`request.update-priority` is a WMS operation in the human-maintainer
+namespace, not a Drafting Table agent tool. A trusted human-maintainer client
+may invoke it directly; the Drafting Table may display the resulting priority
+but cannot submit the mutation under its own role.
 
 ### Harness operation-name mapping
 
@@ -349,24 +363,22 @@ resolution-specific prerequisites:
   Inspector confirmation is recorded;
 - `impact-amendment`: the linked change set must validate and its full refresh
   must pass; and
-- `acknowledge`: the control plane may clear the informational condition, but
-  the acknowledgement does not make the item ready and does not invoke
-  `resolve-block`; any later lifecycle resolution must use its own approved
-  submission and Validation Rules preconditions.
+- `acknowledge`: the acknowledgement records the informational condition and
+  remains `blocked`; it does not clear the condition or invoke `resolve-block`.
+  Any later lifecycle resolution must use its own approved submission and
+  Validation Rules preconditions.
 
 Any failed refresh leaves the item `blocked` and returns the shared
 diagnostic. The Materializer, not the Drafting Table, owns the lifecycle
 transition and contract-version increment.
 
 Only one nonterminal lifecycle resolution submission may be active for a
-work item at a time. An exact retry replays its existing submission; a
-different lifecycle resolution is rejected until the current submission is
-consumed. There is no implicit supersession operation. Informational
-acknowledgements are separate audit records and do not compete with the
-lifecycle submission. The pending submission is the nonterminal state; a
-second lifecycle kind returns `PRECONDITION_FAILED` without creating a new
-record. A submission becomes consumed only when the Materializer's
-authoritative `resolve-block` succeeds.
+work item at a time. An exact retry replays its existing submission; a new
+reviewed lifecycle resolution atomically marks the prior pending submission
+`superseded` and becomes the active submission. Informational acknowledgements
+are separate audit records and do not compete with the lifecycle submission.
+A submission becomes `consumed` only when the Materializer's authoritative
+`resolve-block` succeeds; a superseded submission leaves its approval unused.
 
 ---
 
@@ -384,11 +396,13 @@ Relevant persistent state remains owned by existing components:
 
 | State | Owner | Drafting Table WMS contract |
 | --- | --- | --- |
-| Request backlog and request revisions | WMS Adapter/backend | Create, refine, link, query, and priority operations in this document. |
+| Request backlog and request revisions | WMS Adapter/backend | Create, refine, link, query, and human-maintainer priority operations in this document. |
 | Work-item lifecycle and contract versions | WMS Adapter/claim coordinator | Read-only projections plus validated blocked-resolution submissions. |
 | Specification records and change sets | Git through `ears-manager` | Referenced by ID/commit; never parsed or edited through WMS operations. |
-| Project/session registry | Deployment operator / registry; Web Drafting Table consumes it | Supplies trusted project visibility; never becomes work-item state. |
-| Evidence, findings, and attestations | Job Site stores | Display only when authorized; no Drafting Table mutation. |
+| Web session state | Web Drafting Table deployment | Supplies authenticated project/session context; never becomes work-item state or an alternate write authority. |
+| Deployment-level project registry | Deployment operator / registry | Supplies trusted project visibility and adapter configuration; never becomes work-item state. |
+| Finding Ledger events and conformance-evidence references | WMS Adapter/backend | Exposes only authorized sanitized projections; no Drafting Table mutation. |
+| Raw evidence and attestation artifacts | Job Site stores | Display only when authorized; no Drafting Table mutation. |
 
 The WMS Adapter must preserve credential isolation, deny-by-default
 authorization, expected-version checks, idempotency, and the Validation
@@ -409,6 +423,12 @@ The `base-state` record defines fake Gate contexts. Operation records use
 their role/project fields as references to those trusted contexts; they do
 not model caller-supplied authorization claims.
 
+The `approval-validation-state` record supplies the fixed
+`evaluation_time` and complete approval bindings used by the transcript. It
+replaces the illustrative approval records in `base-state` before operations
+run, so expiry, delegated-principal, expected-state/version, digest, and
+single-use checks are deterministic.
+
 The fixture asserts:
 
 - request creation and refinement use request revisions;
@@ -421,14 +441,14 @@ The fixture asserts:
   `blocked` state/version checks;
 - resolution submissions own a separate revision and leave the work item
   blocked until Materializer processing;
-- a second lifecycle resolution is rejected while one is pending, while an
+- a new lifecycle resolution supersedes the pending one atomically, while an
   acknowledgement remains an independent audit record;
 - approval checks reject missing, forged, cross-item, wrong-digest, expired,
   and consumed approvals;
 - an exact resolution retry replays without a second mutation;
 - stale resolution state/version is rejected;
 - a Drafting Table caller cannot claim, execute, complete, schedule, or
-  mutate findings; and
+  mutate findings, and direct `resolve-block` is rejected; and
 - the Drafting Table operation set is a proper subset of the adapter API
   and disjoint from the Job Site execution set.
 

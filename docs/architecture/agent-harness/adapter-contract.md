@@ -223,7 +223,6 @@ governed_mcp_servers:
     tools:
       - request_create
       - request_refine
-      - request_update_priority
       - request_link_change_set
       - request_link_build_work_item
       - request_get
@@ -431,7 +430,7 @@ fields, never from the command, the prompt, or the conversation:
 | Open a pull request | `gh pr create --repo <repo> --base <default> --head <branch> --title <title> --body-file -` with the body in a quoted here-document | The canonical repository and the current branch only |
 | Update a pull request | `gh pr edit <branch> --repo <repo> --body-file -`, with `--title <title>` before `--body-file -` when the intent changed | The pull request of the current branch only |
 | Read a pull request | `gh pr view <branch> --repo <repo> --json <fields>` | `<fields>` is a comma-separated subset of `number`, `state`, `url`, `baseRefName`, `headRefName`, and `mergeCommit` |
-| Register an approved change set | `register-approved-change-set` with the change-set ID of `<branch>` and the full merge commit; the command derives the materialization key that #34 names from `project.id` and those two values | Single-player, after the user merged the pull request |
+| Register an approved change set | `register-approved-change-set` with the change-set ID of `<branch>` and the full merge commit; the command derives the materialization key and the distinct registration idempotency key from `project.id` and those two values using #34's canonical tuple | Single-player, after the user merged the pull request |
 
 The guard parses the command as shell words into an argument list and
 a standard-input text, and matches the list against the forms; it

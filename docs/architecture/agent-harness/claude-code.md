@@ -198,7 +198,7 @@ holds the native copy of the role's rules:
       "Read", "Grep", "Glob", "TodoWrite", "AskUserQuestion",
       "Skill(drafting-specifications)", "Skill(eliciting-requirements)",
       "mcp__wms__request_create", "mcp__wms__request_refine",
-      "mcp__wms__request_update_priority", "mcp__wms__request_link_change_set",
+      "mcp__wms__request_link_change_set",
       "mcp__wms__request_link_build_work_item", "mcp__wms__request_get",
       "mcp__wms__request_query", "mcp__wms__work_item_get",
       "mcp__wms__work_item_query", "mcp__wms__blocked_work_query",

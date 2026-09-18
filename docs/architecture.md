@@ -298,10 +298,11 @@ implementation is active per project.
 - **Requests:** Create, read, refine, and query backlog
   requests. Update business priority (authorized maintainer
   only).
-- **Materialization:** Atomically create or return a build work
-  item by stable materialization key, using a per-operation
-  idempotency key for retry safety and writing the complete contract
-  in one durable operation.
+- **Materialization:** Atomically create or return a complete build work
+  item, or a durable `omitted` reservation when implementation is not
+  required, by stable materialization key. Each command also uses a distinct
+  per-operation idempotency key for retry safety and writes its result in one
+  durable operation.
 - **Lifecycle transitions:** Atomic update of work-item state.
   Every state mutation is atomic and returns the new state or
   a conflict.
@@ -668,9 +669,10 @@ stops](architecture/agent-harness/adapter-contract.md#what-the-harness-layer-sto
 | `ears-manager change-set *` | Specification store | Create, list, show, compare, update change sets |
 | `ears-manager impact` | Specification store | Generate applicable-requirement candidates |
 | `ears-manager check` | Specification store | Validate spec well-formedness |
-| WMS query | WMS Adapter | Read work-item state, query blocked items |
-| WMS request create/refine/link | WMS Adapter | Create, refine, and link backlog requests |
-| WMS submit resolution | WMS Adapter | Submit reviewed change-set references for blocked items |
+| WMS request operations | WMS Adapter | `request.create`, `request.refine`, `request.link-change-set`, `request.link-build-work-item`; `request.update-priority` is human-maintainer only |
+| WMS query operations | WMS Adapter | `request.get`, `request.query`, `work-item.get`, `work-item.query`, and `blocked-work.query` |
+| WMS lifecycle preflight | WMS Adapter | `lifecycle.preflight` with no mutation |
+| WMS blocked-work operations | WMS Adapter | `blocked-work.submit-resolution` and `blocked-work.acknowledge` |
 | Git branch/commit/PR | Project repository | Create branches, commit artifacts, open PRs |
 
 ### Data and control flow
@@ -701,16 +703,16 @@ Materializer ── create work item ─→ WMS Backend
 - The WMS Adapter validates every lifecycle transition at the
   write boundary using shared Validation Rules. The agent
   cannot move a work item to an invalid state.
-- Materialization is idempotent: an approved change set
-  produces exactly one build work item (or returns the
-  existing one).
+- Materialization is idempotent: an approved change set produces exactly one
+  durable materialization result, either a build work item or an `omitted`
+  reservation; a repeat returns the existing result.
 
 ---
 
 ## Persistent State
 
 Persistent state outlives any single run and requires its own
-interface contract. ProtoBot has six categories of persistent
+interface contract. ProtoBot has seven categories of persistent
 state. Each store carries a schema version (in
 `.protobot/project.yaml`); when a tool encounters data at a
 version newer than its own, it refuses to operate rather than

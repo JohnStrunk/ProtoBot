@@ -146,7 +146,8 @@ with semantic impact analysis. The user reviews the changed set and
 dispositions each impact candidate as applicable or not applicable, with
 rationale, as part of approving the Schematic delta.
 
-An approved change set materializes one build work item by default. This
+An approved change set materializes one build work item by default, or a
+durable `omitted` reservation when it declares no implementation effect. This
 keeps the impact assessment and human approval boundary intact. Future
 splitting or combining of change sets requires a separately reviewed
 delivery plan and a new impact assessment at the chosen source

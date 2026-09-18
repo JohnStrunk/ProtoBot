@@ -134,7 +134,6 @@ permission:
     eliciting-requirements: allow
   wms_request_create: allow
   wms_request_refine: allow
-  wms_request_update_priority: allow
   wms_request_link_change_set: allow
   wms_request_link_build_work_item: allow
   wms_request_get: allow

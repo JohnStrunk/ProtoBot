@@ -540,13 +540,14 @@ The user resolves blocked work by choosing one of five paths:
    the change set and issues a new contract version.
 4. **Defer:** Leaves the work item blocked in the WMS and continues other work.
 5. **Acknowledge an informational block:** For reconciliation failures or
-   policy questions resolved by the control plane, the user reviews the block
-   reason without a spec change. The item returns to ready when the control
-   plane clears the condition.
+   policy questions, the user records that the block was reviewed without a
+   spec change. The acknowledgement is audit-only and leaves the item
+   `blocked`; a later lifecycle resolution must use its own reviewed
+   submission and the authoritative WMS transition.
 
 Conversational choice does not unblock work. Work items transition out of
-`blocked` only when the approved change set is validated by the WMS write
-boundary.
+`blocked` only when an approved resolution is validated by the WMS write
+boundary; acknowledgement alone never implies readiness.
 
 ---
 
