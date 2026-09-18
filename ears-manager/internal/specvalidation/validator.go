@@ -155,15 +155,16 @@ func validateStorePath(result *Result, root, projectPath, name, value string) {
 		return
 	}
 	field := "stores." + name
-	if root == "" {
-		if _, err := canonicalProjectPath(value); err != nil {
-			result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path must remain relative to the project root.", "Use a relative path inside the project root."))
-		}
-		return
-	}
 	canonical, err := canonicalProjectPath(value)
 	if err != nil {
 		result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path must use slash-separated project-relative form.", "Use a relative path inside the project root."))
+		return
+	}
+	if isReservedProjectPath(canonical) {
+		result.add(diagnostic("project.invalid_path", projectPath, "", field, "Store path uses a reserved project path.", "Use a dedicated structured-record directory."))
+		return
+	}
+	if root == "" {
 		return
 	}
 	resolved, err := storage.ValidatePathWithin(root, filepath.FromSlash(canonical))
@@ -270,7 +271,8 @@ func validateRequirements(result *Result, documents []Document[records.Requireme
 }
 
 func validateRequirement(result *Result, document Document[records.Requirement], interfaces map[string]records.InterfaceRecord) {
-	value := records.CanonicalRequirement(document.Value)
+	rawValue := document.Value
+	value := records.CanonicalRequirement(rawValue)
 	path := safePath(document.Path)
 	validateRecordPath(result, document.Path, records.RequirementStore, value.ID)
 	validateRequiredString(result, document.Fields, path, value.ID, "id", value.ID, "requirement.missing_field")
@@ -288,7 +290,7 @@ func validateRequirement(result *Result, document Document[records.Requirement],
 		result.add(diagnostic("requirement.ears_pattern_mismatch", path, value.ID, "text", fmt.Sprintf("Text does not match the declared %s EARS pattern.", value.Type), earsHint(value.Type)))
 	}
 	validateApplicability(result, document, value, interfaces)
-	validateVerification(result, document, value)
+	validateVerification(result, document, rawValue)
 	validateRequiredString(result, document.Fields, path, value.ID, "provenance", string(value.Provenance), "requirement.missing_field")
 	if value.Provenance == "" || !provenanceValues[value.Provenance] {
 		result.add(diagnostic("requirement.invalid_provenance", path, value.ID, "provenance", fmt.Sprintf("Unsupported provenance %q.", value.Provenance), "Use user-authored, agent-suggested, or kit-imported."))
@@ -297,7 +299,7 @@ func validateRequirement(result *Result, document Document[records.Requirement],
 	if value.Status != "" && !recordStatuses[value.Status] {
 		result.add(diagnostic("requirement.invalid_status", path, value.ID, "status", fmt.Sprintf("Unsupported requirement status %q.", value.Status), "Use active or retired."))
 	}
-	validateRelationshipsInRecord(result, document, value)
+	validateRelationshipsInRecord(result, document, rawValue)
 }
 
 func validateApplicability(result *Result, document Document[records.Requirement], value records.Requirement, interfaces map[string]records.InterfaceRecord) {

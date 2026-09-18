@@ -2,6 +2,7 @@ package specvalidation
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +53,10 @@ func TestValidateRejectsRequiredFieldsAndEARSForms(t *testing.T) {
 	}
 	if result.Err() == nil {
 		t.Fatal("invalid result returned no error")
+	}
+	var validationError *ValidationError
+	if !errors.As(result.Err(), &validationError) {
+		t.Fatal("invalid result error did not preserve ValidationError type")
 	}
 
 	badPatterns := []struct {
@@ -281,6 +286,25 @@ func TestValidateArtifactDiagnosticsUseConfiguredProjectPath(t *testing.T) {
 	t.Fatalf("duplicate artifact diagnostic absent: %#v", result.Diagnostics)
 }
 
+func TestValidateRejectsReservedPathsCaseInsensitively(t *testing.T) {
+	result := Validate(Snapshot{
+		Config: records.ProjectConfig{
+			Project:        records.ProjectIdentity{ID: "fixture", Name: "Fixture"},
+			SchemaVersions: records.SchemaVersions{Project: 1, Specification: 1},
+			Stores:         records.StorePaths{Requirements: ".protobot/project.yaml"},
+			Artifacts: []records.ArtifactEntry{{
+				ID: "reserved", Kind: records.ArtifactVision, Path: "vendor/.Git/config", Digest: "sha256:" + strings.Repeat("0", 64), Owner: "user",
+			}},
+		},
+	})
+	if !hasDiagnosticForField(result, "project.invalid_path", "stores.requirements") {
+		t.Fatalf("reserved store path diagnostic absent: %#v", result.Diagnostics)
+	}
+	if !hasDiagnosticForField(result, "artifact.invalid_path", "artifacts[id=reserved].path") {
+		t.Fatalf("reserved artifact path diagnostic absent: %#v", result.Diagnostics)
+	}
+}
+
 func TestValidateProjectLoadsPresenceAwareRecords(t *testing.T) {
 	root := t.TempDir()
 	for _, directory := range []string{
@@ -312,6 +336,21 @@ func TestValidateProjectLoadsPresenceAwareRecords(t *testing.T) {
 	if !hasDiagnostic(result, "change_set.missing_field", "implementation_required") {
 		t.Fatalf("presence-aware missing field diagnostic absent: %#v", result.Diagnostics)
 	}
+}
+
+func TestValidateProjectRejectsSymlinkedControlNamespace(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, ".protobot")); err != nil {
+		t.Skipf("Symlink is unavailable: %v", err)
+	}
+	result := ValidateProject(root)
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code == "storage.decode_failed" && diagnostic.Path == ".protobot" {
+			return
+		}
+	}
+	t.Fatalf("symlinked control namespace was not rejected: %#v", result.Diagnostics)
 }
 
 func validSnapshot(t *testing.T) Snapshot {

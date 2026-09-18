@@ -1,7 +1,9 @@
 package specvalidation
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -20,6 +22,10 @@ func (e loadError) Error() string {
 	return fmt.Sprintf("unable to load %s", e.Path)
 }
 
+func (e loadError) Unwrap() error {
+	return e.Err
+}
+
 // Load reads a complete project snapshot using the storage layer's safe YAML
 // decoder. It performs no semantic validation and never writes files.
 func Load(root string) (Snapshot, error) {
@@ -27,8 +33,27 @@ func Load(root string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, loadError{Path: ".protobot/project.yaml", Err: err}
 	}
-	configPath := filepath.Join(absoluteRoot, ".protobot", "project.yaml")
-	data, err := os.ReadFile(configPath)
+	rootHandle, err := os.OpenRoot(absoluteRoot)
+	if err != nil {
+		return Snapshot{}, loadError{Path: ".protobot/project.yaml", Err: err}
+	}
+	defer func() { _ = rootHandle.Close() }()
+	controlInfo, err := rootHandle.Lstat(".protobot")
+	if err != nil {
+		return Snapshot{}, loadError{Path: ".protobot", Err: err}
+	}
+	if controlInfo.Mode()&os.ModeSymlink != 0 || !controlInfo.IsDir() {
+		return Snapshot{}, loadError{Path: ".protobot", Err: fmt.Errorf("control namespace must be a directory")}
+	}
+	configRelative := filepath.FromSlash(".protobot/project.yaml")
+	configInfo, err := rootHandle.Lstat(configRelative)
+	if err != nil {
+		return Snapshot{}, loadError{Path: ".protobot/project.yaml", Err: err}
+	}
+	if configInfo.Mode()&os.ModeSymlink != 0 || !configInfo.Mode().IsRegular() {
+		return Snapshot{}, loadError{Path: ".protobot/project.yaml", Err: fmt.Errorf("project configuration must be a regular file")}
+	}
+	data, err := rootHandle.ReadFile(configRelative)
 	if err != nil {
 		return Snapshot{}, loadError{Path: ".protobot/project.yaml", Err: err}
 	}
@@ -44,7 +69,7 @@ func Load(root string) (Snapshot, error) {
 		ConfigFields: fields,
 	}
 	paths := config.Stores.WithDefaults()
-	snapshot.Requirements, err = loadDocuments(absoluteRoot, paths.Requirements, records.RequirementStore, func(data []byte) (records.Requirement, map[string]bool, error) {
+	snapshot.Requirements, err = loadDocuments(absoluteRoot, rootHandle, paths.Requirements, records.RequirementStore, func(data []byte) (records.Requirement, map[string]bool, error) {
 		var value records.Requirement
 		fields, err := storage.DecodeFields(data, &value)
 		return value, fields, err
@@ -52,7 +77,7 @@ func Load(root string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	snapshot.Interfaces, err = loadDocuments(absoluteRoot, paths.Interfaces, records.InterfaceStore, func(data []byte) (records.InterfaceRecord, map[string]bool, error) {
+	snapshot.Interfaces, err = loadDocuments(absoluteRoot, rootHandle, paths.Interfaces, records.InterfaceStore, func(data []byte) (records.InterfaceRecord, map[string]bool, error) {
 		var value records.InterfaceRecord
 		fields, err := storage.DecodeFields(data, &value)
 		return value, fields, err
@@ -60,7 +85,7 @@ func Load(root string) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	snapshot.ChangeSets, err = loadDocuments(absoluteRoot, paths.ChangeSets, records.ChangeSetStore, func(data []byte) (records.ChangeSet, map[string]bool, error) {
+	snapshot.ChangeSets, err = loadDocuments(absoluteRoot, rootHandle, paths.ChangeSets, records.ChangeSetStore, func(data []byte) (records.ChangeSet, map[string]bool, error) {
 		var value records.ChangeSet
 		fields, err := storage.DecodeFields(data, &value)
 		return value, fields, err
@@ -77,7 +102,7 @@ func ValidateProject(root string) Result {
 	if err != nil {
 		var loadErr loadError
 		path := ""
-		if ok := asLoadError(err, &loadErr); ok {
+		if errors.As(err, &loadErr) {
 			path = loadErr.Path
 		}
 		result := Result{}
@@ -88,26 +113,37 @@ func ValidateProject(root string) Result {
 	return Validate(snapshot)
 }
 
-func loadDocuments[T any](root, relativeDirectory string, kind records.StoreKind, decode func([]byte) (T, map[string]bool, error)) ([]Document[T], error) {
+func loadDocuments[T any](root string, rootHandle *os.Root, relativeDirectory string, kind records.StoreKind, decode func([]byte) (T, map[string]bool, error)) ([]Document[T], error) {
 	canonical, err := canonicalProjectPath(relativeDirectory)
 	if err != nil {
 		return nil, loadError{Path: relativeDirectory, Err: err}
 	}
-	resolved, err := storage.ValidatePathWithin(root, filepath.FromSlash(canonical))
+	if _, err := storage.ValidatePathWithin(root, filepath.FromSlash(canonical)); err != nil {
+		return nil, loadError{Path: canonical, Err: err}
+	}
+	storeInfo, err := rootHandle.Lstat(filepath.FromSlash(canonical))
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return []Document[T]{}, nil
+		}
+		return nil, loadError{Path: canonical, Err: err}
+	}
+	if storeInfo.Mode()&os.ModeSymlink != 0 || !storeInfo.IsDir() {
+		return nil, loadError{Path: canonical, Err: fmt.Errorf("record store path must be a directory")}
+	}
+	directory, err := rootHandle.Open(filepath.FromSlash(canonical))
 	if err != nil {
 		return nil, loadError{Path: canonical, Err: err}
 	}
-	entries, err := os.ReadDir(resolved)
-	if os.IsNotExist(err) {
-		return []Document[T]{}, nil
-	}
+	defer func() { _ = directory.Close() }()
+	entries, err := directory.ReadDir(-1)
 	if err != nil {
 		return nil, loadError{Path: canonical, Err: err}
 	}
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	result := make([]Document[T], 0, len(entries))
 	for _, entry := range entries {
-		document, include, err := loadDocumentEntry(root, resolved, canonical, entry.Name(), kind, decode)
+		document, include, err := loadDocumentEntry(rootHandle, canonical, entry.Name(), kind, decode)
 		if err != nil {
 			return nil, err
 		}
@@ -118,13 +154,13 @@ func loadDocuments[T any](root, relativeDirectory string, kind records.StoreKind
 	return result, nil
 }
 
-func loadDocumentEntry[T any](root, resolved, relativeDirectory, name string, kind records.StoreKind, decode func([]byte) (T, map[string]bool, error)) (Document[T], bool, error) {
+func loadDocumentEntry[T any](rootHandle *os.Root, relativeDirectory, name string, kind records.StoreKind, decode func([]byte) (T, map[string]bool, error)) (Document[T], bool, error) {
 	if strings.HasPrefix(name, ".") {
 		return Document[T]{}, false, nil
 	}
-	entryPath := filepath.Join(resolved, name)
 	relativePath := filepath.ToSlash(filepath.Join(relativeDirectory, name))
-	info, err := os.Lstat(entryPath)
+	entryPath := filepath.FromSlash(relativePath)
+	info, err := rootHandle.Lstat(entryPath)
 	if err != nil {
 		return Document[T]{}, false, loadError{Path: relativePath, Err: err}
 	}
@@ -137,7 +173,7 @@ func loadDocumentEntry[T any](root, resolved, relativeDirectory, name string, ki
 	if filepath.Ext(name) != ".yaml" {
 		return Document[T]{}, false, loadError{Path: relativePath, Err: fmt.Errorf("unexpected file in record store")}
 	}
-	data, err := os.ReadFile(entryPath)
+	data, err := rootHandle.ReadFile(entryPath)
 	if err != nil {
 		return Document[T]{}, false, loadError{Path: relativePath, Err: err}
 	}
@@ -149,11 +185,7 @@ func loadDocumentEntry[T any](root, resolved, relativeDirectory, name string, ki
 	if expected, mapErr := records.FilenameFor(kind, id); mapErr == nil && expected != name {
 		return Document[T]{}, false, loadError{Path: relativePath, Err: fmt.Errorf("record ID %q does not match filename %q", id, name)}
 	}
-	rootRelative, err := filepath.Rel(root, entryPath)
-	if err != nil {
-		return Document[T]{}, false, loadError{Path: relativePath, Err: err}
-	}
-	return Document[T]{Path: filepath.ToSlash(rootRelative), Value: value, Fields: fields}, true, nil
+	return Document[T]{Path: relativePath, Value: value, Fields: fields}, true, nil
 }
 
 func documentID[T any](value T) string {
@@ -167,12 +199,4 @@ func documentID[T any](value T) string {
 	default:
 		return ""
 	}
-}
-
-func asLoadError(err error, target *loadError) bool {
-	if typed, ok := err.(loadError); ok {
-		*target = typed
-		return true
-	}
-	return false
 }
