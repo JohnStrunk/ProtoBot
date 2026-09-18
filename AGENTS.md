@@ -46,6 +46,7 @@ following hierarchy:
 [git-integration-doc]: docs/architecture/git-integration.md
 [validation-rules-doc]: docs/architecture/validation-rules.md
 [agent-harness-doc]: docs/architecture/agent-harness/
+[ears-and-review-doc]: .agents/skills/eliciting-requirements/references/ears-and-review.md
 
 ### Rules for creating or modifying specification documents
 
@@ -82,6 +83,13 @@ must follow these rules:
    interfaces, and constraints from `components.md` and
    `overview.md`. Findings should include coverage gaps, not
    only formatting and cross-reference text matching.
+   Checks must go beyond link freshness and heading alignment:
+   register new capabilities where `components.md` enumerates
+   them, avoid conflicting with principles in `overview.md`
+   or `components.md` (for example, the harness-agnostic
+   Toolkit principle in `components.md`), and match defined
+   ProtoBot keywords and relationship terms; an undeclared
+   alias for a defined keyword is a defect.
 
 ## Agent skills
 
@@ -108,3 +116,46 @@ agents must follow these rules:
    by the skill's own requirements, not copied from siblings.
    Blindly copying behavioral configuration from a sibling can
    produce incorrect dispatch or workflow behavior.
+
+### Aligning skills with the specification hierarchy
+
+A skill that implements or describes a ProtoBot or Specification
+Toolkit capability must remain consistent with the documents
+listed above. When creating, modifying, or reviewing such a
+skill, agents must:
+
+1. **Register new Toolkit capabilities.** Add the capability to
+   `components.md`, and distinguish it from repository process
+   skills.
+
+2. **Keep Toolkit frontmatter harness-agnostic.** Use `name`
+   and `description` only, as required by the
+   [Agent Harness Adapter Contract][agent-harness-doc]. Do not
+   add harness-specific fields or placeholders such as
+   `user-invocable`, `allowed-tools`, or `$ARGUMENTS`.
+
+3. **Use ProtoBot's defined vocabulary.** State-driven EARS
+   uses `While`, not undeclared aliases. Skills persisting
+   records use ADR-0002 relationships (`depends-on`,
+   `conflicts-with`, `supersedes`, `related-to`); host-independent
+   skills use non-persisted companion-role labels for suggested
+   companions.
+
+4. **Emit machine-separable fields.** Distinguish vocabulary
+   by layer: host-independent elicitation skills emit portable-response
+   fields defined in [`ears-and-review.md`][ears-and-review-doc]
+   ("Portable Response", including `Responsible system`). Cite the
+   [Adapter Contract][agent-harness-doc] only for host-mapping the
+   subset of those fields it names (`Affected interfaces`,
+   `Observable at the named boundary alone`) onto ADR-0002
+   persistence fields (`applies_to`, `verification.mode`). Do not
+   demand persistence fields from host-independent skills, and
+   emit required properties as fields, not only as prose.
+
+5. **Review agents must check skill-to-spec alignment.** When
+   reviewing a PR that creates or modifies a skill file, verify
+   the skill against the specification hierarchy, not only
+   against sibling skills. Findings should include
+   capability-registration gaps, harness-specific frontmatter
+   that violates Toolkit skill rules, and terminology that
+   conflicts with `overview.md` or `components.md`.
