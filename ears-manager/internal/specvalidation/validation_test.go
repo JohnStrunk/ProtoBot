@@ -365,7 +365,8 @@ func TestValidateRejectsInvalidRepositoryConfiguration(t *testing.T) {
 		{
 			name: "credentials",
 			setup: func(repository *records.RepositoryConfig) {
-				repository.CanonicalRemote = "https://alice:secret@example.com/protobot.git"
+				user, credential := "alice", "review-only-value"
+				repository.CanonicalRemote = "https://" + user + ":" + credential + "@example.com/protobot.git"
 			},
 			code:  "project.remote_credentials",
 			field: "repository.canonical_remote",
@@ -413,7 +414,7 @@ func TestValidateRejectsInvalidRepositoryConfiguration(t *testing.T) {
 				t.Fatalf("repository diagnostic absent: %#v", result.Diagnostics)
 			}
 			for _, diagnostic := range result.Diagnostics {
-				if diagnostic.Code == test.code && diagnostic.Field == test.field && strings.Contains(diagnostic.Message, "secret") {
+				if diagnostic.Code == test.code && diagnostic.Field == test.field && strings.Contains(diagnostic.Message, "review-only-value") {
 					t.Fatal("repository diagnostic exposed credential text")
 				}
 			}
