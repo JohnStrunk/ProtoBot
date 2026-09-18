@@ -86,8 +86,9 @@ and every harness already owns its sessions.
   document decides that the role runs that CLI through the harness's
   shell tool, and takes the command grammar, the JSON envelope, and
   the exit statuses from that contract.
-- **#31** (Drafting Table WMS integration) defines the WMS operations.
-  This document registers them as tools and does not name them.
+- **#31** ([Drafting Table WMS integration](../drafting-table-wms.md))
+  defines the WMS operations. This document registers them as tools and
+  does not name them.
 - **#32** ([Validation Rules](../validation-rules.md)) defines lifecycle
   validation. #32 places preflight with the caller; in a harness the
   caller is the `wms` server acting for the role, which offers
@@ -219,7 +220,19 @@ governed_commands:
   - ears-manager
 governed_mcp_servers:
   wms:
-    tools: []   # the Drafting Table's WMS operations of #31, by tool name
+    tools:
+      - request_create
+      - request_refine
+      - request_link_change_set
+      - request_link_build_work_item
+      - request_get
+      - request_query
+      - work_item_get
+      - work_item_query
+      - blocked_work_query
+      - lifecycle_preflight
+      - blocked_work_submit_resolution
+      - blocked_work_acknowledge
 ```
 
 - A binding takes its entry-point name, its skill allowlist, its
@@ -228,9 +241,10 @@ governed_mcp_servers:
   into its own config, the binding copies them, and the fixture checks
   that the copy matches.
 - The tool list of a governed server is the role's allowlist for it.
-  #31 fills it when it names the Drafting Table's WMS operations; a
-  lifecycle transition is never on it. The fixture's manifest lists
-  the names its `wms` stub serves.
+  The names are the canonical operation names with `.` and `-` replaced by
+  `_`; a harness adds its server prefix (`wms_` or `mcp__wms__`). A lifecycle
+  transition is never on it. The fixture's manifest lists the names its
+  `wms` stub serves.
 - A new Toolkit skill is one manifest line, plus the same line in each
   binding's native copy.
 - The manifest holds no credential and no path rule.
@@ -306,8 +320,9 @@ manifest:
   ([WMS Adapter API](../../architecture.md#wms-adapter-api)). Its tools
   carry the operations and result shapes of #31, one tool per
   operation. Each harness adds its own prefix, for example
-  `wms_<operation>` in OpenCode and `mcp__wms__<operation>` in Claude
-  Code, and the binding's prompt states that mapping. MCP tool schemas
+  `wms_<normalized-operation>` in OpenCode and
+  `mcp__wms__<normalized-operation>` in Claude Code, and the binding's prompt
+  states that mapping. MCP tool schemas
   are the specification approach the Architecture names for the Toolkit
   ([Interface Specification Approach][interface-approach]), and
   OpenCode, Claude Code, and Codex all load MCP servers. The `wms`
@@ -415,7 +430,7 @@ fields, never from the command, the prompt, or the conversation:
 | Open a pull request | `gh pr create --repo <repo> --base <default> --head <branch> --title <title> --body-file -` with the body in a quoted here-document | The canonical repository and the current branch only |
 | Update a pull request | `gh pr edit <branch> --repo <repo> --body-file -`, with `--title <title>` before `--body-file -` when the intent changed | The pull request of the current branch only |
 | Read a pull request | `gh pr view <branch> --repo <repo> --json <fields>` | `<fields>` is a comma-separated subset of `number`, `state`, `url`, `baseRefName`, `headRefName`, and `mergeCommit` |
-| Register an approved change set | `register-approved-change-set` with the change-set ID of `<branch>` and the full merge commit; the command derives the materialization key that #34 names from `project.id` and those two values | Single-player, after the user merged the pull request |
+| Register an approved change set | `register-approved-change-set` with the change-set ID of `<branch>` and the full merge commit; the command derives the materialization key and the distinct registration idempotency key from `project.id` and those two values using #34's canonical tuple | Single-player, after the user merged the pull request |
 
 The guard parses the command as shell words into an argument list and
 a standard-input text, and matches the list against the forms; it
@@ -1242,6 +1257,8 @@ material.
 - [Validation Rules](../validation-rules.md) — Lifecycle
   authorization, preflight, and the rejection of a Drafting Table
   transition.
+- [Drafting Table WMS Integration](../drafting-table-wms.md) — Backend-neutral
+  WMS operations, result shapes, and blocked-work resolution.
 - [User Interaction Flow](../user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Drafting Table UX](../drafting-table-ux.md) — Stable interaction

@@ -322,6 +322,8 @@ ProtoBot's own components need (CLI tools, Go binaries, etc.).
   Command grammar, results, diagnostics, and impact review.
 - [Validation Rules](validation-rules.md) — Lifecycle validation,
   authorization, transitions, and rejection semantics.
+- [Drafting Table WMS Integration](drafting-table-wms.md) — Backend-neutral
+  WMS operations and blocked-work resolution.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state.

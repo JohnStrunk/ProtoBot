@@ -483,9 +483,11 @@ Retired requirements remain in the audit delta but are not obligations.
 Recording exclusions prevents the same conservative false positives from
 being reconsidered without context on every run.
 
-An approved change set materializes one build work item by default. The
-materializer reruns deterministic analysis at the resulting
-specification commit and creates the item in `blocked` if any candidate
+An approved change set materializes one build work item by default. If the
+approved change set declares `implementation_required: false`, it records a
+durable `omitted` reservation instead. The materializer reruns deterministic
+analysis at the resulting specification commit and creates the item in
+`blocked` if any candidate
 lacks a reviewed disposition. The work item freezes the approved changed
 and applicable IDs at that commit. Requirements have no lifecycle state
 and are never claimed. The work-item contract separately records changed
@@ -590,9 +592,10 @@ Each adapter maps ProtoBot's build work-item model onto a backend:
   reference, human-owned business priority, owner, refinement state, and
   typed request relationships. Specification content remains in Git.
 - **Persist materialized work idempotently:** atomically create-or-return
-  the complete contract already assembled by the Job Site Materializer
-  under a stable idempotency key. Dispatch must never observe a partial
-  item.
+  the complete contract already assembled by the Job Site Materializer, or a
+  durable `omitted` reservation when implementation is not required, under a
+  stable materialization key and a distinct per-operation idempotency key.
+  Dispatch must never observe a partial item.
 - **Transition work items atomically:** compare the expected current
   state before applying a claim or any other lifecycle mutation.
 - **Translate** between ProtoBot's work item model and the backend's
@@ -621,17 +624,24 @@ tracker while specification content lives in the git repo. The Drafting
 Table reads that state for status and blocked-work UX; the Job Site owns
 execution transitions.
 
+The API surface below includes both Drafting Table operations (requests and
+queries) and Job Site/Materializer operations. The Drafting Table subset is
+defined in the [Drafting Table WMS Integration Contract](drafting-table-wms.md)
+and is not authorized to invoke the execution-lifecycle operations below.
+
 The API surface includes:
 
 - **Requests:** Create/read/refine requests; update business priority only
   for an authorized human maintainer; query by refinement state, owner,
   priority, or typed relationship; and link a request to its change set or
   direct true-bug build work item.
-- **Materialization:** Create or return a build work item by stable
-  idempotency key. The operation writes its source specification and
-  code commits, source change set or bug report, changed and applicable
-  requirement IDs, impact dispositions, dependencies, and provenance as
-  one durable contract.
+- **Materialization:** Create or return a build work item, or a durable
+  `omitted` reservation when implementation is not required, by stable
+  materialization key and a distinct per-operation idempotency key. The
+  operation writes its source specification and code commits, source change
+  set or bug report, changed and applicable requirement IDs, impact
+  dispositions, dependencies, and provenance as one durable contract or
+  reservation.
 - **Lifecycle transitions:** Update state only when the caller supplies
   the expected current state and monotonically increasing contract
   version. Claiming compares `ready-for-building` and atomically writes
@@ -654,10 +664,10 @@ The API surface includes:
 - **Idempotent completion:** Complete only a `merging` item whose tested
   product-tree digest, sealed Inspection Run, post-attestation integration
   head, target, and contract version match. A Job Site completion also
-   requires the current fencing token. A reconciler replay after Git
-   already merged instead requires the WMS-observed merge envelope and
-   reconciliation evidence; the reconciler does not present a live Job
-   Site fence. Repeating the
+  requires the current fencing token. A reconciler replay after Git
+  already merged instead requires the WMS-observed merge envelope and
+  reconciliation evidence; the reconciler does not present a live Job
+  Site fence. Repeating the
   operation with the same resulting merge commit returns the prior result;
   a different result is rejected for reconciliation.
 - **Finding ledger:** Create a finding by stable producer idempotency key
@@ -1669,15 +1679,17 @@ sequenceDiagram
    CI runs `ears-manager check` as a merge gate to validate spec
    well-formedness.
 3. **The change set lands on main.** A registration hook calls the Job
-   Site materializer with the change-set ID, resulting merge commit, and
-   stable materialization key.
+   Site materializer with the change-set ID, resulting merge commit, stable
+   materialization key, and the distinct deterministic registration
+   idempotency key.
 4. **The materializer constructs the contract.** It reads the manifest
    at that commit, reruns deterministic impact analysis, resolves
    dependencies, and calls the WMS's atomic create-or-return operation.
-   One approved change set creates one build work item by default. The
-   item starts in `waiting` when it has dependencies, `blocked` when
-   impact review remains, and `ready-for-building` otherwise. Dispatch
-   cannot observe an incomplete contract.
+   One approved change set creates one build work item by default, or a
+   durable `omitted` reservation when it has no implementation effect. A
+   created item starts in `waiting` when it has dependencies, `blocked` when
+   impact review remains, and `ready-for-building` otherwise. Dispatch cannot
+   observe an incomplete contract.
 5. **The Job Site** queries ready work items and atomically claims one by
    compare-and-swap. It creates the `wi/` branch from the recorded source
    commit and runs the Building/Inspecting pipeline.
@@ -1759,7 +1771,8 @@ architecture.
 #### Open design questions
 
 - **Future split/combine strategy.** The initial contract is one approved
-  change set to one build work item. Splitting large change sets or
+  change set to one build work item by default; an omitted reservation is
+  the explicit no-implementation result. Splitting large change sets or
   combining several of them could improve throughput, but interactions
   between the new boundaries require a reviewed delivery plan and fresh
   impact analysis. What rules and UX should govern that review?
@@ -1905,6 +1918,8 @@ confirmation.
   constraints
 - [Validation Rules Contract](validation-rules.md) — Lifecycle states,
   authorization, transitions, rejection semantics, and acceptance matrix
+- [Drafting Table WMS Integration Contract](drafting-table-wms.md) —
+  Backend-neutral request, query, linking, and blocked-resolution operations
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state

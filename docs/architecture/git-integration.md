@@ -597,12 +597,18 @@ materialization key
   locally. The merge alone is not sufficient
   ([Single-player mode](components.md#single-player-mode)).
 
-Registration is idempotent by materialization key. Repeating it
-with the same merge commit returns the prior result. If the merge
-succeeds and the registration write fails, the retry is the same
-registration call — never a second merge. A registration that
-arrives with a different merge commit for the same change set is
-rejected for reconciliation.
+Registration is idempotent by materialization key and by a distinct
+per-command idempotency key. The registration command deterministically
+derives the latter from the operation name, project ID, change-set ID, and
+full merge commit as
+`sha256("register-approved-change-set" + NUL + project_id + NUL +
+change_set_id + NUL + merge_commit)`; the same registration retry therefore
+reuses both keys and the same request fingerprint. Repeating it with the
+same merge commit
+returns the prior result. If the merge succeeds and the registration write
+fails, the retry is the same registration call - never a second merge. A
+registration that arrives with a different merge commit for the same change
+set is rejected for reconciliation.
 
 The Drafting Table never transitions a work item itself. It hands
 the materializer a merge commit; the WMS Adapter applies
@@ -822,7 +828,7 @@ diagnostic and the safe retry.
 | `ears-manager check` failed in CI | Non-zero exit in the merge gate | The check's own diagnostics, by record | Fix through `ears-manager`, commit, push to the same branch |
 | Merge conflict in a change-set manifest or index file | Merge of the default branch | Names the conflicting file | Resolve mechanically; sorted lists and fixed key order keep the resolution deterministic ([ADR-0001][adr1-diff]) |
 | Merge conflict in a requirement record | Merge of the default branch | Names the record | Rare by design, since records are one file each; resolve through `ears-manager` and revalidate |
-| Merge succeeded, registration failed | Registration call | Names the change set and the merge commit | Repeat the same registration call; it is idempotent by materialization key. Never merge again |
+| Merge succeeded, registration failed | Registration call | Names the change set, merge commit, materialization key, and registration idempotency key | Repeat the same registration call with both derived keys; it is idempotent and never merges again |
 | Registration rejected, different merge commit | Materializer response | Names both merge commits | Reconcile; a change set has exactly one approved merge commit |
 
 ---
@@ -859,7 +865,7 @@ protection rule.
 | 5 | Discard the direct edit and request a commit | Exactly one commit. It contains only the two artifacts, the manifest, `project.yaml`, and `projection.yaml`. Subject is `spec(CS-00002): <intent>`; the body carries the `Change-Set: CS-00002` trailer. |
 | 6 | Push the branch and prepare the pull request | `origin` has `cs/00002-<slug>` at the same commit; the default branch is unchanged. The rendered body contains the intent, the `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. It matches the output of `change-set compare` and `impact`. |
 | 7 | Commit an unrelated change on the default branch, then refresh the change set | The change-set branch gains a merge commit with two parents. The manifest's `base_commit` equals the new default-branch head. `git log --walk-reflogs` shows no rebase and the branch's first commit is unchanged. |
-| 8 | Merge the branch into the default branch with a merge commit, then register | The default branch head is a merge commit with two parents. The registration stub recorded one call with the change-set ID, that merge commit, and the materialization key. Running registration again records no new call and returns the first result. A write to the merged manifest is refused. |
+| 8 | Merge the branch into the default branch with a merge commit, then register | The default branch head is a merge commit with two parents. The registration stub recorded one call with the change-set ID, that merge commit, the materialization key, and the derived registration idempotency key. Running registration again records no new call and returns the first result. A write to the merged manifest is refused. |
 
 ### Negative checks
 

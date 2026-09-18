@@ -832,6 +832,8 @@ new design track.
 - [Overview](overview.md) — Specification hierarchy, modes, and workflow
 - [System Components](components.md) — Component responsibilities and
   `ears-manager` behavior
+- [Drafting Table WMS Integration](drafting-table-wms.md) — Backend-neutral
+  WMS operations and blocked-work resolution
 - [User Interaction Flow](user-interaction-flow.md) — Sketching,
   Dimensioning, and impact review
 - [Drafting Table UX](drafting-table-ux.md) — User-visible checkpoints and

@@ -606,6 +606,7 @@ authorities:
 
 | State | Owner | Validation Rules responsibility |
 | --- | --- | --- |
+| Request backlog, request revisions, and blocked-resolution submissions | WMS Adapter/backend | Validate request-namespace preconditions and supply durable submission records; consume only the selected approval and lifecycle fields during authoritative `resolve-block`. |
 | Work-item state, contract versions, leases, and fencing tokens | WMS Adapter and its claim coordinator | Validate all reads used for a mutation and require atomic compare-and-swap semantics. |
 | Idempotency results, materialization reservations, and lifecycle audit events | WMS Adapter / external coordinator | Ensure retries return the original result and never duplicate a mutation, including `omitted` outcomes. |
 | Specification records and impact dispositions | Git through `ears-manager` | Consume successful validation/check evidence; do not parse or mutate records. |
@@ -686,7 +687,7 @@ decisions.
 
 | Topic | Owner or reason |
 | --- | --- |
-| WMS request/backlog operation shapes | #31, Drafting Table WMS Integration. |
+| WMS request/backlog operation shapes | #31, [Drafting Table WMS Integration](drafting-table-wms.md). |
 | Backend-specific issue/card/API mapping | WMS Adapter implementation behind this contract. |
 | EARS, artifact, relationship, or impact-record validation | `ears-manager`, #30 and its implementation issues. |
 | Job Site scheduling, worker isolation, sandboxing, and Finding Ledger schema | Job Site contracts and project policy. |
@@ -704,6 +705,8 @@ decisions.
 - [Overview](overview.md) — Guiding principles, workflow, and platform.
 - [System Components](components.md) — WMS lifecycle, component ownership,
   Job Site, and security boundaries.
+- [Drafting Table WMS Integration](drafting-table-wms.md) — Backend-neutral
+  request, query, linking, and blocked-resolution operations.
 - [User Interaction Flow](user-interaction-flow.md) — Change types, work-item
   lifecycle, and testing strategy.
 - [Drafting Table UX](drafting-table-ux.md) — Preflight, blocked-work,
