@@ -227,10 +227,14 @@ already there.
 
 ## Registered artifact paths
 
-Every specification artifact the Drafting Table may commit is
-registered in the `artifacts` list of `project.yaml`. An
-unregistered path is not a specification artifact, and the
-Drafting Table never stages it.
+Every path the Drafting Table may stage is registered in
+`project.yaml`: opaque artifacts in the `artifacts` list, and
+structured store records in the `stores` block. Opaque Vision,
+Architecture, interface-IDL, and interface-prose files occupy
+`artifacts`. Structured requirement, interface, and change-set
+records occupy `stores`, with layout defined by
+[ADR-0003](../decisions/0003-ears-manager-storage-layout.md). A
+path registered in neither is not staged.
 
 ### Selecting the paths
 
@@ -290,9 +294,9 @@ Every registered path:
 
 - is relative to the project root and resolves inside the working
   tree, after symlink resolution;
-- is owned by exactly one component in the registry `owner` field,
-  and the Drafting Table stages only entries owned by
-  `ears-manager` or `user`;
+- if it is an `artifacts` entry, is owned by exactly one component
+  in the registry `owner` field, and is staged only when that owner
+  is `ears-manager` or `user`;
 - must not fall under `.protobot/attestations/` or name
   `.protobot/test-catalog.jsonl`, which the Job Site owns; and
 - must be classified `shared` in `.protobot/projection.yaml`, so
@@ -858,7 +862,7 @@ protection rule.
 
 | # | Action | Expected result |
 | --- | --- | --- |
-| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, schema versions, and the four default registry entries. `.protobot/projection.yaml` carries a `shared` class for each of those four paths. One commit of three files, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
+| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, schema versions, two `artifacts` entries and three `stores` entries (five managed paths total). `.protobot/projection.yaml` carries a `shared` class for each of those five paths. One commit of three files, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
 | 2 | Merge `CS-00001`, register, then create change set `CS-00002` for the initial Sketch | The default branch head is a merge commit. Branch `cs/00002-<slug>` exists and is checked out. Its tip equals the new default-branch head, and the manifest records that head's full 40-character hash as `base_commit`. No other branch was created. |
 | 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content. `ears-manager` has added a `shared` class for each new path. `git status` lists only the two artifacts, the manifest, `project.yaml`, and `projection.yaml`. |
 | 4 | Edit a registered artifact directly with a text editor, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |
@@ -936,6 +940,8 @@ resurface.
   change-set history representation.
 - [ADR-0002](../decisions/0002-ears-specification-record-schema.md)
   — Record schemas, `base_commit`, and the artifact registry.
+- [ADR-0003](../decisions/0003-ears-manager-storage-layout.md) —
+  Store paths, schema version keys, and the `stores` block.
 
 [adr1-diff]: ../decisions/0001-requirements-storage-format.md#1-git-diffmerge-compatibility
 [adr1-history]: ../decisions/0001-requirements-storage-format.md#change-set-history-representation
