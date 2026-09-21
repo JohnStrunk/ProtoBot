@@ -492,7 +492,11 @@ subject and the same trailer. There is no special case.
 - Before the first push, amending the most recent commit is
   allowed only on explicit user request.
 - Every commit is authored with the user's configured Git
-  identity. Requirement-level origin is recorded in the
+  identity. Hosted, where no user has a Git configuration, the
+  author is the authenticated user's name and email from the Gate's
+  signed context, and the committer is the service actor
+  ([SCM identity](source-control-manager.md#identity)).
+  Requirement-level origin is recorded in the
   `provenance` field of each record, not in the commit author, so
   the Job Site's bot-account question stays a Job Site question.
 
@@ -786,7 +790,7 @@ The later layers hold when the harness layer is off.
 | Fast-forward the local default branch | Only to the head of `repository.default_branch` on the canonical remote, or, before `project.yaml` exists, on the upstream remote of the local default branch; only by fast-forward; and, when it is checked out, only with no uncommitted change to a tracked file; a fetch alone leaves the local ref stale, and a change-set branch is cut from it |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
-| Stage | Registered artifact paths, the change-set manifest, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path. After a failed commit, the paths it staged are unstaged again, so the index is as it was |
+| Stage | Registered artifact paths, the change-set manifest, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path, each a file, never a directory. A failed commit leaves the user's index as it was, content that was already staged included; after a successful commit, the index entries of exactly those paths are set to the new commit |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
 | Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |

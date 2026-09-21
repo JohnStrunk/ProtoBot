@@ -962,7 +962,7 @@ written records.
 | The model or provider fails, or the context overflows | A session error | Handled as a failed governed call ([failure behavior][ux-failure]). No governed write is replayed automatically. | As the last diagnostic says |
 | The user interrupts a governed call | The call is aborted | Its result is unknown | Read again before the next write |
 | A permission prompt appears in a headless run | The harness rejects or stops | A defect in the binding, which has no prompt rules | Unchanged |
-| The work is complete | The [approval handoff][ux-approval] is reached | Commit, push, and the pull request run on explicit request (#34), through the `scm` tools. The user merges on the Git host and, in single-player mode, asks the role to register. | A committed branch and a pull request. Another change set starts another session. |
+| The work is complete | The [approval handoff][ux-approval] is reached | Commit, push, and the pull request run on explicit request (#34), through the `scm` tools. Before `publish`, the role compares the `parent` and the `paths` that `commit` returned with the branch tip and the change-set paths that the final review showed, from `repo_state`, or, after a `refresh` in the same handoff, with the merge commit that `refresh` returned and the paths that the reviewed refresh sequence wrote; when they differ, it stops and asks for review again ([stale state][ux-stale], [SCM security posture](../source-control-manager.md#security-posture)). The user merges on the Git host and, in single-player mode, asks the role to register. | A committed branch and a pull request. Another change set starts another session. |
 
 ---
 

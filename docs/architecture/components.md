@@ -873,7 +873,9 @@ The SCM does **not**:
 ### Design principles
 
 - **Deterministic, not AI-driven.** Like `ears-manager`, the SCM is
-  conventional code. The same state and request give the same result.
+  conventional code. The same state and request give the same decision,
+  commands, and rendered text; a commit hash also depends on Git's own
+  inputs, such as dates and identity.
 - **Governed objects, not refs.** Every operation takes a change set,
   or nothing, and derives its refs, files, and PR from it. The one
   exception is the checked prefix and default branch at initialization,
@@ -1997,8 +1999,9 @@ At every mutation boundary, a Gate:
    context: project, role, work item/change set, allowed refs, actions,
    and expiry. For the Source Control Manager's Drafting Table face, it
    maps the trusted subject and the proposed change set that the Web
-   session record names. Caller-supplied project or branch claims are
-   not trusted.
+   session record names, and adds the subject's Git author, a name and
+   an email from the identity provider, for an operation that creates a
+   commit. Caller-supplied project or branch claims are not trusted.
 3. Authorizes the requested action against that context and the current
    WMS contract version. A proposed change set has no WMS contract
    version, so for the Source Control Manager's Drafting Table face the

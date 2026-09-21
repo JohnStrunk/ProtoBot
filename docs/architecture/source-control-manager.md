@@ -309,7 +309,10 @@ approval, which is the merge of the pull request.
 
 - **Deterministic, not AI-driven.** The SCM is conventional code, like
   `ears-manager`. The same repository state and the same request give
-  the same result, byte for byte.
+  the same decision, the same commands, and the same rendered text,
+  byte for byte. A commit hash is Git's: it also depends on the author
+  and committer identity, their dates, and a signature, which no
+  request carries.
 - **Argument lists, never a shell.** Every Git and host command is an
   argument list. No request value reaches a shell.
 - **No repository program runs.** A hook, an `fsmonitor` program, or a
@@ -317,20 +320,25 @@ approval, which is the merge of the pull request.
   could change a registered file after the digest check, or drop the
   trailer, and hosted it would run next to a credential. The SCM runs
   every Git command with an empty hooks directory of its own and
-  `core.fsmonitor` off, and commits with `--cleanup=verbatim`, so no
-  cleanup mode or comment character strips the trailer. At the digest
-  check it records the content of every path it will stage, and after
-  staging it compares every staged blob with that record, so a clean
-  filter or a write between the two steps stops the commit with
-  `STAGED_CONTENT_CHANGED`. Locally, the programs of the user's own Git
-  configuration, the clone's `.git/config` included, still run as the
-  user's: a credential helper, a signing program, and a filter or merge
-  driver that `.gitattributes` names and that configuration defines. A
-  repository cannot ship them, because it cannot ship configuration.
-  Hosted, the SCM runs Git with its own global configuration and no
-  system configuration, so none of them exists
-  ([Hosted isolation](#hosted-isolation)). CI still runs the project's
-  own checks on every push.
+  `core.fsmonitor` off, and keeps every commit message as it rendered
+  it: `commit` creates its commit with `git commit-tree`, which stores
+  the message unchanged, and `refresh` merges with
+  `--cleanup=verbatim`, so no cleanup mode or comment character strips
+  the trailer. At the digest check it records the content of every
+  path it will stage. It stages into a private index, compares every
+  staged blob with that record, and writes the commit's tree from that
+  index. A clean filter, or a write before staging, that changes a
+  file stops the commit with `STAGED_CONTENT_CHANGED`, and nothing
+  that Git reads from the working tree after the comparison can enter
+  the commit ([`commit`](#commit), step 5). Locally, the programs of
+  the user's own Git configuration, the clone's `.git/config` included,
+  still run as the user's: a credential helper, a signing program, and
+  a filter or merge driver that `.gitattributes` names and that
+  configuration defines. A repository cannot ship them, because it
+  cannot ship configuration. Hosted, the SCM runs Git with its own
+  global configuration and no system configuration, so none of them
+  exists ([Hosted isolation](#hosted-isolation)). CI still runs the
+  project's own checks on every push.
 - **Stateless.** The SCM keeps no store. Every operation reads Git, the
   host, and `ears-manager` again, so a retry after a lost response is
   safe ([Security posture and persistent state][scm-state]).
@@ -475,10 +483,10 @@ that reads `ears-manager` with `SPEC_TOOL_FAILED`.
 
 | Operation | Object | Refs read and written | Authorization | Result | Failure |
 | --- | --- | --- | --- | --- | --- |
-| `repo_state` | The project, and the change set of the current branch when there is one | Reads `HEAD`, the refs of `<remote>` after a fetch, and the pull request of `<branch>`. Writes no branch, except the fast-forward of the local `<default>` that #34 allows | Read. Before `.protobot/` exists it reports the branch and nothing else | Project fields, the current branch and its change set, `base_commit` against the default head, uncommitted change-set paths, the pull request's number, state, URL, and merge commit, and the local change-set branches | `PROJECT_NOT_AT_ROOT`, `PROJECT_UNREADABLE`, and the remote codes, except that an unreachable remote or host, and an ambiguous pull request, are reported states, not failures |
+| `repo_state` | The project, and the change set of the current branch when there is one | Reads `HEAD`, the refs of `<remote>` after a fetch, and the pull request of `<branch>`. Writes no branch, except the fast-forward of the local `<default>` that #34 allows | Read. Before `.protobot/` exists it reports the branch and nothing else | Project fields, the current branch, its tip, and its change set, `base_commit` against the default head, uncommitted change-set paths, the pull request's number, state, URL, and merge commit, and the local change-set branches | `PROJECT_NOT_AT_ROOT`, `PROJECT_UNREADABLE`, and the remote codes, except that an unreachable remote or host, and an ambiguous pull request, are reported states, not failures |
 | `branch_init` | The project before initialization | Fetches the upstream of the local `<default>` and fast-forwards it. Creates `refs/heads/<prefix>00001-project-init` from it, tracking nothing | Only while no `.protobot/` exists at the working-tree root; `<default>` is the branch that its upstream remote's `HEAD` names; the prefix is not reserved | The branch and the commit it was cut from | `ALREADY_INITIALIZED`, `RESERVED_PREFIX`, `UNCOMMITTED_CHANGES`, `DEFAULT_NOT_FOUND`, `DEFAULT_DIVERGED`, `BRANCH_EXISTS`, and the remote codes for the upstream remote |
 | `branch_resume` | The change set named in the request | Switches `HEAD` to the one local branch `<prefix><nnnnn>-<slug>` of that change set | The change set's manifest exists at the branch tip | The branch and its tip | `CHANGE_SET_NOT_FOUND`, `AMBIGUOUS_BRANCH`, `UNCOMMITTED_CHANGES` |
-| `commit` | The change set of the current branch | Writes one commit on `refs/heads/<branch>` | The current branch is a change-set branch; every staged path is a path of the change set that #34 lets the Drafting Table stage | The commit, its subject and trailer, and its paths | `NOT_A_CHANGE_SET_BRANCH`, `INIT_REMOTE_MISMATCH`, `UNCOMMITTED_CHANGES`, `SPEC_DIGEST_MISMATCH`, `SPEC_CHECK_FAILED`, `PATH_NOT_STAGEABLE`, `STAGED_CONTENT_CHANGED`, `UNSAFE_TEXT`, `NOTHING_TO_COMMIT` |
+| `commit` | The change set of the current branch | Writes one commit on `refs/heads/<branch>` | The current branch is a change-set branch; every staged path is a path of the change set that #34 lets the Drafting Table stage | The commit, its parent, its subject and trailer, and its paths | `NOT_A_CHANGE_SET_BRANCH`, `INIT_REMOTE_MISMATCH`, `UNCOMMITTED_CHANGES`, `SPEC_DIGEST_MISMATCH`, `SPEC_CHECK_FAILED`, `PATH_NOT_STAGEABLE`, `STAGED_CONTENT_CHANGED`, `UNSAFE_TEXT`, `NOTHING_TO_COMMIT` |
 | `publish` | The change set of the current branch and its pull request | Pushes `refs/heads/<branch>` to the same name on `<remote>`, without force and without tags. Creates or updates the pull request of `<branch>` | The same branch rule; the pull request is the one of `<branch>`, as the [host adapter](#host-adapter-boundary) finds it | The pushed commit, and the pull request's number, URL, and whether it was created, updated, or unchanged | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `NOTHING_TO_PUBLISH`, `BASE_NOT_ON_DEFAULT`, `DEFAULT_MOVED`, `BASE_COMMIT_STALE`, `UNSAFE_TEXT`, `PR_MERGED`, `PR_CLOSED`, `AMBIGUOUS_PULL_REQUEST`, `PUSH_REJECTED_NON_FAST_FORWARD`, `PUSH_REJECTED_PROTECTED`, `HOST_UNAVAILABLE`, `HOST_REQUEST_FAILED`, and the remote codes |
 | `refresh` | The change set of the current branch | Merges `<remote>/<default>` into `refs/heads/<branch>` | The same branch rule | The merge commit, and the new default head that `change-set update --base-commit` must record | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `MERGE_CONFLICT`, and the remote codes |
 
@@ -556,13 +564,19 @@ is prose that #34 allows.
 4. Fetch `<remote>`, without tags. When the fetch fails, report
    `remote.reachable: false` with the failure code and continue with
    the local refs.
-5. Read the current branch. Classify it as a change-set branch, the
-   default branch, another branch, or a detached `HEAD`. For a
-   change-set branch, read the manifest through `ears-manager --output
-   json change-set show`, and compare `base_commit` with the head of
-   `<remote>/<default>`.
-6. List uncommitted changes. Name each changed path of the change set.
-   Count every other changed path, and never name it.
+5. Read the current branch and its tip. Classify it as a change-set
+   branch, the default branch, another branch, or a detached `HEAD`.
+   For a change-set branch, read the manifest through `ears-manager
+   --output json change-set show`, and compare `base_commit` with the
+   head of `<remote>/<default>`.
+6. List uncommitted changes. Name each changed path of the change set:
+   the file set that [`commit`](#commit) step 2 derives, so
+   `working_tree.change_set_paths` equals the `paths` that a `commit`
+   of the same state returns. The one exception is a path whose index
+   entry a `commit` could not update ([`commit`](#commit), step 5): its
+   content equals `HEAD`, so a `commit` finds nothing to commit, but
+   the path stays listed until the user runs the `git reset` that the
+   warning names. Count every other changed path, and never name it.
 7. For a change-set branch, read the pull request of `<branch>` through
    the host adapter. When the adapter cannot answer, for any class of
    failure, report the pull request as `unavailable`, with the class in
@@ -578,7 +592,8 @@ is prose that #34 allows.
    - in this worktree: `git merge --ff-only <remote>/<default>`, which
      moves the index and the working tree with it, and only when no
      tracked file has an uncommitted change; `update-ref` there would
-     leave both behind `HEAD`; and
+     leave both behind `HEAD`. `branch.head` then reports the new tip;
+     and
    - in another worktree: nothing, because neither command can move
      that worktree's index and files from here.
 
@@ -605,7 +620,7 @@ and the pull request. Its `data` fields are:
 | `project` | `id`, `default_branch`, `branch_prefix`, and `review_mode` |
 | `remote` | `name`, and `reachable` with a failure code when it is `false` |
 | `default_branch` | `head` of `<remote>/<default>`, and `local`: `current`, `fast-forwarded`, `behind`, or `diverged` |
-| `branch` | `name`, `kind` (`change-set`, `default`, `other`, or `detached`), and for a change-set branch `change_set_id`, `base_commit`, `default_moved`, and `default_merged_in` |
+| `branch` | `name`, `kind` (`change-set`, `default`, `other`, or `detached`), `head`, the commit that `HEAD` names when the call returns, and for a change-set branch `change_set_id`, `base_commit`, `default_moved`, and `default_merged_in` |
 | `working_tree` | `change_set_paths`, sorted, and the count `other_paths` |
 | `pull_request` | `number`, `state` (`open`, `merged`, `closed`, `none`, `unavailable`, or `ambiguous`), `url`, and `merge_commit` |
 | `change_set_branches` | For each local `<prefix>` branch: `change_set_id`, `branch`, and `on_remote` |
@@ -687,10 +702,18 @@ A normal change-set branch is not cut by the SCM.
 ### `commit`
 
 1. Resolve the change set of the current branch, or refuse with
-   `NOT_A_CHANGE_SET_BRANCH`. On the initialization branch, refuse with
-   `INIT_REMOTE_MISMATCH` unless `repository.canonical_remote` equals
-   the fetch URL of the upstream remote of `<default>`
-   ([`branch_init`](#branch_init)).
+   `NOT_A_CHANGE_SET_BRANCH`. A detached `HEAD`, as during a rebase or
+   a bisect, has no current branch and is refused the same way. On the
+   initialization branch, refuse with `INIT_REMOTE_MISMATCH` unless
+   `repository.canonical_remote` equals the fetch URL of the upstream
+   remote of `<default>` ([`branch_init`](#branch_init)). Refuse with
+   `UNCOMMITTED_CHANGES`
+   when a merge, a cherry-pick, or a revert is in progress
+   (`MERGE_HEAD`, `CHERRY_PICK_HEAD`, or `REVERT_HEAD` exists). The
+   SCM's commit has one parent and holds only the file set, so it can
+   neither conclude that operation nor move the branch under it. The
+   user concludes or aborts it in their own shell. Remember the commit
+   that `HEAD` names; steps 2 and 5 use that commit as `HEAD`.
 2. **Derive the file set.** Take the paths that `change-set show`
    returns for the change set, its manifest included, and add
    `.protobot/project.yaml`. On the initialization branch, add
@@ -708,6 +731,17 @@ A normal change-set branch is not cut by the SCM.
      commit can hold neither half alone. The user commits the policy
      edit apart first.
 
+   Every path of the file set is a file. #34 lets a registry entry name
+   a directory ([The pre-stage digest comparison][pre-stage]), and
+   `change-set show` lists such an entry as its canonical file set. The
+   SCM never expands a directory and never gives one to `git add`,
+   which would stage every file below it, registered or not: a path
+   that is a directory is `PATH_NOT_STAGEABLE`. A file below a
+   registered directory that no record names is never in the file set,
+   and it changes that directory's digest, so `check` reports it, and
+   step 3 refuses the commit when that directory holds a path of the
+   file set.
+
    Keep the paths whose content differs from `HEAD`. Refuse with
    `PATH_NOT_STAGEABLE` when a path breaks #34's
    [path rules][path-rules]: outside the working tree, under
@@ -717,25 +751,29 @@ A normal change-set branch is not cut by the SCM.
    or `.git/`, or is `opencode.json`, `AGENTS.md`, or `CLAUDE.md`,
    which the guard keeps from `artifact put`
    ([Shell operations][shell-ops]) and the SCM refuses too, because
-   hosted no guard runs; or when it is `.gitattributes` or
-   `.gitmodules`, which name filters, drivers, and submodules. Refuse
-   with `NOTHING_TO_COMMIT` when no path is left.
+   hosted no guard runs; when it is `.gitattributes` or `.gitmodules`,
+   which name filters, drivers, and submodules; or when it replaces a
+   tracked directory or lies below a tracked file, because staging it
+   would remove tracked paths outside the file set. Refuse with
+   `NOTHING_TO_COMMIT` when no path is left.
 3. **Run the pre-stage digest check.** Record the content of every path
    of the file set, then run `ears-manager --output json check
    --change-set CS-<nnnnn>`. A failed `check` refuses the commit, and
    nothing is staged, with two exceptions that are returned as
    warnings: status `5` alone, an impact assessment that is incomplete
    or stale, so a draft can be committed before impact review ends, and
-   a digest mismatch of a registered path outside the file set, which
-   the commit leaves out. CI still gates the merge on the impact
-   assessment (#34).
+   a digest mismatch of a registered path that is outside the file set
+   and holds no path of it, which the commit leaves out. CI still gates
+   the merge on the impact assessment (#34).
    - A diagnostic with the code `artifact.digest_mismatch` for a path of
-     the file set makes the refusal `SPEC_DIGEST_MISMATCH`. The error
+     the file set, or for a registered directory that holds one, makes
+     the refusal `SPEC_DIGEST_MISMATCH`. The error
      names each path with `ears-manager`'s diagnostics unchanged, and
      the two routes forward of #34
      ([The pre-stage digest comparison][pre-stage]). The user runs the
-     discard, `git checkout -- <path>`, as #33 decided. A mismatch of a
-     registered path outside the file set is the second warning: #34
+     discard, `git checkout -- <path>`, as #33 decided. A mismatch of
+     any other registered path outside the file set is the second
+     warning: #34
      checks the artifacts that the change set touches, and the commit
      leaves that path out. #30 lists no code for a digest mismatch; the
      `ears-manager` implementation of #110 adds this one, as #30 allows.
@@ -753,18 +791,54 @@ A normal change-set branch is not cut by the SCM.
    Refuse with `UNSAFE_TEXT` when the intent holds
    [text that GitHub acts on](#text-that-github-acts-on); the user
    revises it through `change-set update`.
-5. **Stage and commit exactly those paths.** Stage each path by name.
-   Compare every staged blob with the content recorded in step 3, and
-   refuse with `STAGED_CONTENT_CHANGED` when a filter or a write since
-   the check changed it. Commit only those paths, with
-   `--cleanup=verbatim`. A change that is staged for any other path
-   stays staged and stays out of the commit. When a step fails after
-   staging, the SCM unstages the paths it staged, so the index is as it
-   was.
+5. **Stage and commit exactly those paths, in a private index.** The
+   SCM never stages into the user's index, and it builds the commit
+   from Git's plumbing commands, which name no path to commit:
+   - Create a temporary index from the commit remembered in step 1,
+     and point Git at that index with `GIT_INDEX_FILE`, only for the
+     commands that build the commit: the creation of that index, `git
+     add`, `git write-tree`, and `git commit-tree`. The `git
+     update-ref` and the update of the user's index run without it.
+   - Stage each path of the file set into it by name, as a literal
+     path. Compare every staged blob with the content recorded in step
+     3, and refuse with `STAGED_CONTENT_CHANGED` when a filter or a
+     write since the check changed it. The private index must then
+     differ from the remembered commit in no path outside the file set;
+     anything else is `INTERNAL`.
+   - Create the commit from that index: `git write-tree`, then `git
+     commit-tree` with the remembered commit as its only parent and the
+     message on standard input, which Git stores unchanged. A `git
+     commit` that names paths reads them from the working tree again,
+     so a write after the comparison would enter the commit, and one
+     that names none would conclude a merge. A tree that is written
+     from the index takes nothing that Git reads from the working tree
+     after the comparison.
+   - Move the branch to the new commit with a compare-and-swap `git
+     update-ref`, from the remembered commit. When the branch no longer
+     names that commit, another writer moved it during the call: no
+     ref, index, or file has changed, and the call fails with
+     `GIT_FAILED` and `retry: reconcile`.
+   - Set the entries of those paths in the user's index to the new
+     `HEAD`. A change that is staged for any other path stays staged
+     and stays out of the commit. When this last update fails, because
+     another process holds the index lock, the commit stands. The
+     result is a success with a warning that names the paths and the
+     command that the user runs, `git reset -- <paths>`; until then Git
+     shows those paths as changed, and every operation that looks for
+     uncommitted changes counts them.
+
+   The SCM deletes the temporary index when the step ends, however it
+   ends. Before the branch moves it never writes the user's index, so
+   after a failure every entry is as it was, one that the user staged
+   for a path of the file set included.
 
 The commit is authored with the user's configured Git identity, as #34
-requires ([History rules][history-rules]). Signing follows the user's
-Git configuration; #34 leaves signing policy open. `commit` never
+requires ([History rules][history-rules]). Hosted, where no user has a
+Git configuration, the author comes from the Gate's signed context
+([Identity](#identity)). Signing follows the Git configuration of the
+process: `git commit-tree` does not read `commit.gpgSign`, so the SCM
+asks it to sign when that setting is on. #34 leaves signing policy
+open. `commit` never
 amends. #34 allows an amend before the first push on explicit request,
 but #33 refused it, and the SCM keeps that refusal
 ([Stricter than #34][stricter]).
@@ -879,7 +953,9 @@ or a team name, such as `@name` or `@org/team`.
 4. When `<remote>/<default>` is not reachable from `HEAD`, merge it
    with a merge commit. The message is `Merge <remote>/<default> into
    <branch>`, then a blank line and the trailer `Change-Set:
-   CS-<nnnnn>`. `refresh` merges nothing else: commits on
+   CS-<nnnnn>`. The merge runs with `--cleanup=verbatim`, so no cleanup
+   mode or comment character strips the trailer. `refresh` merges
+   nothing else: commits on
    `<remote>/<branch>` that `HEAD` lacks are the user's to review, as
    [`publish`](#publish) states.
 5. On a conflict, abort the merge. The working tree, the index, and
@@ -909,7 +985,7 @@ it: the fast-forward of the local default branch.
 | Fast-forward the local default branch | `repo_state` and `branch_init`, only by fast-forward |
 | Create a change-set branch | `ears-manager change-set create`; the initialization branch is `branch_init` |
 | Switch to an existing change-set branch | `branch_resume`, to a local branch only |
-| Stage | `commit`, by explicit path, and it unstages those paths again after a failed commit |
+| Stage | `commit`, by explicit path, into a private index; the user's index changes only after a successful commit |
 | Commit | `commit`, on explicit user request |
 | Push a change-set branch | `publish`, without force, to `<remote>` only |
 | Open or update a pull request | `publish`, against `<default>`, with the body rendered by code |
@@ -1029,7 +1105,7 @@ mode; only the second one gains a trusted context behind the Gate.
 **The SCM has its own authorization namespace**, as the WMS request
 namespace does ([Boundary and ownership][wms-namespace]). It takes the
 fields and the fail-closed rules of #32's
-[authorization context][auth-context], with five differences:
+[authorization context][auth-context], with six differences:
 
 - The faces are the command families. An SCM operation is allowed only
   when it is in the caller's face and in `allowed_actions`; #32's
@@ -1042,6 +1118,10 @@ fields and the fail-closed rules of #32's
 - `allowed_refs` may be empty for an operation that writes no ref of
   `<remote>`, because before a change set exists there is no branch to
   name ([Checks on every call](#checks-on-every-call)).
+- The context carries an `author`, a name and an email, for `commit`
+  and `refresh`, the two operations that can create a commit, because
+  a hosted commit needs a trusted Git identity for the `subject`
+  ([Identity](#identity)).
 - An `UNAUTHORIZED_ACTION` names the face, the operation, and the
   context field that failed, in the SCM's
   [result protocol](#result-protocol), not #32's rejection fields.
@@ -1069,14 +1149,16 @@ check that fails. No Git write and no host call runs before checks 1 to
    the `change_set_id` when the operation acts on a change set,
    non-empty `allowed_actions` with no wildcard, `allowed_refs` with no
    wildcard, which is non-empty when the operation writes a ref of
-   `<remote>`, an unexpired `expires_at`, and a `policy_version`, and
-   the operation is in `allowed_actions`. Every context field that
-   this check names comes from the verified signed payload: a field
-   outside the signature is ignored, and a context whose signature does
-   not cover every one of them is refused. The `Mcp-Method` and `Mcp-Name`
-   headers name the same method and tool as the body, because the Gate
-   authorizes and records the call by them. Otherwise
-   `UNAUTHORIZED_ACTION`.
+   `<remote>`, an `author` with a name and an email for `commit` and
+   `refresh`, the two operations that can create a commit, whether or
+   not this call creates one, an unexpired `expires_at`,
+   and a `policy_version`, and the operation is in `allowed_actions`.
+   Every context field that this check names comes from the verified
+   signed payload: a field outside the signature is ignored, and a
+   context whose signature does not cover every one of them is refused.
+   The `Mcp-Method` and `Mcp-Name` headers name the same method and
+   tool as the body, because the Gate authorizes and records the call
+   by them. Otherwise `UNAUTHORIZED_ACTION`.
 3. **Request.** The fields match the request schema. Otherwise
    `INVALID_REQUEST`.
 4. **Project.** The project resolves from the working tree by the
@@ -1186,9 +1268,26 @@ it. The deployment therefore keeps these rules:
 | Face | Acts as | Recorded as |
 | --- | --- | --- |
 | Drafting Table, local | The user: commits carry the user's configured Git identity (#34), and pushes and host calls use the user's own token | The Git identity in the commit, and the host's own record of the token's user |
-| Drafting Table, Web | The authenticated user as the commit author; the push and host calls use the broker-issued credential | Both the user and the service actor, in the Gate's record ([Authentication and Credential Isolation][credential-isolation]) |
+| Drafting Table, Web | The authenticated user as the commit author, and the deployment's service actor as the committer; the push and host calls use the broker-issued credential | The author and the committer in the commit, and the `subject` with the service actor in the Gate's record ([Authentication and Credential Isolation][credential-isolation]) |
 | Approved-state read | The caller's own read credential | No write to record |
 | Job Site | A bot or app identity, open in the [bot account model][multi-player] | [Q21][q21] |
+
+Hosted, the SCM's own Git configuration holds no user identity, and a
+`subject` is opaque. For an operation that creates a commit, `commit`
+or `refresh`, the Gate's signed context therefore carries the `author`:
+a name and an email that the Gate takes from its identity provider for
+the `subject`, never from the runtime or a request
+([Checks on every call](#checks-on-every-call)). The SCM sets them as
+the author of that one Git command through Git's author environment
+variables, so no argument list and no result holds them. The committer
+is the deployment's service actor, which the SCM sets the same way,
+through Git's committer environment variables, from its own
+configuration, so no identity in the workspace's Git configuration
+replaces it. A host's web editor commits for a user in the same way.
+Signing, when the deployment configures it, is the service actor's,
+because only the SCM's process holds a key. The commit thus records the
+user and the service actor, and the Gate's record holds the `subject`
+next to both.
 
 Whether the hosted credential acts as the user or as an app is a
 deployment choice. The Gate records it either way.
@@ -1290,9 +1389,16 @@ Failed result:
 - **`commands`** lists every Git and host command that can change local
   or remote state, in the order it ran, as an argument list. A fetch is
   listed; a pure read is not. The SCM runs every Git command with the
-  same fixed global options, `-C <root>`, its empty hooks directory,
-  and `core.fsmonitor` off, and the list leaves them out. No argument
-  list holds a credential or a remote URL.
+  same fixed global options, `-C <root>`, `--literal-pathspecs`, its
+  empty hooks directory, and `core.fsmonitor` off, and the list leaves
+  them out. With `--literal-pathspecs` a path is never a pattern, so a
+  name with `*` or a leading `:` matches only itself. The list also
+  leaves out a command's environment: `commit` runs `git add`, `git
+  write-tree`, and `git commit-tree` with `GIT_INDEX_FILE` set to its
+  private index. Of these, the list names `git add` and `git
+  commit-tree`, which show what the commit holds; the creation of the
+  private index and `git write-tree` are not listed. No argument list
+  holds a credential or a remote URL.
 - **`mutation`** counts changes to local branches, the index, the
   working tree, the remote, and the host. A fetch that only moves
   remote-tracking refs is not a mutation. On a failure it is `none`,
@@ -1316,7 +1422,9 @@ Failed result:
 
 The result carries no timestamp, so a replay against the same
 repository and the same host stub compares byte for byte, as the #30
-envelope does. The hosted Gate stamps its own record.
+envelope does, once each commit hash is bound by name, as the fixture's
+`<sha:NAME>` does ([Design principles](#design-principles)). The hosted
+Gate stamps its own record.
 
 ---
 
@@ -1347,11 +1455,11 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `NOT_A_CHANGE_SET_BRANCH` | `commit`, `publish`, `refresh` | The current branch is not a change-set branch of the project | Push rejected by branch protection: the SCM refuses a push to the default branch before it runs | `never` |
 | `CHANGE_SET_NOT_FOUND` | `branch_resume` | No local branch holds the requested change set, or its tip has no manifest of it | — | `revise` |
 | `AMBIGUOUS_BRANCH` | `branch_resume` | Two local branches carry the requested change-set number | — | `user` |
-| `UNCOMMITTED_CHANGES` | `branch_init`, `branch_resume`, `commit`, `publish`, `refresh` | Uncommitted changes that the operation would carry or misreport, or, for `commit`, a `projection.yaml` that mixes the change set's entries with a policy edit; the details name them | — | `user` |
+| `UNCOMMITTED_CHANGES` | `branch_init`, `branch_resume`, `commit`, `publish`, `refresh` | Uncommitted changes that the operation would carry or misreport, or, for `commit`, a `projection.yaml` that mixes the change set's entries with a policy edit, or a merge, cherry-pick, or revert in progress; the details name them | — | `user` |
 | `INIT_REMOTE_MISMATCH` | `commit` | On the initialization branch, `repository.canonical_remote` is not the fetch URL of the upstream remote of the default branch; the details name the discard of the uncommitted `.protobot/` and a new `project init` | — | `user` |
-| `SPEC_DIGEST_MISMATCH` | `commit` | `check` reports `artifact.digest_mismatch` for a path of the file set; the details name each path and the two routes forward | Registered path digest mismatch | `user` |
-| `SPEC_CHECK_FAILED` | `commit` | `check` failed with status `4`, and without a digest-mismatch diagnostic for a path of the file set | `ears-manager check` failed; registered path missing from the projection manifest | `revise` |
-| `PATH_NOT_STAGEABLE` | `commit` | A path of the change set breaks #34's path rules, is one that the guard keeps from `artifact put`, or is `.gitattributes` or `.gitmodules` | — | `never` |
+| `SPEC_DIGEST_MISMATCH` | `commit` | `check` reports `artifact.digest_mismatch` for a path of the file set, or for a registered directory that holds one; the details name each path and the two routes forward | Registered path digest mismatch | `user` |
+| `SPEC_CHECK_FAILED` | `commit` | `check` failed with status `4`, and without a digest-mismatch diagnostic that makes it `SPEC_DIGEST_MISMATCH` | `ears-manager check` failed; registered path missing from the projection manifest | `revise` |
+| `PATH_NOT_STAGEABLE` | `commit` | A path of the change set is a directory, breaks #34's path rules, is one that the guard keeps from `artifact put`, is `.gitattributes` or `.gitmodules`, or replaces a tracked directory or lies below a tracked file | — | `never` |
 | `STAGED_CONTENT_CHANGED` | `commit` | A Git filter, or a write since the digest check, changed a staged file, so the commit would not hold what `check` saw | — | `user` |
 | `UNSAFE_TEXT` | `commit`, `publish` | The intent holds text that GitHub acts on | — | `revise` |
 | `NOTHING_TO_COMMIT` | `commit` | No path of the change set differs from `HEAD` | — | `never` |
@@ -1372,7 +1480,7 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `NOT_APPROVED` | `approved_merge` | The change set is not approved on the default branch, or the host has no merged pull request of it | — | `user` |
 | `NOT_A_MERGE_COMMIT` | `approved_merge` | The commit that added the manifest has one parent | — | `reconcile` |
 | `MERGE_COMMIT_MISMATCH` | `approved_merge` | Git and the host name different merge commits | Registration rejected, different merge commit | `reconcile` |
-| `GIT_FAILED` | All | An unexpected Git failure; the details give the command and its status | — | `reconcile` |
+| `GIT_FAILED` | All | An unexpected Git failure, a branch that another writer moved while `commit` ran included; the details give the command and its status | — | `reconcile` |
 | `INTERNAL` | All | An internal invariant failed | — | `never` |
 
 Two #34 rows are outside the SCM: "Merge refused by branch
@@ -1420,8 +1528,9 @@ either.
   on the machine still has `git` and `gh`
   ([Credentials][credentials]).
 - **No shell and no repository program.** Every command is an argument
-  list. Hooks and `fsmonitor` do not run, and a filter or a write that
-  changes a staged file stops the commit. Locally, the programs of the
+  list. Hooks and `fsmonitor` do not run, a filter or a write that
+  changes a staged file stops the commit, and a write after staging
+  cannot enter it. Locally, the programs of the
   user's own Git configuration still run
   ([Design principles](#design-principles)).
   The SCM sets `GIT_TERMINAL_PROMPT=0` and `GH_PROMPT_DISABLED=1`, so a
@@ -1436,6 +1545,28 @@ either.
   `publish` pushes every commit of it that the remote lacks, including
   one that another local session or tool made, and the reviewer sees
   them in the pull request.
+- **One session per checkout, and the approval stays with the
+  session.** The UX binds the user's approval to the exact revision
+  shown ([Protocol invariants][ux-invariants]). The SCM keeps no state
+  and takes no lock, and no request names a commit, so it cannot hold
+  that approval. Locally it assumes one Drafting Table session per
+  working tree. A second session uses its own worktree, where Git by
+  default refuses to check out the same change-set branch twice, or
+  its own clone, whose commits the first one meets as
+  `PUSH_REJECTED_NON_FAST_FORWARD`. The session binds the approval
+  with what the SCM reports: `repo_state` names the branch tip,
+  `branch.head`, and the uncommitted change-set paths that the final
+  review shows, and `commit` returns its `parent` and its `paths`.
+  After a `refresh` in the same handoff, the expected parent is the
+  merge commit that `refresh` returned, and the expected paths are the
+  ones that the reviewed refresh sequence wrote. When the parent or
+  the paths are not the expected ones, something else changed the
+  branch or the draft after the review. The commit is local, so the
+  session stops before `publish`, and the user reviews again, as the
+  UX requires for [stale state][ux-stale]
+  ([Exit conditions][exit-conditions]). The comparison does not see a
+  change to the content of the same paths after the review; one
+  session per checkout is what excludes that.
 - **No text that GitHub acts on.** The SCM writes no closing keyword or
   mention outside a code span ([Text that GitHub acts
   on](#text-that-github-acts-on)), so a commit or a pull request never
@@ -1484,7 +1615,7 @@ host adapter.
 | 4 | Where does single-player registration live? | It stays the Job Site's `register-approved-change-set`, a shell operation of the role. It takes the change-set ID only, and reads the merge commit through `approved_merge`. |
 | 5 | Does `commit` run the project's Git hooks? | No, in every mode, and no other program that a repository can ship either. Locally, the programs of the user's own Git configuration still run ([Design principles](#design-principles)). |
 | 6 | Is the Job Site's escalation issue an SCM action or a WMS action? | Not an SCM action. An issue is work-management state, and the WMS Adapter already owns the blocked state that the issue reports. The Job Site's escalation contract decides its route. |
-| 7 | Which identity does each caller act as? | The Drafting Table acts as the user; the read face as its caller; the Job Site as a bot or app identity, still open ([Identity](#identity)). |
+| 7 | Which identity does each caller act as? | The Drafting Table acts as the user, hosted with the deployment's service actor as the committer; the read face as its caller; the Job Site as a bot or app identity, still open ([Identity](#identity)). |
 | 8 | Does the Projector read canonical source through the SCM? | No. SCM operations report state, and the Projector needs tree content at a commit inside the private integration environment, which it reads with its own read-only access. The Job Site face may revisit it ([Q21][q21]). |
 
 ---
@@ -1522,8 +1653,9 @@ is its harness-neutral transcript.
   drafting-table` in the clone and calls its tools as a modern MCP
   client, revision 2026-07-28, with no harness and no model. For the
   hosted checks it starts a second instance with `--transport
-  streamable-http` behind the fake Gate, and sends each call as a
-  Streamable HTTP request. It starts `ears-manager` and
+  streamable-http` behind the fake Gate, with a service actor in that
+  instance's own configuration, and sends each call as a Streamable
+  HTTP request. It starts `ears-manager` and
   `register-approved-change-set` with argument lists. No step runs a
   shell. A file edit in a step is the driver standing in for the user's
   text editor or shell, never a caller operation.
@@ -1578,7 +1710,7 @@ The second table tests the SCM's own boundary.
 | A staged file outside the change set: the driver stages a change to `README.md`, then `commit` after an `ears-manager` write | The commit holds only the change-set paths; `README.md` stays staged and is in no commit |
 | A commit on the default branch: the driver checks out `main`, then `commit` | `NOT_A_CHANGE_SET_BRANCH`; no commit |
 | A change-set branch whose number is not in the store: the driver creates `cs/00042-x` from `main`, then `commit` | `NOT_A_CHANGE_SET_BRANCH`; no commit |
-| Repository programs: the driver plants a `pre-commit` hook, a `commit-msg` hook, and a `pre-push` hook that write a marker file, and sets `core.fsmonitor`; then `commit` and `publish` | Both succeed; no marker file exists, and the commit message keeps its trailer |
+| Repository programs: the driver plants a `pre-commit`, a `commit-msg`, a `reference-transaction`, a `post-index-change`, and a `pre-push` hook that write a marker file, and sets `core.fsmonitor`; then `commit` and `publish` | Both succeed; no marker file exists, and the commit message keeps its trailer |
 | A legacy client: an MCP client of revision 2025-11-25 opens with `initialize`, then calls `repo_state` | It negotiates 2025-11-25, and the result equals the modern call's result ([MCP protocol](#mcp-protocol)) |
 | A tool outside the face: `approved_merge` over the MCP face | `UNAUTHORIZED_ACTION`; the tool list names exactly the six Drafting Table tools |
 | Another repository: `publish` with a `repo` field | `INVALID_REQUEST`; the `gh` stub records no call |
@@ -1602,12 +1734,18 @@ The second table tests the SCM's own boundary.
 | A closing keyword that reached a commit: the driver commits an intent of `Fixes #1` in its own shell, then `publish` | `UNSAFE_TEXT`; nothing is pushed, and the `gh` stub records no `pr create` or `pr edit` |
 | No canonical remote: the driver removes `origin`, then `repo_state` | `REMOTE_NOT_FOUND`; no command runs |
 | A hosted call whose `allowed_refs` names another branch: `publish` | `UNAUTHORIZED_ACTION` before the push; the remote branch is unchanged |
-| A hosted call with an expired context, a context for another audience, a context whose `allowed_actions` lacks the operation, a context whose `allowed_refs` holds a wildcard, an `Mcp-Name` header that names another tool than the body, or a valid signed context with `allowed_actions` and `allowed_refs` outside the signature: `commit` each time | `UNAUTHORIZED_ACTION` each time; no command runs |
+| A hosted call with an expired context, a context for another audience, a context whose `allowed_actions` lacks the operation, a context whose `allowed_refs` holds a wildcard, an `Mcp-Name` header that names another tool than the body, a valid signed context with `allowed_actions` and `allowed_refs` outside the signature, or a context with no `author`: `commit` each time | `UNAUTHORIZED_ACTION` each time; no command runs |
 | A hosted start with no usable key: the driver starts `serve --transport streamable-http` with no Gate verification key, then with an empty one, then with one that does not parse | The process exits non-zero each time and never listens |
 | A nested project file: a clone whose only `project.yaml` is `docs/.protobot/project.yaml`; `repo_state` on an instance that the driver started in `docs/`, then on one started in the root | `PROJECT_NOT_AT_ROOT` from `docs/`; from the root the walk goes up only, finds nothing, and returns `initialized: false` |
 | A behind default branch that is checked out: the second clone pushes an unrelated commit to `main`, the driver checks out `main`, then `repo_state`; and, in a copy of the state before step 1 with `origin/main` ahead, `branch_init` | Each runs `git merge --ff-only origin/main`, and `branch_init` then cuts the branch from `main`; each time `HEAD`, the index, and the working tree match the new tip |
 | A mixed projection manifest: `ears-manager artifact put` registers a new path, and the driver also changes the class of another path in `projection.yaml`; then `commit` | `UNCOMMITTED_CHANGES`, naming `projection.yaml`; no commit |
 | A host that cannot answer: after the host merge of step 8, with the `gh` stub stopped, `publish` | `HOST_UNAVAILABLE`, not `NOTHING_TO_PUBLISH`; nothing is pushed |
+| A directory in the file list: the `ears-manager` stub returns the directory `docs/` as a path of the change set, and the driver creates `docs/notes.txt`; then `commit` | `PATH_NOT_STAGEABLE`; no commit, and `docs/notes.txt` stays untracked |
+| A path of the file set that is already staged: the driver writes the Vision through `ears-manager artifact put` and stages it, then defines a clean filter that changes `docs/vision.md` when it is staged, as in the clean-filter check; then `commit` | `STAGED_CONTENT_CHANGED`; no commit, no command touches the user's index, and it still holds the entry that the driver staged |
+| A write after staging: the driver defines a clean filter that passes `docs/vision.md` through unchanged and, when it runs for the SCM's private index, appends a line to the file in the working tree; `ears-manager artifact put`, then `commit` | The commit succeeds and holds exactly the content that `check` saw; what the filter appended is in no commit and stays an uncommitted change |
+| Another writer during the call: the driver defines a clean filter that passes its input through unchanged and, when it runs for the SCM's private index, adds an empty commit to the branch; `ears-manager artifact put`, then `commit` | `GIT_FAILED` with `retry: reconcile`; the branch tip is the other writer's commit, and the index and the working tree are as they were |
+| A merge in progress: the second clone pushes a conflicting change to `docs/vision.md` on `main`, and the driver runs `git merge origin/main` in its own shell and leaves the conflict; then `commit` | `UNCOMMITTED_CHANGES`, naming the merge; no commit, and `MERGE_HEAD` still exists |
+| A hosted commit: a Streamable HTTP request with a full signed context, after `ears-manager artifact put` | The commit's author is the context's `author`, and its committer is the service actor of the SCM's own configuration; no result and no argument list holds the name or the email |
 
 ---
 
@@ -1625,6 +1763,7 @@ The second table tests the SCM's own boundary.
 | Where a hosted session keeps its workspace | A deployment concern ([Web Drafting Table][web-dt]). The hosted face runs beside that workspace, under the rules of [Hosted isolation](#hosted-isolation). |
 | How the hosted runtime calls `ears-manager` | Hosted, `ears-manager` runs beside the SCM, outside the runtime, because the runtime may write neither `.git/` nor `.protobot/` ([Hosted isolation](#hosted-isolation)). The route, a tool face or a service, is the Web Drafting Table deployment's decision, and #30's decision about moving `ears-manager` to tools feeds it. |
 | The format of the Gate's signed context | A deployment detail inside the Gate pattern. This document requires that the SCM can verify the signature, the audience, and the expiry, and that the signature covers every context field of [check 2](#checks-on-every-call). |
+| How the Gate maps a subject to a Git author | The deployment's choice, from its identity provider. This document requires only that the name and the email reach the SCM in the signed context, never from the runtime or a request ([Identity](#identity)). |
 | Kit import commits | #34 leaves the writer of `.protobot/kits.lock` unnamed, so no change set lists it and `commit` never stages it. Whoever settles Kit packaging names that owner ([Kits](components.md#kits)). |
 | Moving `ears-manager` and registration out of the shell | #30's decision for `ears-manager`. When both move to tools, the role needs no shell at all. |
 
@@ -1706,7 +1845,9 @@ The second table tests the SCM's own boundary.
 [shell-ops]: agent-harness/adapter-contract.md#shell-operations
 [stricter]: agent-harness/adapter-contract.md#stricter-than-34
 [traces]: agent-harness/adapter-contract.md#traces
+[ux-invariants]: drafting-table-ux.md#protocol-invariants
 [ux-resume]: drafting-table-ux.md#resuming-an-existing-session
+[ux-stale]: drafting-table-ux.md#stale-git-or-wms-state
 [vision-nongoals]: ../vision.md#non-goals
 [web-dt]: ../architecture.md#user-facing-interfaces
 [what-committed]: git-integration.md#what-is-committed
