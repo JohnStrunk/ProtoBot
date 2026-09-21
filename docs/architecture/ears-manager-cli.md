@@ -795,7 +795,7 @@ demonstrates:
 - human diagnostics go to stderr and JSON results contain no progress output;
 - every failed mutation leaves the governed store unchanged;
 - direct edits or unregistered paths are rejected by `check` and by the
-  Drafting Table's pre-stage digest check;
+  Drafting Table's pre-stage verification;
 - `change-set compare` and `impact` are deterministic for the same base and
   working tree;
 - semantic impact additions are visible, carry rationale, and cannot bypass

@@ -240,7 +240,9 @@ interface-IDL, and interface-prose files occupy `artifacts`.
 Structured requirement, interface, and change-set records occupy
 `stores`. A path matching none of these is not staged.
 (The section heading serves as an umbrella term covering both
-registered `artifacts` entries and structured `stores` directories.)
+registered `artifacts` entries and structured `stores` directories,
+while governed control files are a distinct, non-"artifact-path"
+staged category outside the heading's scope.)
 
 ### Selecting the paths
 
@@ -691,7 +693,7 @@ fire.
 | Layer | Where | Catches |
 | --- | --- | --- |
 | Harness tool permission rules (optional, [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
-| Pre-stage verification | The Drafting Table, before staging | A registered artifact whose content no longer matches its registry digest, or a touched store record that fails `ears-manager check` (schema/syntax or not accounted for in the active change-set manifest) |
+| Pre-stage verification | The Drafting Table, before staging | A registered artifact whose content no longer matches its registry digest, or store records that fail `ears-manager check` (complete-store well-formedness or impact-assessment matching) |
 | `ears-manager check` | Branch push and merge gate in CI | Malformed records, digest mismatches, dangling references, symmetry and cycle violations |
 | Path ownership in CI | Merge gate | A change that edits files outside the owning component's paths |
 
@@ -712,8 +714,10 @@ touched file:
   are not artifact-registry entries and carry no `owner` or `digest` field in
   `project.yaml`. The Drafting Table verifies them by running
   `ears-manager check` with `--change-set CS-ID` for the active change set to
-  ensure each record is syntactically valid, matches its schema, and is
-  accounted for in the active change-set manifest.
+  ensure complete-store well-formedness (syntax, schema, referential,
+  relationship, and EARS rules) and impact-assessment matching narrowed
+  to the active change set's manifest. Staging only touched records is
+  enforced by the staging allowlist, not by `check`.
 - **Control files:** `.protobot/project.yaml` and `.protobot/projection.yaml`
   are verified during project resolution and `ears-manager check`, and are
   staged when registry entries, digests, or classification entries change.
