@@ -26,11 +26,12 @@ const (
 )
 
 type loadError struct {
-	Path  string
-	Field string
-	Code  string
-	Cause loadCause
-	Err   error
+	Path       string
+	Field      string
+	Code       string
+	Cause      loadCause
+	ExposePath bool
+	Err        error
 }
 
 func (e loadError) Error() string {
@@ -205,7 +206,21 @@ func loadDiagnostic(failure loadError) Diagnostic {
 	if field == "" {
 		field = "project"
 	}
-	return diagnostic(code, ".protobot/project.yaml", "", field, failure.Error(), "Fix the reported project data through ears-manager without modifying it through another route.")
+	path := ".protobot/project.yaml"
+	if failure.ExposePath {
+		if safe := safeLoadPath(failure.Path); safe != "" {
+			path = safe
+		}
+	}
+	return diagnostic(code, path, "", field, failure.Error(), "Fix the reported project data through ears-manager without modifying it through another route.")
+}
+
+func safeLoadPath(path string) string {
+	canonical, err := canonicalProjectPath(path)
+	if err != nil {
+		return ""
+	}
+	return canonical
 }
 
 func loadDiagnosticCode(cause loadCause) string {
@@ -226,7 +241,7 @@ func loadDiagnosticCode(cause loadCause) string {
 }
 
 func loadDocuments[T any](root string, rootHandle *os.Root, relativeDirectory string, kind records.StoreKind, decode func([]byte) (T, map[string]bool, error)) ([]Document[T], []loadError) {
-	canonical, err := canonicalProjectPath(relativeDirectory)
+	canonical, err := canonicalStorePath(relativeDirectory)
 	if err != nil {
 		return nil, []loadError{{Path: relativeDirectory, Field: storeField(kind), Cause: loadCauseStorePath, Err: err}}
 	}
@@ -276,28 +291,28 @@ func loadDocumentEntry[T any](rootHandle *os.Root, relativeDirectory, name strin
 	entryPath := filepath.FromSlash(relativePath)
 	info, err := rootHandle.Lstat(entryPath)
 	if err != nil {
-		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseFilesystem, Err: err}
+		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseFilesystem, ExposePath: true, Err: err}
 	}
 	if info.IsDir() {
-		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseUnexpectedFile, Err: fmt.Errorf("entry is a directory")}
+		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseUnexpectedFile, ExposePath: true, Err: fmt.Errorf("entry is a directory")}
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseUnexpectedFile, Err: fmt.Errorf("entry is not a regular file")}
+		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseUnexpectedFile, ExposePath: true, Err: fmt.Errorf("entry is not a regular file")}
 	}
 	if filepath.Ext(name) != ".yaml" {
-		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseUnexpectedFile, Err: fmt.Errorf("entry is not a YAML record")}
+		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseUnexpectedFile, ExposePath: true, Err: fmt.Errorf("entry is not a YAML record")}
 	}
 	data, err := rootHandle.ReadFile(entryPath)
 	if err != nil {
-		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseFilesystem, Err: err}
+		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseFilesystem, ExposePath: true, Err: err}
 	}
 	value, fields, err := decode(data)
 	if err != nil {
-		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseYAML, Err: err}
+		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseYAML, ExposePath: true, Err: err}
 	}
 	id := documentID(value)
 	if expected, mapErr := records.FilenameFor(kind, id); mapErr == nil && expected != name {
-		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseFilenameMismatch, Err: fmt.Errorf("record ID does not match filename")}
+		return Document[T]{}, false, &loadError{Path: relativePath, Field: storeField(kind), Cause: loadCauseFilenameMismatch, ExposePath: true, Err: fmt.Errorf("record ID does not match filename")}
 	}
 	return Document[T]{Path: relativePath, Value: value, Fields: fields}, true, nil
 }

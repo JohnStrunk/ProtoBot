@@ -12,17 +12,16 @@ type Document[T any] struct {
 }
 
 // ValidationContext identifies the change sets that are still proposed in the
-// snapshot. Approved manifests remain immutable historical records and are not
-// re-evaluated against later specification state.
+// snapshot. A nil map means that the caller supplied no proposed-change-set
+// context, so impact completeness is not recomputed. Approved manifests
+// remain immutable historical records and are not re-evaluated against later
+// specification state.
 type ValidationContext struct {
 	ProposedChangeSets map[string]bool
 }
 
 func (c ValidationContext) isProposed(changeSetID string) bool {
-	if c.ProposedChangeSets == nil {
-		return true
-	}
-	return c.ProposedChangeSets[changeSetID]
+	return c.ProposedChangeSets != nil && c.ProposedChangeSets[changeSetID]
 }
 
 // Snapshot is the complete specification state needed for project-level

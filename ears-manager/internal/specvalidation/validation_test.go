@@ -432,7 +432,7 @@ func TestValidateRequiresCompleteMechanicalImpactAssessment(t *testing.T) {
 
 func TestValidateApprovedChangeSetUsesStoredImpactAssessment(t *testing.T) {
 	snapshot := validSnapshot(t)
-	snapshot.Context = ValidationContext{ProposedChangeSets: map[string]bool{"CS-00001": false}}
+	snapshot.Context = ValidationContext{}
 	snapshot.Requirements = append(snapshot.Requirements, Document[records.Requirement]{
 		Path:  ".protobot/requirements/REQ-G-00001.yaml",
 		Value: validRequirement("REQ-G-00001", records.EARSUbiquitous, "The system shall preserve historical impact decisions."),
@@ -582,6 +582,9 @@ func TestValidateProjectRejectsReservedStoreBeforeReading(t *testing.T) {
 	writeYAML(t, filepath.Join(root, ".protobot", "project.yaml"), config)
 
 	result := ValidateProject(root)
+	if hasDiagnosticCode(result, "storage.decode_failed") {
+		t.Fatalf("reserved store was read before rejection: %#v", result.Diagnostics)
+	}
 	for _, diagnostic := range result.Diagnostics {
 		if diagnostic.Code == "project.invalid_path" && diagnostic.Path == ".protobot/project.yaml" && diagnostic.Field == "stores.requirements" {
 			return
@@ -673,7 +676,7 @@ func TestValidateProjectRejectsNestedStoreDirectories(t *testing.T) {
 
 	result := ValidateProject(root)
 	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Code == "storage.unexpected_file" && diagnostic.Path == ".protobot/project.yaml" && diagnostic.Field == "stores.requirements" {
+		if diagnostic.Code == "storage.unexpected_file" && diagnostic.Path == ".protobot/requirements/nested" && diagnostic.Field == "stores.requirements" {
 			return
 		}
 	}
@@ -693,6 +696,9 @@ func TestValidateProjectAggregatesIndependentLoadFailures(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "bad.yaml"), []byte("id: [unterminated\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(bad.yaml) returned error: %v", err)
 	}
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "also-bad.yaml"), []byte("id: [also unterminated\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(also-bad.yaml) returned error: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(root, ".protobot", "interfaces", "notes.txt"), []byte("not a record\n"), 0o644); err != nil {
 		t.Fatalf("WriteFile(notes.txt) returned error: %v", err)
 	}
@@ -701,13 +707,20 @@ func TestValidateProjectAggregatesIndependentLoadFailures(t *testing.T) {
 	if !hasDiagnosticCode(result, "storage.decode_failed") || !hasDiagnosticCode(result, "storage.unexpected_file") {
 		t.Fatalf("independent load diagnostics were not aggregated: %#v", result.Diagnostics)
 	}
+	paths := make(map[string]bool)
 	for _, diagnostic := range result.Diagnostics {
-		if strings.Contains(diagnostic.Message, "bad.yaml") || strings.Contains(diagnostic.Message, root) {
+		if diagnostic.Code == "storage.decode_failed" {
+			paths[diagnostic.Path] = true
+		}
+		if strings.Contains(diagnostic.Message, root) {
 			t.Fatalf("load diagnostic exposed an untrusted path: %#v", diagnostic)
 		}
-		if strings.Contains(diagnostic.Path, "bad.yaml") || strings.Contains(diagnostic.Path, root) {
+		if strings.HasPrefix(diagnostic.Path, "/") || strings.Contains(diagnostic.Path, root) {
 			t.Fatalf("load diagnostic path exposed an untrusted path: %#v", diagnostic)
 		}
+	}
+	if len(paths) != 2 {
+		t.Fatalf("same-store load failures were deduplicated: %#v", result.Diagnostics)
 	}
 }
 
@@ -792,6 +805,7 @@ func validSnapshot(t *testing.T) Snapshot {
 		Root:       root,
 		ConfigPath: ".protobot/project.yaml",
 		Config:     config,
+		Context:    ValidationContext{ProposedChangeSets: map[string]bool{"CS-00001": true}},
 		Interfaces: []Document[records.InterfaceRecord]{
 			{Path: ".protobot/interfaces/api-gateway.yaml", Value: records.InterfaceRecord{ID: "api-gateway", Name: "API Gateway", Type: records.InterfaceNetworkService, Created: "2026-09-15T10:00:00Z"}},
 		},
