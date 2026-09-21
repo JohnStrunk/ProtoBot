@@ -740,7 +740,7 @@ caught, never whether it is caught.
 
 | Write route to a guarded path | Drafting Table role | Every other role | Caught later by |
 | --- | --- | --- | --- |
-| File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage digest comparison, `ears-manager check`, CI path ownership |
+| File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage verification, `ears-manager check`, CI path ownership |
 | Shell writer, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Same |
 | Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root | Same |
 | Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | Same |
@@ -748,9 +748,9 @@ caught, never whether it is caught.
 
 A route marked "not stopped" is real. An agent outside the role can
 still change a registered file through its shell, for example after
-`cd docs`. The pre-stage digest comparison refuses to stage the change,
+`cd docs`. The pre-stage verification refuses to stage the change,
 `ears-manager check` fails in CI, and the Drafting Table offers the two
-routes forward from [The pre-stage digest comparison][pre-stage].
+routes forward from [Pre-stage verification][pre-stage].
 
 A user can also switch the harness layer off, by editing a binding or
 starting the harness without hooks. The later layers do not depend on
@@ -1143,7 +1143,7 @@ repository state.
 | 6 | In the role, replayed turns write a record under `.protobot/requirements/` with a file tool, run `sed -i` on `docs/vision.md`, and run `git rev-parse --verify HEAD > docs/vision.md` | All three are refused, by the guard or earlier by native rules. Every file is byte-identical. |
 | 7 | Outside the role, replayed turns write `docs/vision.md` and edit `.protobot/change-sets/cs-00002.yaml` with file tools | Both are refused. Both files are unchanged. |
 | 8 | The `ears-manager` stub fails the next `requirement add` with #30's failure envelope and status 4 | The shell result carries the envelope unchanged. No second write follows. The working tree is as it was after step 5. |
-| 9 | Outside the role, a replayed turn runs `cd docs && echo x >> vision.md`; then the user asks the role for a commit | The shell write succeeds, because the redirection target is not written from the project root. The pre-stage digest comparison stages nothing. Its diagnostic names `docs/vision.md`, both digests, and `git checkout -- docs/vision.md` as the discard route, which the role does not run. Outside the role, a replayed turn runs it, and the file is restored. |
+| 9 | Outside the role, a replayed turn runs `cd docs && echo x >> vision.md`; then the user asks the role for a commit | The shell write succeeds, because the redirection target is not written from the project root. The pre-stage verification stages nothing. Its diagnostic names `docs/vision.md`, both digests, and `git checkout -- docs/vision.md` as the discard route, which the role does not run. Outside the role, a replayed turn runs it, and the file is restored. |
 | 10 | The session ends | No commit and no push since setup. The step-5 record is still in the working tree. No harness or MCP stub process remains. |
 | 11 | Start a new session, without continuing, through the entry point | A new session ID. The resume reads present `CS-00003`, its branch, and the step-5 requirement as an uncommitted draft. No call reads an earlier session. |
 | 12 | Push a commit to the default branch of `origin` from outside the session, then continue the session through the entry point | The resume reads run again and present `CS-00003`, its branch, and `base_commit` from governed reads and Git, not from the conversation. The summary makes no claim about the default branch; step 14 detects the move. |
@@ -1279,7 +1279,7 @@ material.
 [env-constraints]: ../../architecture.md#environmental-constraints
 [interface-approach]: ../../architecture.md#interface-specification-approach
 [layer-stops]: #what-the-harness-layer-stops
-[pre-stage]: ../git-integration.md#the-pre-stage-digest-comparison
+[pre-stage]: ../git-integration.md#pre-stage-verification
 [projections]: ../components.md#worker-repository-projections-decided
 [strawman]: ../../architecture.md#opencode-plus-skill-strawman
 [structural]: ../overview.md#enforce-constraints-structurally-not-through-trust

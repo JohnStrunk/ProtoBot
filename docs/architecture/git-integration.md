@@ -239,6 +239,8 @@ classification entries). Opaque Vision, Architecture,
 interface-IDL, and interface-prose files occupy `artifacts`.
 Structured requirement, interface, and change-set records occupy
 `stores`. A path matching none of these is not staged.
+(The section heading serves as an umbrella term covering both
+registered `artifacts` entries and structured `stores` directories.)
 
 ### Selecting the paths
 
@@ -689,11 +691,11 @@ fire.
 | Layer | Where | Catches |
 | --- | --- | --- |
 | Harness tool permission rules (optional, [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
-| Pre-stage verification | The Drafting Table, before staging | A registered artifact whose content no longer matches its registry digest, or store records edited outside `ears-manager` |
+| Pre-stage verification | The Drafting Table, before staging | A registered artifact whose content no longer matches its registry digest, or a touched store record that fails `ears-manager check` (schema/syntax or not accounted for in the active change-set manifest) |
 | `ears-manager check` | Branch push and merge gate in CI | Malformed records, digest mismatches, dangling references, symmetry and cycle violations |
 | Path ownership in CI | Merge gate | A change that edits files outside the owning component's paths |
 
-### The pre-stage digest comparison
+### Pre-stage verification
 
 Before staging anything, the Drafting Table verifies each category of
 touched file:
@@ -709,9 +711,9 @@ touched file:
   ([ADR-0003](../decisions/0003-ears-manager-storage-layout.md))
   are not artifact-registry entries and carry no `owner` or `digest` field in
   `project.yaml`. The Drafting Table verifies them by running
-  `ears-manager check` over the touched store paths to ensure each record is
-  syntactically valid, matches its schema, and is accounted for in the active
-  change-set manifest.
+  `ears-manager check` with `--change-set CS-ID` for the active change set to
+  ensure each record is syntactically valid, matches its schema, and is
+  accounted for in the active change-set manifest.
 - **Control files:** `.protobot/project.yaml` and `.protobot/projection.yaml`
   are verified during project resolution and `ears-manager check`, and are
   staged when registry entries, digests, or classification entries change.
@@ -720,7 +722,7 @@ On a mismatch or store validation failure the Drafting Table:
 
 1. stages nothing and commits nothing;
 2. names each path that failed verification (with recorded and recomputed
-   digests for artifact mismatches, or the validation diagnostic for store
+   digests for artifact mismatches, or `check`'s diagnostics for store
    records); and
 3. offers the two routes forward — discard the direct edit
    (`git checkout -- <path>`), or bring the content in through
@@ -764,7 +766,7 @@ the later layers hold when that layer is off.
 | Fetch | From `repository.canonical_remote` only |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
-| Stage | Registered `artifacts` entries owned by `ears-manager` or `user`, files under the configured `stores` directories touched by the active change set, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
+| Stage | Registered `artifacts` entries owned by `ears-manager` or `user` and touched by the active change set, files under the configured `stores` directories touched by the active change set, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
 | Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |
@@ -837,7 +839,7 @@ diagnostic and the safe retry.
 | `project.yaml` is not at the working-tree root | Project resolution | Names both the file location and the working-tree root | Move the session to the correct checkout; the Drafting Table never relocates the file |
 | Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Upgrade `ears-manager`; migration is a reviewed change set, never automatic |
 | Registered artifact digest mismatch | Pre-stage comparison | Names each path and both digests | Discard the direct edit, or re-apply it through `ears-manager` |
-| Store record validation failure before staging | Pre-stage store check (`ears-manager check`) | Names each invalid or unrecorded store path and the diagnostic | Discard the direct edit, or edit the record through `ears-manager` and revalidate |
+| Store record validation failure before staging | Pre-stage store check (`ears-manager check --change-set CS-ID`) | The check's own diagnostics, by record | Discard the direct edit, or edit the record through `ears-manager` and revalidate |
 | Registered path missing from the projection manifest | `ears-manager check` | Names the path and the required class `shared` | Re-run the registration; `ears-manager` writes the classification entry and the Drafting Table stages `projection.yaml` with it |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
 | Default branch has moved since `base_commit` | `merge-base` check before push or merge | Names the recorded base and the current head | Refresh: merge the default branch in, then `change-set update` |
