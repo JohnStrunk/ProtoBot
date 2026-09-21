@@ -73,34 +73,41 @@ needs the `external_directory` rule in
     "wms": {
       "type": "local",
       "command": ["<WMS Adapter MCP server, named by #31>"]
+    },
+    "scm": {
+      "type": "local",
+      "command": ["source-control-manager", "serve", "--face", "drafting-table"]
     }
   },
   "permission": {
     "edit": {
       ".protobot/**": "deny"
     },
-    "wms_*": "deny"
+    "wms_*": "deny",
+    "scm_*": "deny"
   }
 }
 ```
 
 - **`share` is `disabled`**, because OpenCode's share feature uploads a
   session (H11).
-- **The `wms` server** is the manifest's only MCP server (H2). OpenCode
-  names its tools `wms_<normalized-operation>`, where separators in the
-  canonical operation name become underscores. The command value is a
-  placeholder
-  until #31 names the server, and the entry holds no credential.
-  `ears-manager` needs no entry: it is a shell operation.
+- **The `wms` and `scm` servers** are the manifest's MCP servers (H2).
+  OpenCode names their tools `wms_<normalized-operation>` and
+  `scm_<operation>`, where separators in the canonical operation name
+  become underscores. The `wms` command value is a placeholder until #31
+  names the server. The `scm` server is the Drafting Table face of the
+  [Source Control Manager](../source-control-manager.md), which runs
+  every Git and Git host operation of the role. Neither entry holds a
+  credential. `ears-manager` needs no entry: it is a shell operation.
 - **`edit` is denied under `.protobot/` for every agent.** The `edit`
   rule covers every OpenCode file tool: `edit`, `write`, and the patch
   tool. It is a static copy of the guard's guarded-path rule that holds
   even when plugins do not load.
-- **The `wms` tools are denied here and allowed only in the
+- **The `wms` and `scm` tools are denied here and allowed only in the
   `drafting-table` agent**, a native copy of the MCP half of guard rule
   4. The `ears-manager` half has no native copy: the agent's `bash`
   rules allow it in the role, and the guard refuses it elsewhere. The
-  agent's named WMS allows match the normalized names in the manifest; the
+  agent's named allows match the normalized names in the manifest; the
   guard independently enforces the same list.
 
 This file adds denies and nothing else;
@@ -144,6 +151,12 @@ permission:
   wms_lifecycle_preflight: allow
   wms_blocked_work_submit_resolution: allow
   wms_blocked_work_acknowledge: allow
+  scm_repo_state: allow
+  scm_branch_init: allow
+  scm_branch_resume: allow
+  scm_commit: allow
+  scm_publish: allow
+  scm_refresh: allow
   bash:
     "*": deny
     # the native copy of the shell operations, below
@@ -160,7 +173,7 @@ Toolkit skills name operations. In OpenCode:
   `ears-manager --output json <command> ...`; artifact content and
   the impact file go on standard input;
 - a WMS operation is the tool `wms_<normalized-operation>`; and
-- a Git or Git host operation is one shell command.
+- a Git or Git host operation is the SCM tool `scm_<operation>`.
 ```
 
 - **`"*": deny` hides tools (H9).** OpenCode does not offer the model a
@@ -195,11 +208,11 @@ Toolkit skills name operations. In OpenCode:
 
 The `bash` block copies the harness-neutral
 [shell operations](adapter-contract.md#shell-operations) into OpenCode
-patterns, with the defaults `origin`, `cs/`, and `main`, and a wildcard
-where the form has `<repo>`, `<branch>`, `<rev>`, or `<path>`. The guard
-enforces the same operations with the project's real values and the
-current branch; this copy refuses early and still holds when plugins do
-not load.
+patterns, with a wildcard where a form takes a value. Git and `gh` have
+no rule, so `"*": deny` refuses every `git` and `gh` command; the role
+reaches them only through the `scm` tools. The guard enforces the same
+operations with the project's real values and the current branch; this
+copy refuses early and still holds when plugins do not load.
 
 ```yaml
 bash:
@@ -208,54 +221,19 @@ bash:
   "ears-manager *": allow
   # The clock, for --created
   "date -u +%Y-%m-%dT%H:%M:%SZ": allow
-  # Read repository state
-  "git rev-parse --show-toplevel": allow
-  "git rev-parse --abbrev-ref HEAD": allow
-  "git rev-parse --verify *": allow
-  "git status --porcelain": allow
-  "git merge-base *": allow
-  "git remote -v": allow
-  "git fetch origin": allow
-  # Work on a change-set branch
-  "git switch -c cs/00001-project-init main": allow
-  "git switch cs/*": allow
-  "git add -- *": allow
-  "git commit -F -*": allow
-  "git merge --no-ff --no-edit origin/main": allow
-  "git merge --abort": allow
-  "git push origin cs/*": allow
-  # Pull requests and registration
-  "gh pr create --repo *": allow
-  "gh pr edit cs/*": allow
-  "gh pr view cs/*": allow
-  "register-approved-change-set *": allow
-  # Forbidden forms of the commands above
-  "git add -- .": deny
-  "git commit *--amend*": deny
-  "git commit *--all*": deny
-  "git commit -F - -a*": deny
-  "git push *:*": deny
-  "git push *+*": deny
-  "git push *--force*": deny
-  "git push *--delete*": deny
-  "git push *--mirror*": deny
-  "git push *--all*": deny
-  "git push *--tags*": deny
-  "git push *--receive-pack*": deny
-  "git push *--exec*": deny
-  "gh pr edit *--base*": deny
+  # Registration, after the user merged
+  "register-approved-change-set --change-set *": allow
 ```
 
-A pattern without `*` matches only that exact command, so eight of the
-Git rules leave no room for an extra option. A pattern with `*` still
-matches a longer command, and the denies above catch only the most
-harmful additions. The guard refuses every other option, and every
-branch, repository, or path that does not match the current state.
+A pattern without `*` matches only that exact command. A pattern with
+`*` still matches a longer command, so the guard refuses every option
+that #30's grammar does not show, and a registration whose change set
+is not the current branch's.
 
 OpenCode matches these patterns against the whole command text,
 here-document bodies included, but does not look inside an output
-redirection. `git rev-parse --verify HEAD > docs/vision.md` matches
-`git rev-parse --verify *`, so the copy alone would let that command
+redirection. `ears-manager --output json check > docs/vision.md`
+matches `ears-manager *`, so the copy alone would let that command
 empty the file. The guard refuses it.
 
 ### The `drafting-table` command
@@ -380,7 +358,7 @@ entry point's name must differ from every skill name.
 | # | Obligation | OpenCode binding | Status |
 | --- | --- | --- | --- |
 | H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Observed (behavior 1); the fixture has not run |
-| H2 | The `ears-manager` CLI and the `wms` tools for the role | `ears-manager *` in the bash rules; the `wms` entry and named normalized tool rules | Designed; pattern matching observed (behavior 5), the `wms` server not yet |
+| H2 | The `ears-manager` CLI and the `wms` and `scm` tools for the role | `ears-manager *` in the bash rules; the `wms` and `scm` entries and named normalized tool rules | Designed; pattern matching observed (behavior 5), the `wms` and `scm` servers not yet. The `scm` server serves MCP revision 2026-07-28 and the legacy 2025-11-25 ([MCP protocol](../source-control-manager.md#mcp-protocol)); the fixture records which one OpenCode 1.18.30 negotiates |
 | H3 | `drafting-table` entry point | The command and the agent | Designed; `--agent` observed in the stub runs, the command file not yet |
 | H4 | Resume on every entry, continued session, and compaction | Command prompt and session skill; `--continue` and `--session` continue a session | Designed |
 | H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Designed |
@@ -519,6 +497,8 @@ clients, and shell.
   The command grammar the role's shell commands follow.
 - [Git and Project-Repository Integration](../git-integration.md) —
   Permitted Git operations and ungoverned-edit detection.
+- [Source Control Manager](../source-control-manager.md) — The Git and
+  Git host operations exposed through the `scm` MCP server.
 - [Validation Rules](../validation-rules.md) — The WMS boundary that
   rejects a lifecycle transition from the Drafting Table.
 - [Drafting Table WMS Integration](../drafting-table-wms.md) — The WMS

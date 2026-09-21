@@ -581,6 +581,9 @@ implementations) succeed at much higher rates than those without.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Source Control Manager](source-control-manager.md) — The Git and
+  Git host boundary, which applies Fullsend's and Forge's lessons
+  on governed writes
 - [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, the guard, and harness obligations
 - [OpenCode Harness Binding](agent-harness/opencode.md) — The first

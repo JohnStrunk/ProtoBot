@@ -70,6 +70,7 @@ The same binary serves these callers:
 | Drafting Table through the Specification Toolkit | Proposed and approved specification state, comparison, impact candidates, validation results | Proposed specification records and change-set manifests on the active change-set branch |
 | CI | Registered records and artifacts at the checked-out revision | None |
 | Job Site Materializer | The approved manifest and requirements at an immutable specification commit | None; it passes lifecycle state to the WMS Adapter |
+| [Source Control Manager](source-control-manager.md) | A change set's paths, comparison, impact candidates, and validation result, and an approved change set's manifest path at a commit | None; it stages, commits, and publishes what `ears-manager` wrote |
 | Human maintainer | All data exposed by the read commands | The same proposed changes as the Toolkit, subject to the same validation |
 
 The CLI is a local process over the caller's working tree. A hosted Drafting
@@ -112,7 +113,10 @@ Only `ears-manager` writes these paths:
 The CLI never writes `.protobot/test-catalog.jsonl`,
 `.protobot/attestations/`, WMS state, credentials, or Worker projections. It
 does not commit, push, open, or merge a pull request. The Git integration
-contract owns those operations. `change-set create` is the governed seam at
+contract owns those operations. The
+[Source Control Manager](source-control-manager.md) performs the commit,
+the push, and the pull-request operations; a person merges.
+`change-set create` is the governed seam at
 which the Drafting Table requests a change-set branch; branch naming and
 branch lifecycle still follow [Git and Project-Repository
 Integration](git-integration.md#change-set-branches).
@@ -549,7 +553,7 @@ explicit.
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
-| `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths | `change_set.not_found` |
+| `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: a directory registry entry is listed as its canonical file set | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
@@ -840,6 +844,8 @@ new design track.
   approval behavior
 - [Git and Project-Repository Integration](git-integration.md) — Branches,
   commits, pull requests, and approved state
+- [Source Control Manager](source-control-manager.md) — The caller that
+  stages, commits, and publishes what `ears-manager` writes
 - [Open Design Questions](open-questions.md) — Remaining unresolved design
   questions
 - [ADR-0001](../decisions/0001-requirements-storage-format.md) — Physical

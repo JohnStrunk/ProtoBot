@@ -53,7 +53,9 @@ the Drafting Table agent role.
 - [`ears-manager` CLI Integration Contract](ears-manager-cli.md) defines
   specification reads and writes; the WMS contract never edits specs.
 - [Git and Project-Repository Integration](git-integration.md) defines
-  branches, commits, pull requests, and approval registration.
+  branches, commits, pull requests, and approval registration, and the
+  [Source Control Manager](source-control-manager.md) (#125) performs
+  the commits, pushes, and pull requests; the user merges.
 - [System Components — WMS Adapter](components.md#wms-adapter) defines the
   complete adapter surface, including Job Site operations outside this
   contract.
@@ -513,7 +515,7 @@ backend.
 | Finding Ledger schema and mutation routing | Job Site/Finding Router contract. |
 | Request backlog UX and conversation presentation | Drafting Table UX, #28. |
 | Specification reads/writes and impact computation | `ears-manager` CLI contract, #30. |
-| Git branch, commit, PR, and merge operations | Git integration contract, #34. |
+| Git branch, commit, PR, and merge operations | Rules in the Git integration contract, #34; commits, pushes, and pull requests performed by the Source Control Manager, #125; the user merges. |
 | Harness skill discovery and tool permissions | OpenCode adapter contract, #33. |
 | Scheduling, WIP, assignment, and business-priority policy | Job Site policy; the Drafting Table only reads status and submits human priority updates. |
 
@@ -537,5 +539,7 @@ backend.
   specification reads/writes and impact review.
 - [Git and Project-Repository Integration](git-integration.md) — Branch,
   commit, PR, and approval registration behavior.
+- [Source Control Manager](source-control-manager.md) — The component that
+  performs the Git and Git host operations.
 - [WMS Implementations](../../wms/README.md) — Backend implementation
   placement, without changing this contract.
