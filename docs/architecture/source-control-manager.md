@@ -771,7 +771,11 @@ A normal change-set branch is not cut by the SCM.
      names each path with `ears-manager`'s diagnostics unchanged, and
      the two routes forward of #34
      ([The pre-stage digest comparison][pre-stage]). The user runs the
-     discard, `git checkout -- <path>`, as #33 decided. A mismatch of
+     discard, `git checkout -- <path>`, as #33 decided. The discard
+     restores the last committed content. When the path also holds a
+     governed write that is not committed yet, that write goes with it,
+     and the role repeats it through `ears-manager`; the digest matches
+     again only then. A mismatch of
      any other registered path outside the file set is the second
      warning: #34
      checks the artifacts that the change set touches, and the commit
@@ -1679,7 +1683,7 @@ also stages nothing ([`commit`](#commit)).
 | 2 | `publish`; the second clone merges `cs/00001-project-init`; `register-approved-change-set` with `CS-00001`; `repo_state`; `ears-manager change-set create` for the initial Sketch | The `gh` stub records one `pr create` with `--repo`, `--base main`, and `--head cs/00001-project-init`. Registration reads the merge commit through `approved_merge`, and the registration stub records one call with it. `repo_state` fast-forwards the local `main` to the merge commit. `cs/00002-<slug>` is checked out, its tip equals the new `main`, and the manifest records that head as `base_commit`. No other branch was created. |
 | 3 | `ears-manager artifact put` for the Vision and the Architecture; `repo_state` | `repo_state` names exactly the two artifacts, the manifest, and `project.yaml` as uncommitted change-set paths, and counts no other path. |
 | 4 | The driver edits `docs/vision.md` directly; `commit` | `SPEC_DIGEST_MISMATCH`: nothing is staged and no commit is created. The details name `docs/vision.md` with `ears-manager`'s diagnostics, and name `git checkout -- docs/vision.md` as the discard that the user runs. `ears-manager check` exits non-zero for the same path. |
-| 5 | The driver runs the discard; `commit` | Exactly one commit, of the two artifacts, the manifest, and `project.yaml`. The subject is `spec(CS-00002): <intent>`, and the trailer is `Change-Set: CS-00002`. |
+| 5 | The driver runs the discard, which restores the committed `docs/vision.md` and so drops the step-3 write too; `ears-manager artifact put` for the Vision again; `commit` | Exactly one commit, of the two artifacts, the manifest, and `project.yaml`. The subject is `spec(CS-00002): <intent>`, and the trailer is `Change-Set: CS-00002`. |
 | 6 | `publish` | `origin` has `cs/00002-<slug>` at the same commit, and `main` is unchanged. The `gh` stub records one `pr create` whose standard input is `<rendered:CS-00002>`: the intent, `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. |
 | 7 | The second clone pushes an unrelated commit to `main`; `publish`; `refresh`; `publish`; #34's refresh sequence: `ears-manager change-set update --base-commit`, `impact`, a reviewed `change-set update --impact-file -`, and `check`; `commit`; `publish` | The first `publish` fails with `DEFAULT_MOVED`. `refresh` adds a merge commit with two parents and returns the new `main` head. The second `publish` fails with `BASE_COMMIT_STALE`. After the update, `commit` records the manifest, and `publish` pushes and updates the pull request. The manifest's `base_commit` equals the new `main` head. `git log --walk-reflogs` shows no rebase, and the branch's first commit is unchanged. |
 | 8 | The second clone merges `cs/00002-<slug>`; `register-approved-change-set` with `CS-00002`, twice; `publish`; `repo_state`; a write to the merged manifest through `ears-manager` | `main` of `origin` is a merge commit with two parents. The registration stub records one call with `CS-00002`, that merge commit, the materialization key, and the registration idempotency key; the second run records no new call and returns the first result. `publish` fails with `PR_MERGED`. `repo_state` fast-forwards the local `main` to the merge commit, and the write to the merged manifest is then refused. |

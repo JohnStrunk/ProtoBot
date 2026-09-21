@@ -751,6 +751,11 @@ On a mismatch the Drafting Table:
    `interface` subcommand, which validates it and recomputes the
    digest.
 
+The discard restores the last committed content. When the path also
+holds a governed write that is not committed yet, that write goes
+with it, and it is repeated through `ears-manager`; the digest
+matches again only then.
+
 Unregistered files in the working tree are not an error. They are
 simply never staged by the Drafting Table.
 
@@ -915,7 +920,7 @@ protection rule.
 | 2 | Merge `CS-00001`, register, then create change set `CS-00002` for the initial Sketch | The default branch head is a merge commit. Branch `cs/00002-<slug>` exists and is checked out. Its tip equals the new default-branch head, and the manifest records that head's full 40-character hash as `base_commit`. No other branch was created. |
 | 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content. `projection.yaml` is unchanged, because step 1 already classified both paths and `artifact put` classifies only a new path ([Artifacts](ears-manager-cli.md#artifacts)). `git status` lists only the two artifacts, the manifest, and `project.yaml`. |
 | 4 | Edit a registered artifact directly with a text editor, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |
-| 5 | Discard the direct edit and request a commit | Exactly one commit. It contains only the two artifacts, the manifest, and `project.yaml`. Subject is `spec(CS-00002): <intent>`; the body carries the `Change-Set: CS-00002` trailer. |
+| 5 | Discard the direct edit, which also drops the uncommitted step-3 write of that artifact; write it again through `ears-manager artifact put`; request a commit | Exactly one commit. It contains only the two artifacts, the manifest, and `project.yaml`. Subject is `spec(CS-00002): <intent>`; the body carries the `Change-Set: CS-00002` trailer. |
 | 6 | Push the branch and prepare the pull request | `origin` has `cs/00002-<slug>` at the same commit; the default branch is unchanged. The rendered body contains the intent, the `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. It matches the output of `change-set compare` and `impact`. |
 | 7 | Commit an unrelated change on the default branch, then refresh the change set | The change-set branch gains a merge commit with two parents. The manifest's `base_commit` equals the new default-branch head. `git log --walk-reflogs` shows no rebase and the branch's first commit is unchanged. |
 | 8 | Merge the branch into the default branch with a merge commit, then register | The default branch head is a merge commit with two parents. The registration stub recorded one call with the change-set ID, that merge commit, the materialization key, and the derived registration idempotency key. Running registration again records no new call and returns the first result. A write to the merged manifest is refused. |

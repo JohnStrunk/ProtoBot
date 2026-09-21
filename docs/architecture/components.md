@@ -988,7 +988,7 @@ flowchart TD
 | --- | --- | --- |
 | Which work items exist, their pipeline phase, blocked status | Issue tracker | Issue trackers are built for this. |
 | Approved specifications (Sketch, EARS, change sets) | main branch (via PR merge) | Structured, versionable, diffable, and CI-lintable. Requirements have no workflow state. |
-| Draft specifications (pre-approval) | Contributor branch (PR) | Standard fork-and-PR or branch-and-PR workflow. |
+| Draft specifications (pre-approval) | Contributor branch (PR) | Branch-and-PR workflow on the canonical repository ([Change-set branches](git-integration.md#change-set-branches)). |
 | In-progress code and tests | Work item branch (`wi/`) | Created by the Job Site for Building/Inspecting. |
 | Live Inspector findings | Append-only finding ledger via WMS boundary | Supports atomic parallel writes, stable identity, routing, and rechecks. |
 | Finding evidence and report snapshots | Integration artifact store, then work-item branch | Content-addressed raw evidence stays integration-only; deterministic JSONL and Markdown views are committed before merge. |
@@ -1793,8 +1793,11 @@ sequenceDiagram
 
 1. **Contributor** writes a change set (via Drafting Table +
    `ears-manager`) and opens a PR against main through the Source
-   Control Manager. Contributors without write access use the standard
-   fork-and-PR workflow.
+   Control Manager. The contributor needs push access to the canonical
+   repository: the SCM pushes a change-set branch there only, and
+   registration accepts only a PR whose head is in that repository
+   ([Host adapter boundary][scm-host-adapter]). A fork-and-PR route for
+   specifications is not designed.
 2. **Reviewer** reviews the specs using GitHub's standard review
    tools (line comments, request changes, approve) and merges the
    PR. This is the human approval gate — standard branch
@@ -2094,3 +2097,4 @@ confirmation.
 [q19]: open-questions.md#q19-applicability-metadata-and-semantic-impact-coverage
 [q21]: open-questions.md#q21-source-control-manager-job-site-face
 [cli-impact]: ears-manager-cli.md#impact-review-protocol
+[scm-host-adapter]: source-control-manager.md#host-adapter-boundary
