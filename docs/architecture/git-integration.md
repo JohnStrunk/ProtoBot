@@ -227,14 +227,18 @@ already there.
 
 ## Registered artifact paths
 
-Every path the Drafting Table may stage is registered in
-`project.yaml`: opaque artifacts in the `artifacts` list, and
-structured store records in the `stores` block. Opaque Vision,
-Architecture, interface-IDL, and interface-prose files occupy
-`artifacts`. Structured requirement, interface, and change-set
-records occupy `stores`, with layout defined by
-[ADR-0003](../decisions/0003-ears-manager-storage-layout.md). A
-path registered in neither is not staged.
+The Drafting Table stages three categories of files: opaque
+specification files listed in the `artifacts` registry of
+`project.yaml`; structured requirement, interface, and change-set
+files resolving under a directory named in the `stores` block (with
+layout defined by
+[ADR-0003](../decisions/0003-ears-manager-storage-layout.md)); and the
+governed control files named in [Commit behavior](#commit-behavior)
+(`.protobot/project.yaml` and `.protobot/projection.yaml`
+classification entries). Opaque Vision, Architecture,
+interface-IDL, and interface-prose files occupy `artifacts`.
+Structured requirement, interface, and change-set records occupy
+`stores`. A path matching none of these is not staged.
 
 ### Selecting the paths
 
@@ -421,9 +425,10 @@ contract.
 
 A specification commit contains only:
 
-- registered artifact paths whose `owner` is `ears-manager` or
+- registered `artifacts` entries whose `owner` is `ears-manager` or
   `user`, and only those the active change set actually touched;
-- the change-set manifest under `.protobot/change-sets/`;
+- files resolving under the configured `stores` directories that the
+  active change set touched;
 - `.protobot/project.yaml`, when the registry or a digest changed;
   and
 - `.protobot/projection.yaml`, when the change set registers a new
@@ -748,7 +753,7 @@ the later layers hold when that layer is off.
 | Fetch | From `repository.canonical_remote` only |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
-| Stage | Registered artifact paths, the change-set manifest, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
+| Stage | Registered `artifacts` entries owned by `ears-manager` or `user`, files under the configured `stores` directories touched by the active change set, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
 | Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |
