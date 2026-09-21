@@ -55,9 +55,16 @@ this binding:
   times out lets the call through. A launcher makes the hook run, the
   sandbox stays on, and the rest is recorded.
 - **Its sandbox keeps `.git/` read-only and has no network.** The role
-  cannot write Git or reach the Git host from its shell, so the user
-  runs those commands
-  ([What the user runs in Codex](#what-the-user-runs-in-codex)).
+  cannot write Git or reach the Git host from its shell. The `scm`
+  server of the [Source Control Manager](../source-control-manager.md)
+  does those steps. Codex documents that it runs an MCP server as its
+  own process, outside the tool sandbox; the fixture must still confirm
+  it ([Open points](#open-points), point 8). The user runs the two shell
+  steps that remain
+  ([What the user runs in Codex](#what-the-user-runs-in-codex)). The
+  user therefore no longer types the push and the pull request by hand.
+  That is a deliberate trade: the role publishes only on the user's
+  explicit request, and only what the SCM's rules allow.
 
 ---
 
@@ -249,12 +256,11 @@ instead, stop: the guard hook is not running. Tell the user to start
 the session through the launcher, .codex/drafting-table, and do
 nothing else in this session.
 
-In Codex the sandbox refuses every Git write, ears-manager change-set
-create, every gh command, and registration. Do not run them. When the
-session protocol reaches such a command, print it exactly as the shell
-operations show it, ask the user to run it in their own shell, and read
-the state again through the Git reads and ears-manager before you
-continue.
+In Codex the sandbox refuses ears-manager change-set create, which cuts
+a branch, and registration. Do not run them. When the session protocol
+reaches such a command, print it exactly as the shell operations show
+it, ask the user to run it in their own shell, and read the state again
+through repo_state and ears-manager before you continue.
 
 Your skills are these Toolkit skills and no others. Open a skill by
 reading its SKILL.md under .agents/skills/, and read its references the
@@ -269,7 +275,8 @@ Toolkit skills name operations. In Codex:
   `ears-manager --output json <command> ...`; artifact content and
   the impact file go on standard input;
 - a WMS operation is the tool `mcp__wms__<normalized-operation>`;
-- a Git or Git host operation is one shell command; and
+- a Git or Git host operation is the SCM tool `mcp__scm__<operation>`;
+  and
 - a file is read with one of the read forms of the Codex binding.
 """
 approval_policy = "never"
@@ -287,6 +294,11 @@ include_instructions = false
 
 [mcp_servers.wms]
 command = "<WMS Adapter MCP server, named by #31>"
+default_tools_approval_mode = "approve"
+
+[mcp_servers.scm]
+command = "source-control-manager"
+args = ["serve", "--face", "drafting-table"]
 default_tools_approval_mode = "approve"
 
 [analytics]
@@ -325,13 +337,11 @@ checks the profile as it stands.
   `ears-manager` needs, and nothing else. Codex keeps `.git/`,
   `.agents/`, and `.codex/` read-only in that mode and, with
   `network_access` off, gives the shell no network (documented). So
-  `git switch`, `git add`, `git commit`, `git fetch`, `git merge`,
-  `git push`, `ears-manager change-set create`, which cuts a branch,
-  every `gh` command, and `register-approved-change-set` fail in the
-  role, before the guard's answer matters. The user runs them
-  ([What the user runs in Codex](#what-the-user-runs-in-codex)). The
-  Git reads, every other `ears-manager` command, and the `wms` tools
-  work.
+  `ears-manager change-set create`, which cuts a branch, and
+  `register-approved-change-set` fail in the role, before the guard's
+  answer matters. The user runs them
+  ([What the user runs in Codex](#what-the-user-runs-in-codex)). Every
+  other `ears-manager` command and the `wms` and `scm` tools work.
 - **`web_search = "disabled"` and `multi_agent = false` hide the web and
   subagent tools (H9).** With them, a model without an `apply_patch`
   tool type gets `exec_command`, `write_stdin`, `request_user_input`,
@@ -341,20 +351,26 @@ checks the profile as it stands.
   metadata names an `apply_patch` tool type, which OpenAI models do, and
   no setting removes it (documented). The guard refuses it in the role
   (guard rule 5), and H9 records the gap.
-- **`[mcp_servers.wms]` exists only in the profile (H2).** Other
-  sessions never load the server. `default_tools_approval_mode` lets the
-  `wms` tools run under `approval_policy = "never"`; it approves every
-  tool of the server, and the guard allows only the tools the manifest
-  lists. An MCP server from the user's base configuration still loads
-  in the role, and guard rule 4 refuses its tools. Codex starts the
-  server as its own process,
-  not as a tool call, so the tool sandbox does not apply to it; the
-  fixture confirms that it reaches the WMS backend with
-  `network_access` off ([Open points](#open-points)). In multi-player
-  mode the entry becomes a streamable HTTP server with `url`, and the
-  user authenticates once with `codex mcp login wms`, which keeps the
-  token in Codex's own store outside the project (H13, unverified). The
-  Web Drafting Table uses no harness binding
+- **`[mcp_servers.wms]` and `[mcp_servers.scm]` exist only in the
+  profile (H2).** Other sessions never load the servers.
+  `default_tools_approval_mode` lets their tools run under
+  `approval_policy = "never"`; it approves every tool of a server, and
+  the guard allows only the tools the manifest lists. An MCP server
+  from the user's base configuration still loads in the role, and guard
+  rule 4 refuses its tools. Codex starts each server as its own
+  process, not as a tool call, so the tool sandbox does not apply to
+  it; the fixture must confirm that `wms` reaches the WMS backend, and
+  that `scm` writes `.git/` and reaches the Git host, with
+  `network_access` off ([Open points](#open-points)). The `scm` server
+  is the Drafting Table face of the
+  [Source Control Manager](../source-control-manager.md):
+  it is where the role's Git and Git host operations run, bounded by
+  that face instead of by the sandbox. In multi-player mode the `wms`
+  entry becomes a streamable HTTP server with `url`, and the user
+  authenticates once with `codex mcp login wms`, which keeps the token
+  in Codex's own store outside the project (H13, unverified). The `scm`
+  server stays a local process in every mode. The Web Drafting Table
+  uses no harness binding
   ([Deployment modes](adapter-contract.md#deployment-modes)).
 - **`[analytics]` and `[feedback]` are off (H11).** Analytics is on by
   default in `codex exec`, and feedback can upload a session. Codex
@@ -372,22 +388,15 @@ continues, as it does for a discard and a merge:
 
 | Step | Commands the user runs |
 | --- | --- |
-| Initialize a project | `git switch -c <prefix>00001-project-init <default>`; the role then runs `project init`, which writes inside the workspace |
-| Start a change set | `git fetch <remote>`, then `ears-manager --output json change-set create ...`, which cuts and checks out the branch |
-| Resume on another branch | `git switch <prefix><nnnnn>-<slug>` |
-| Commit | `git add -- <path> ...`, then `git commit -F -` with the message the role prints |
-| Refresh | `git fetch <remote>`, `git merge --no-ff --no-edit <remote>/<default>`; the role then runs `change-set update` |
-| Push and open the pull request | `git push <remote> <branch>`, `gh pr create ...` with the body the role prints |
-| Update or read the pull request | `gh pr edit ...`, `gh pr view ...` |
-| Register after the merge | `register-approved-change-set` |
+| Start a change set | `ears-manager --output json change-set create ...`, which cuts and checks out the branch; the role runs `repo_state` first, which fetches and fast-forwards the local default branch |
+| Register after the merge | `register-approved-change-set --change-set CS-<nnnnn>` |
 
-The role still runs every Git read, every other `ears-manager`
-command, and every `wms` tool. Drafting, which is most of a session,
-is unchanged;
-the handoff at the end is the user's. A session started in OpenCode or
-Claude Code and resumed in Codex, or the other way round, finds the
-same state, because the commands are the same and only who runs them
-differs.
+The role runs everything else: every `ears-manager` command but
+`change-set create`, every `wms` tool, and every `scm` tool, which
+covers initialization, resume, commit, refresh, push, and the pull
+request. A session started in OpenCode or Claude Code and resumed in
+Codex, or the other way round, finds the same state, because the
+operations are the same and only who runs two of them differs.
 
 ### Read forms
 
@@ -515,13 +524,13 @@ file.
 | # | Obligation | Codex binding | Status |
 | --- | --- | --- | --- |
 | H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Observed from the project root; the fixture has not run |
-| H2 | The `ears-manager` CLI and the `wms` tools for the role | `exec_command`; `[mcp_servers.wms]` in the profile | Designed |
+| H2 | The `ears-manager` CLI and the `wms` and `scm` tools for the role | `exec_command`; `[mcp_servers.wms]` and `[mcp_servers.scm]` in the profile | Designed |
 | H3 | `drafting-table` entry point | The launcher, which starts the profile with `--profile` and `PROTOBOT_ROLE` | Observed that the profile loads and its instructions reach the model; a missing profile raises no error; the launcher is designed |
 | H4 | Resume on every entry, continued session, and compaction | `codex resume` and `codex exec resume` with the profile; the session skill runs the resume steps | Designed |
 | H5 | Nothing on idle or exit | No `Stop` or `SessionEnd` hook | Designed |
 | H6 | Replayable session record | The session file under `$CODEX_HOME/sessions/` and the `codex exec --json` event stream | Designed; hook events are not recorded, and a refusal is recorded as the tool output |
 | H7 | Headless replay with no permission prompt | `codex exec --json`, `approval_policy = "never"`, and a custom model provider pointed at a replay endpoint | Observed with a stub endpoint; the fixture has not run |
-| H8 | Guard before every tool call | The project hook; the launcher, which checks the hook file and the profile and starts Codex with `--dangerously-bypass-hook-trust`; the probe as the second layer | Observed for shell commands. The launcher closes the untrusted-hook and changed-hook cases and pins the profile. A guard process that is killed, or that hangs past the hook timeout, still lets that one call through (gap). The sandbox then bounds what the call can write, not what it can read: a read of any file the user can read, a host credential file included, can reach the model, and the `wms` server has network. The later layers hold for writes; nothing holds for that read |
+| H8 | Guard before every tool call | The project hook; the launcher, which checks the hook file and the profile and starts Codex with `--dangerously-bypass-hook-trust`; the probe as the second layer | Observed for shell commands. The launcher closes the untrusted-hook and changed-hook cases and pins the profile. A guard process that is killed, or that hangs past the hook timeout, still lets that one call through (gap). The sandbox then bounds what the call can write, not what it can read: a read of any file the user can read, a host credential file included, can reach the model, and the `wms` and `scm` servers have network. The later layers hold for writes; nothing holds for that read |
 | H9 | Hide file-writing, subagent, and web tools | `web_search = "disabled"`, `multi_agent = false` | Observed for web and subagent tools; `apply_patch` cannot be hidden and is refused by the guard (gap) |
 | H10 | Toolkit skills only | `include_instructions = false`; the profile names the Toolkit skills; the guard refuses any other `SKILL.md` read | Observed that the catalog is gone; `$<name>` in the prompt text can still insert another skill's text, and the fixture has not run (gap) |
 | H11 | No credential in binding files; no session upload | Placeholders; `[analytics]` and `[feedback]` off; no `codex cloud` or `remote-control` | Designed |
@@ -533,15 +542,17 @@ run. "Observed" means a stub run or `codex debug prompt-input` showed
 it. Nothing else is marked met.
 
 One limitation sits outside the obligations: the sandbox keeps `.git/`
-read-only and the role's shell has no network, so Git writes, `gh`,
+read-only and the role's shell has no network, so `change-set create`
 and registration are the user's
-([What the user runs in Codex](#what-the-user-runs-in-codex)).
+([What the user runs in Codex](#what-the-user-runs-in-codex)). Git and
+the Git host reach the role through the `scm` server, outside the
+sandbox.
 
 What the Codex layer stops, by route:
 
 | Write route to a guarded path | Role profile | Every other session |
 | --- | --- | --- |
-| Any write under `.git/`, and any network from the shell | Refused by the sandbox | Refused by the sandbox in a `workspace-write` session |
+| Any write under `.git/`, and any network from the shell | Refused by the sandbox; the `scm` server writes `.git/` from its own process, bounded by its Drafting Table face | Refused by the sandbox in a `workspace-write` session |
 | `apply_patch` under `.protobot/` or on a registered path | Offered to OpenAI models; refused by the guard | Refused by the guard |
 | Shell writer, such as `sed -i` | Refused by the guard | Not stopped |
 | Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root |
@@ -640,7 +651,7 @@ harness commands. For Codex:
 | List discovered skills (step 1) | `codex debug prompt-input` from a subdirectory of the clone, without the profile; the names in `<skills_instructions>` |
 | Headless turn in the role (steps 2 to 14) | `.codex/drafting-table exec --strict-config --json "<intent>"`; `.codex/drafting-table exec resume --last` or `resume <id>` to continue |
 | Headless turn outside the role (steps 2, 7, 9) | `codex exec --json "<prompt>"` |
-| Commands the sandbox refuses (setup, steps 9 and 14) | The fixture runs `change-set create` in setup, `git checkout -- docs/vision.md` in step 9, and `git add`, `git commit`, `git fetch`, the merge, `git push`, and `gh pr create` in step 14, outside the session after the role or the out-of-role turn names them; the `gh` stub still records the call. The out-of-role run uses `workspace-write` too, so `echo x >> vision.md` succeeds inside the workspace |
+| Commands the sandbox refuses (setup and step 9) | The fixture runs `change-set create` in setup and `git checkout -- docs/vision.md` in step 9, outside the session after the role or the out-of-role turn names them. Step 14 runs through the `scm` tools, and the `gh` stub records the call. The out-of-role run uses `workspace-write` too, so `echo x >> vision.md` succeeds inside the workspace |
 | Resolved native rules | No command prints them; the fixture keeps the profile and `hooks.json` next to the export |
 | Session export (step 15) | The session file under the fixture's `$CODEX_HOME/sessions/` and the `--json` event stream |
 
@@ -665,14 +676,14 @@ clone as trusted and holds the hook's trust entry.
 - That request has no `<skills_instructions>` message, and its
   developer instructions name exactly the manifest's `toolkit_skills`.
 - Its tools are `exec_command`, `write_stdin`, `request_user_input`,
-  `view_image`, `apply_patch`, and the `wms` tools, and no other.
+  `view_image`, `apply_patch`, and the `wms` and `scm` tools, and no
+  other.
 - The launcher refuses to start when `hooks.json` differs from the
   binding's by one byte, and the first tool call of every run in the
   role is the probe `true`, refused, which shows that the hook runs.
-- In step 14, the sandbox refuses `git add` with no prompt, and the
-  role's message names the commands; the fixture runs them outside the
-  session, and the `gh` stub records `pr create`.
-- The `wms` tools answer in step 2 with `network_access` off.
+- In step 14, the `scm` tools commit, refresh, and publish from outside
+  the sandbox with no prompt, and the `gh` stub records `pr create`.
+- The `wms` and `scm` tools answer in step 2 with `network_access` off.
 
 ---
 
@@ -689,7 +700,7 @@ met:
 3. Whether the hook command runs through a shell, so that the command
    in `hooks.json` works as written.
 4. Whether `default_tools_approval_mode = "approve"` lets the `wms`
-   tools run headless under `approval_policy = "never"`.
+   and `scm` tools run headless under `approval_policy = "never"`.
 5. Whether a resumed session keeps the profile's tools, instructions,
    and hidden skill catalog.
 6. Whether the model, without a skill catalog, opens the Toolkit skills
@@ -698,12 +709,20 @@ met:
 7. Whether `$<name>` is matched in pasted prompt text as well as in
    text the user types, and whether it still inserts a skill when
    `include_instructions = false`.
-8. Whether the `wms` MCP server, which Codex starts as its own
-   process, runs outside the tool sandbox and reaches the WMS backend
-   with `network_access` off.
-9. Whether the Git reads run cleanly with `.git/` read-only.
-   `git status` refreshes the index when it can and tolerates a
-   read-only one; the fixture shows it.
+8. Whether the `wms` and `scm` MCP servers, which Codex starts as their
+   own processes, run outside the tool sandbox, so that `wms` reaches
+   the WMS backend and `scm` writes `.git/` and reaches the Git host,
+   with `network_access` off. If `scm` does not, every Git write and
+   host step is the user's again, through the
+   [SCM's CLI](../source-control-manager.md#packaging) in their own
+   shell.
+9. Whether the guard's own Git read, `git rev-parse --abbrev-ref HEAD`,
+   runs cleanly from the hook while the role's sandbox keeps `.git/`
+   read-only; the fixture shows it.
+10. Which MCP revision Codex 0.154.0 negotiates with the `scm` server:
+    2026-07-28, or the legacy 2025-11-25. The server serves both
+    ([MCP protocol](../source-control-manager.md#mcp-protocol)), so the
+    answer changes nothing in the role; the fixture records it.
 
 ---
 
@@ -725,6 +744,8 @@ met:
   The command grammar the role's shell commands follow.
 - [Git and Project-Repository Integration](../git-integration.md) —
   Permitted Git operations and ungoverned-edit detection.
+- [Source Control Manager](../source-control-manager.md) — The Git and
+  Git host operations exposed through the `scm` MCP server.
 - [Validation Rules](../validation-rules.md) — The WMS boundary that
   rejects a lifecycle transition from the Drafting Table.
 - [Drafting Table WMS Integration](../drafting-table-wms.md) — The WMS

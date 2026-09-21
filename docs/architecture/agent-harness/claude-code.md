@@ -54,7 +54,7 @@ layer:
 │   ├── settings.json                    hook and deny rules, every session
 │   ├── agents/drafting-table.md         the Drafting Table role and entry point
 │   ├── settings.drafting-table.json     the role's native rules, loaded at launch
-│   ├── mcp.drafting-table.json          the wms MCP server, loaded at launch
+│   ├── mcp.drafting-table.json          the wms and scm MCP servers, loaded at launch
 │   └── hooks/drafting-table-guard.sh    the shim that names the role
 └── .agents/                             shared layer (harness-neutral)
     ├── drafting-table.yaml
@@ -159,7 +159,7 @@ Toolkit skills name operations. In Claude Code:
   `ears-manager --output json <command> ...`; artifact content and
   the impact file go on standard input;
 - a WMS operation is the tool `mcp__wms__<normalized-operation>`; and
-- a Git or Git host operation is one shell command.
+- a Git or Git host operation is the SCM tool `mcp__scm__<operation>`.
 ```
 
 - **`tools` is the role's tool set (H9).** `Edit`, `Write`,
@@ -204,21 +204,13 @@ holds the native copy of the role's rules:
       "mcp__wms__work_item_query", "mcp__wms__blocked_work_query",
       "mcp__wms__lifecycle_preflight",
       "mcp__wms__blocked_work_submit_resolution",
-      "mcp__wms__blocked_work_acknowledge", "Bash(ears-manager *)",
+      "mcp__wms__blocked_work_acknowledge",
+      "mcp__scm__repo_state", "mcp__scm__branch_init",
+      "mcp__scm__branch_resume", "mcp__scm__commit",
+      "mcp__scm__publish", "mcp__scm__refresh",
+      "Bash(ears-manager *)",
       "Bash(date -u +%Y-%m-%dT%H:%M:%SZ)",
-      "Bash(git rev-parse --show-toplevel)",
-      "Bash(git rev-parse --abbrev-ref HEAD)",
-      "Bash(git rev-parse --verify *)", "Bash(git status --porcelain)",
-      "Bash(git merge-base *)", "Bash(git remote -v)",
-      "Bash(git fetch origin)",
-      "Bash(git switch -c cs/00001-project-init main)",
-      "Bash(git switch cs/*)",
-      "Bash(git add -- *)", "Bash(git commit -F - *)",
-      "Bash(git merge --no-ff --no-edit origin/main)",
-      "Bash(git merge --abort)", "Bash(git push origin cs/*)",
-      "Bash(gh pr create --repo *)", "Bash(gh pr edit cs/*)",
-      "Bash(gh pr view cs/*)",
-      "Bash(register-approved-change-set *)"
+      "Bash(register-approved-change-set --change-set *)"
     ],
     "deny": [
       "Edit", "Write", "NotebookEdit", "Agent", "WebFetch", "WebSearch",
@@ -246,16 +238,15 @@ holds the native copy of the role's rules:
   environment variables to the session, and a hook command inherits
   them, so the shim names the role without an undocumented hook field.
 - **The allow list is the native copy of the
-  [shell operations](adapter-contract.md#shell-operations)** with the
-  defaults `origin`, `cs/`, and `main`, and `*` where the form has
-  `<repo>`, `<branch>`, `<rev>`, or `<path>`. A rule without `*`
-  matches only that exact command, so eight of the eighteen Git,
-  `gh`, and registration rules leave no room for an extra option. A rule
-  with a trailing `*` matches a command prefix and cannot express a
-  forbidden option inside a command, such as `--force` after the
-  branch, so those forms have no native deny and the guard refuses
-  them. This early layer is weaker than OpenCode's, and H8 carries the
-  difference.
+  [shell operations](adapter-contract.md#shell-operations)**, with `*`
+  where a form takes a value, and of the manifest's `scm` tools. No
+  `git` or `gh` command has an allow rule, so `dontAsk` denies every
+  one; the role reaches Git and the Git host only through the
+  `mcp__scm__` tools of the
+  [Source Control Manager](../source-control-manager.md). A rule with
+  a trailing `*` matches a command prefix and cannot express a
+  forbidden option inside a command, so the guard refuses every option
+  that #30's grammar does not show. H8 carries that difference.
 - **The deny list hides the file-writing, subagent, and web tools
   (H9)** and copies the role table's `.git/` and `.env` denies. The
   `.protobot/` deny names the three default store directories and
@@ -277,33 +268,41 @@ holds the native copy of the role's rules:
   file narrows the role. An allow in any loaded settings file widens
   it, which is why the launch loads no user or local settings.
 
-### The `wms` MCP server
+### The `wms` and `scm` MCP servers
 
 `.claude/mcp.drafting-table.json`:
 
 ```json
 {
   "mcpServers": {
-    "wms": { "command": "<WMS Adapter MCP server, named by #31>" }
+    "wms": { "command": "<WMS Adapter MCP server, named by #31>" },
+    "scm": {
+      "command": "source-control-manager",
+      "args": ["serve", "--face", "drafting-table"]
+    }
   }
 }
 ```
 
-- The `wms` server is the manifest's only MCP server (H2). Claude Code
-  names its tools `mcp__wms__<normalized-operation>`. `ears-manager` needs no
-  entry: it is a shell operation, allowed by `Bash(ears-manager *)`.
-  The named `mcp__wms__<normalized-operation>` allows mirror the manifest;
-  the guard independently enforces the same list.
-- **It is loaded at launch, with `--strict-mcp-config`, and is not in
-  `.mcp.json`.** A deny rule in project settings would bind the role
-  too, so the `wms` tools cannot be denied for every session and
-  allowed for the role, as OpenCode does. Instead the server exists
-  only in the role's launch: other sessions never see it, and the role
-  sees no other server. That is the MCP half of guard rule 4, in both
+- The `wms` and `scm` servers are the manifest's MCP servers (H2).
+  Claude Code names their tools `mcp__wms__<normalized-operation>` and
+  `mcp__scm__<operation>`. The `scm` server is the Drafting Table face
+  of the [Source Control Manager](../source-control-manager.md), which
+  runs every Git and Git host operation of the role. `ears-manager`
+  needs no entry: it is a shell operation, allowed by
+  `Bash(ears-manager *)`. The named allows mirror the manifest; the
+  guard independently enforces the same lists.
+- **They are loaded at launch, with `--strict-mcp-config`, and are not
+  in `.mcp.json`.** A deny rule in project settings would bind the role
+  too, so the tools cannot be denied for every session and allowed for
+  the role, as OpenCode does. Instead the servers exist only in the
+  role's launch: other sessions never see them, and the role sees no
+  other server. That is the MCP half of guard rule 4, in both
   directions.
-- The entry holds no credential. In multi-player mode it becomes an
-  HTTP server, and the user authenticates once through `/mcp` (H13,
-  unverified).
+- The entries hold no credential. In multi-player mode the `wms` entry
+  becomes an HTTP server, and the user authenticates once through
+  `/mcp` (H13, unverified). The `scm` server stays a local process in
+  every mode, because the working tree is local.
 
 ### The guard shim
 
@@ -400,7 +399,7 @@ through `Read`. It needs no binding file.
 | # | Obligation | Claude Code binding | Status |
 | --- | --- | --- | --- |
 | H1 | Discover Toolkit skills from `.agents/skills/` | The `.claude/skills` link | Designed |
-| H2 | The `ears-manager` CLI and the `wms` tools for the role | `Bash(ears-manager *)`; `--mcp-config` with `--strict-mcp-config` at launch | Designed |
+| H2 | The `ears-manager` CLI and the `wms` and `scm` tools for the role | `Bash(ears-manager *)`; `--mcp-config` with `--strict-mcp-config` at launch | Designed |
 | H3 | `drafting-table` entry point | The agent, launched with `--agent`; `skills` preloads the session skill | Designed |
 | H4 | Resume on every entry, continued session, and compaction | `--continue` and `--resume` keep the conversation; the session skill runs the resume steps | Designed |
 | H5 | Nothing on idle or exit | No `Stop` or `SessionEnd` hook | Designed |
@@ -496,7 +495,8 @@ sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
 
 **Binding checks** added to the harness-neutral ones:
 
-- The `system` init message lists `wms` as the only MCP server.
+- The `system` init message lists `wms` and `scm` as the only MCP
+  servers.
 - The `skills` of the `system` init message in the role are exactly the
   manifest's `toolkit_skills`. A name outside them means a new built-in
   or project skill that `skillOverrides` must turn off.
@@ -530,6 +530,10 @@ met:
 8. Whether the set of built-in skills changes with the account or its
    enabled features, and not only with the version. The init-message
    check above catches both.
+9. Which MCP revision Claude Code 2.1.273 negotiates with the `scm`
+   server: 2026-07-28, or the legacy 2025-11-25. The server serves both
+   ([MCP protocol](../source-control-manager.md#mcp-protocol)), so the
+   answer changes nothing in the role; the fixture records it.
 
 ---
 
@@ -551,6 +555,8 @@ met:
   The command grammar the role's shell commands follow.
 - [Git and Project-Repository Integration](../git-integration.md) —
   Permitted Git operations and ungoverned-edit detection.
+- [Source Control Manager](../source-control-manager.md) — The Git and
+  Git host operations exposed through the `scm` MCP server.
 - [Validation Rules](../validation-rules.md) — The WMS boundary that
   rejects a lifecycle transition from the Drafting Table.
 - [Drafting Table WMS Integration](../drafting-table-wms.md) — The WMS

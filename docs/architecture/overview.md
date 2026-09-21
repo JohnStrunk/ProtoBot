@@ -174,8 +174,8 @@ and required reviews. No custom labels or permission schemes
 needed.
 
 Both modes use the same components (Drafting Table, Specification
-Toolkit, WMS Adapter, Job Site). The difference is ceremony, not
-architecture.
+Toolkit, WMS Adapter, Source Control Manager, Job Site). The
+difference is ceremony, not architecture.
 
 ---
 

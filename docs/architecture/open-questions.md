@@ -123,6 +123,24 @@ Evidence fields and storage
     convenient "latest known conformance" index be derived, cached, and
     invalidated without turning it back into mutable requirement state?
 
+### Q21: Source Control Manager Job Site face
+
+The core of the Source Control Manager, its Drafting Table face, and its
+approved-state read face are decided
+([Source Control Manager](source-control-manager.md)). Open for the Job
+Site: does the Integration/Merge service reach Git through a Job Site
+face of the SCM, or keep its own Git code? Which operations would that
+face have: create a `wi/` branch from the recorded source commit, apply
+validated patch bundles, commit attestations, merge the default branch
+in, and merge `wi/` to the default branch or open a PR under
+[Q13](#q13-hu-02-compliance)? How do leases and fencing tokens bind
+those operations? Which bot or app identity does it act as
+([bot account model](components.md#multi-player-workflow))? Should the
+Projector read canonical source through it, instead of with its own
+read-only access? Fullsend's pre-script, sandbox, and post-script
+mutation model is an input
+([Fullsend](related-work.md#fullsend-pnt-devops)).
+
 ## Inspecting phase
 
 ### Q11: Test Completeness Inspector placement
@@ -244,6 +262,8 @@ relationships, eval coverage) stay open above.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Source Control Manager](source-control-manager.md) — The Git and Git
+  host boundary, and the Job Site face that Q21 leaves open
 - [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, the guard, and harness obligations
 - [OpenCode Harness Binding](agent-harness/opencode.md) — The first

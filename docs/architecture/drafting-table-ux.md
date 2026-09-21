@@ -70,6 +70,8 @@ define _how_ the underlying systems respond:
   harness sandbox makes the user run a step the agent would.
 - **#34** (single-player Git integration) defines branch, commit, and PR
   behavior for turning governed changes into reviewable Git history.
+- **#125** ([Source Control Manager](source-control-manager.md)) performs
+  those Git and PR operations when the user asks for a commit or a PR.
 
 This UX contract coordinates these integration points without prescribing
 their internal details.
@@ -105,8 +107,9 @@ conversation.
 
 The agent proposes and presents decisions. Authoritative mutations occur only
 through the system that owns the state: `ears-manager` for registered
-specification artifacts, Git for reviewed repository history, and the WMS
-Adapter for request and build-work lifecycle state.
+specification artifacts, Git, through the Source Control Manager, for
+reviewed repository history, and the WMS Adapter for request and build-work
+lifecycle state.
 
 ### TUI-first and local
 
@@ -492,9 +495,10 @@ Before approval, the Drafting Table presents one coherent final summary:
 
 1. **Explicit approval:** The user approves the exact presented revision.
    Approval cannot be inferred from silence or partial acceptances.
-2. **Commit and PR:** The agent commits artifacts via
-   [`ears-manager`](ears-manager-cli.md) and Git (#34), then prepares a PR
-   against `main`. Multi-player and web modes
+2. **Commit and PR:** The agent commits artifacts written via
+   [`ears-manager`](ears-manager-cli.md) through the
+   [Source Control Manager](source-control-manager.md) (#34, #125), then
+   prepares a PR against `main` the same way. Multi-player and web modes
    require reviewer merge; single-player mode permits the contributor to merge
    their own PR without a separate reviewer.
 3. **Single-player registration:** A self-merged PR still requires the local
