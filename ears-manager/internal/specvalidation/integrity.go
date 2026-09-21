@@ -154,11 +154,6 @@ func isImmediateStoreRecord(storePath, path string) bool {
 	return name != "" && !strings.Contains(name, "/") && !strings.HasPrefix(name, ".") && filepath.Ext(name) == ".yaml"
 }
 
-func emptyStoreDigest() string {
-	digest := sha256.Sum256(nil)
-	return "sha256:" + hex.EncodeToString(digest[:])
-}
-
 func emptyStoreDigests(value records.StoreDigests) bool {
 	return value.Requirements == "" && value.Interfaces == "" && value.ChangeSets == ""
 }
