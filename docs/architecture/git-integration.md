@@ -689,38 +689,49 @@ fire.
 | Layer | Where | Catches |
 | --- | --- | --- |
 | Harness tool permission rules (optional, [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
-| Pre-stage digest comparison | The Drafting Table, before staging | A registered path whose content no longer matches its registry digest |
+| Pre-stage verification | The Drafting Table, before staging | A registered artifact whose content no longer matches its registry digest, or store records edited outside `ears-manager` |
 | `ears-manager check` | Branch push and merge gate in CI | Malformed records, digest mismatches, dangling references, symmetry and cycle violations |
 | Path ownership in CI | Merge gate | A change that edits files outside the owning component's paths |
 
 ### The pre-stage digest comparison
 
-Before staging anything, the Drafting Table recomputes the content
-digest of every registered artifact the change set touches and
-compares it with the `digest` recorded in the registry.
-`ears-manager` updates that digest on every governed write
-([ADR-0002][adr2-registry]), so a mismatch means the file changed
-by some other route.
+Before staging anything, the Drafting Table verifies each category of
+touched file:
 
-When a registry entry names a directory rather than a file, the
-digest covers that directory's canonical file set, so an added or
-deleted record is a mismatch too. This holds for the requirement
-store and for the change-set folder alike.
+- **Registered `artifacts` entries:** The Drafting Table recomputes the
+  content digest of every registered artifact the change set touches and
+  compares it with the `digest` recorded in the `artifacts` list of
+  `project.yaml`. `ears-manager` updates that digest on every governed write
+  ([ADR-0002][adr2-registry]), so a mismatch means the file changed
+  by some other route.
+- **Configured `stores` records:** Files resolving under the configured
+  `stores` directories
+  ([ADR-0003](../decisions/0003-ears-manager-storage-layout.md))
+  are not artifact-registry entries and carry no `owner` or `digest` field in
+  `project.yaml`. The Drafting Table verifies them by running
+  `ears-manager check` over the touched store paths to ensure each record is
+  syntactically valid, matches its schema, and is accounted for in the active
+  change-set manifest.
+- **Control files:** `.protobot/project.yaml` and `.protobot/projection.yaml`
+  are verified during project resolution and `ears-manager check`, and are
+  staged when registry entries, digests, or classification entries change.
 
-On a mismatch the Drafting Table:
+On a mismatch or store validation failure the Drafting Table:
 
 1. stages nothing and commits nothing;
-2. names each path whose digest does not match; and
+2. names each path that failed verification (with recorded and recomputed
+   digests for artifact mismatches, or the validation diagnostic for store
+   records); and
 3. offers the two routes forward — discard the direct edit
    (`git checkout -- <path>`), or bring the content in through
    `ears-manager artifact put` or the matching `requirement` or
-   `interface` subcommand, which validates it and recomputes the
-   digest.
+   `interface` command, which validates it and updates the registry or
+   store.
 
 Unregistered files in the working tree are not an error. They are
 simply never staged by the Drafting Table.
 
-CI repeats the same comparison inside `ears-manager check`, so a
+CI repeats the same verification inside `ears-manager check`, so a
 contributor who bypasses the Drafting Table entirely is still
 caught before merge. Path ownership in CI is the last layer.
 
@@ -825,7 +836,8 @@ diagnostic and the safe retry.
 | No `.protobot/project.yaml` found | Project resolution walks to the filesystem root | Names the directory searched and the expected path | Run project initialization, or start the session inside the project |
 | `project.yaml` is not at the working-tree root | Project resolution | Names both the file location and the working-tree root | Move the session to the correct checkout; the Drafting Table never relocates the file |
 | Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Upgrade `ears-manager`; migration is a reviewed change set, never automatic |
-| Registered path digest mismatch | Pre-stage comparison | Names each path and both digests | Discard the direct edit, or re-apply it through `ears-manager` |
+| Registered artifact digest mismatch | Pre-stage comparison | Names each path and both digests | Discard the direct edit, or re-apply it through `ears-manager` |
+| Store record validation failure before staging | Pre-stage store check (`ears-manager check`) | Names each invalid or unrecorded store path and the diagnostic | Discard the direct edit, or edit the record through `ears-manager` and revalidate |
 | Registered path missing from the projection manifest | `ears-manager check` | Names the path and the required class `shared` | Re-run the registration; `ears-manager` writes the classification entry and the Drafting Table stages `projection.yaml` with it |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
 | Default branch has moved since `base_commit` | `merge-base` check before push or merge | Names the recorded base and the current head | Refresh: merge the default branch in, then `change-set update` |
@@ -903,7 +915,7 @@ resurface.
 | Bot account model for the Job Site | The Drafting Table commits with the user's identity, so the open question in [Multi-player Workflow](components.md#multi-player-workflow) is unchanged by this contract. |
 | Merge queue or batching | Concurrent change sets follow the standard refresh-before-merge model. A Bors-style queue is [related work](related-work.md#gas-town--beads-steve-yegge), not a decision here. |
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
-| Directory layout inside the requirement store | Open with `ears-manager` ([`ears-manager`](components.md#ears-manager)). This document constrains which paths may be committed, not how the store organizes them. |
+| Store directory layout and record filenames | Defined by [ADR-0003](../decisions/0003-ears-manager-storage-layout.md). This document constrains which paths may be staged and committed, not how stores organize their records. |
 | `ears-manager` command and result shapes | Defined by the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
 | Harness tool permission rules | Defined by [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops). This document names the layer and its effect, not its configuration. |
 | Kit import commits | Kit packaging is open ([Kits](components.md#kits)). The imported specification content arrives as a proposed change set and follows this contract. The lock file `.protobot/kits.lock` is a separate matter: no document names its writer, so this contract does not stage it. Whoever settles Kit packaging must name that owner. |
