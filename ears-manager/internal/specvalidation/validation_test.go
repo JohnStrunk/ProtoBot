@@ -443,6 +443,16 @@ func TestValidateApprovedChangeSetUsesStoredImpactAssessment(t *testing.T) {
 	}
 }
 
+func TestValidateApprovedChangeSetPreservesHistoricalRetireOperation(t *testing.T) {
+	snapshot := validSnapshot(t)
+	snapshot.Context = ValidationContext{}
+	snapshot.ChangeSets[0].Value.Operations = []records.RequirementOperation{{Action: "retire", RequirementID: "REQ-A-00001"}}
+	result := Validate(snapshot)
+	if hasDiagnosticForField(result, "change_set.invalid_operation", "operations[0].requirement_id") {
+		t.Fatalf("approved historical retire operation was revalidated against current status: %#v", result.Diagnostics)
+	}
+}
+
 func TestValidateStoreIntegrityDetectsRecordEdits(t *testing.T) {
 	snapshot := validSnapshot(t)
 	paths := snapshot.Config.Stores.WithDefaults()

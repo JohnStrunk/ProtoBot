@@ -21,7 +21,7 @@ func validateChangeSet(result *Result, context ValidationContext, document Docum
 	validateRecordPath(result, document.Path, records.ChangeSetStore, value.ID)
 	validateChangeSetIdentity(result, document, value, seen)
 	validateChangeSetMetadata(result, document, value)
-	validateOperations(result, path, value, requirements, interfaces, artifacts)
+	validateOperations(result, context, path, value, requirements, interfaces, artifacts)
 	validateAffectedInterfaces(result, path, value, interfaces)
 	validateChangeSetPolicy(result, document, path, value)
 	if context.isProposed(value.ID) {
@@ -94,13 +94,13 @@ func validateRequiredList(result *Result, fields map[string]bool, path, recordID
 	}
 }
 
-func validateOperations(result *Result, path string, value records.ChangeSet, requirements map[string]records.Requirement, interfaces map[string]records.InterfaceRecord, artifacts map[string]records.ArtifactEntry) {
-	validateRequirementOperations(result, path, value, requirements)
+func validateOperations(result *Result, context ValidationContext, path string, value records.ChangeSet, requirements map[string]records.Requirement, interfaces map[string]records.InterfaceRecord, artifacts map[string]records.ArtifactEntry) {
+	validateRequirementOperations(result, context, path, value, requirements)
 	validateInterfaceOperations(result, path, value, interfaces)
 	validateArtifactOperations(result, path, value, artifacts)
 }
 
-func validateRequirementOperations(result *Result, path string, value records.ChangeSet, requirements map[string]records.Requirement) {
+func validateRequirementOperations(result *Result, context ValidationContext, path string, value records.ChangeSet, requirements map[string]records.Requirement) {
 	seenRequirements := make(map[string]bool, len(value.Operations))
 	for index, operation := range value.Operations {
 		field := fmt.Sprintf("operations[%d]", index)
@@ -111,7 +111,7 @@ func validateRequirementOperations(result *Result, path string, value records.Ch
 			result.add(diagnostic("change_set.invalid_reference", path, value.ID, field+".requirement_id", err.Error(), "Use a valid requirement ID."))
 		} else if requirement, exists := requirements[operation.RequirementID]; !exists {
 			result.add(diagnostic("reference.not_found", path, value.ID, field+".requirement_id", fmt.Sprintf("Requirement %q is not registered.", operation.RequirementID), "Add the requirement or correct the operation reference."))
-		} else if operation.Action == "retire" && records.CanonicalRequirement(requirement).Status != records.StatusRetired {
+		} else if context.isProposed(value.ID) && operation.Action == "retire" && records.CanonicalRequirement(requirement).Status != records.StatusRetired {
 			result.add(diagnostic("change_set.invalid_operation", path, value.ID, field+".requirement_id", fmt.Sprintf("Retire operation target %q is still active.", operation.RequirementID), "Set the requirement status to retired in the proposed change set."))
 		}
 		if seenRequirements[operation.RequirementID] {
