@@ -105,7 +105,10 @@ func TestValidateRejectsReferencesSymmetryAndCycles(t *testing.T) {
 	fourth := validRequirement("REQ-GRAPH-00004", records.EARSUbiquitous, "The system shall provide the fourth behavior.")
 	fifth := validRequirement("REQ-GRAPH-00005", records.EARSUbiquitous, "The system shall provide the fifth behavior.")
 	sixth := validRequirement("REQ-GRAPH-00006", records.EARSUbiquitous, "The system shall provide the sixth behavior.")
-	first.Relationships = []records.Relationship{{Type: relationshipDependsOn, Target: second.ID}}
+	first.Relationships = []records.Relationship{
+		{Type: relationshipDependsOn, Target: second.ID},
+		{Type: relationshipRelatedTo, Target: first.ID},
+	}
 	second.Relationships = []records.Relationship{{Type: relationshipDependsOn, Target: first.ID}}
 	third.Relationships = []records.Relationship{{Type: relationshipConflictsWith, Target: fourth.ID}}
 	fifth.Relationships = []records.Relationship{{Type: relationshipSupersedes, Target: sixth.ID}}
@@ -122,7 +125,7 @@ func TestValidateRejectsReferencesSymmetryAndCycles(t *testing.T) {
 		Config:       records.ProjectConfig{Project: records.ProjectIdentity{ID: "fixture", Name: "Fixture"}, SchemaVersions: records.SchemaVersions{Project: records.CurrentProjectSchemaVersion, Specification: records.CurrentSpecificationSchemaVersion}},
 		Requirements: requirements,
 	})
-	for _, code := range []string{"relationship.not_symmetric", "relationship.cycle", "relationship.superseded_requirement_active"} {
+	for _, code := range []string{"relationship.not_symmetric", "relationship.cycle", "relationship.self_reference", "relationship.superseded_requirement_active"} {
 		if !hasDiagnosticCode(result, code) {
 			t.Errorf("diagnostic %q absent: %#v", code, result.Diagnostics)
 		}
@@ -132,7 +135,7 @@ func TestValidateRejectsReferencesSymmetryAndCycles(t *testing.T) {
 func TestValidateRejectsInvalidEnumsAndDanglingReferences(t *testing.T) {
 	badRequirement := validRequirement("REQ-ENUM-00001", records.EARSStyle("unknown"), "The system shall respond.")
 	badRequirement.Provenance = records.Provenance("unknown")
-	badRequirement.AppliesTo.Interfaces = []string{"missing-interface"}
+	badRequirement.AppliesTo.Interfaces = []string{"missing-interface", "missing-interface"}
 	badRequirement.Relationships = []records.Relationship{{Type: "unknown", Target: "REQ-MISSING-00001"}}
 	badInterface := records.InterfaceRecord{ID: "bad-interface", Name: "Bad", Type: records.InterfaceType("unknown"), Created: "2026-09-15T10:00:00Z"}
 	badChangeSet := records.ChangeSet{
@@ -155,6 +158,7 @@ func TestValidateRejectsInvalidEnumsAndDanglingReferences(t *testing.T) {
 		"requirement.invalid_provenance",
 		"interface.invalid_type",
 		"relationship.invalid_type",
+		"requirement.duplicate_selector",
 		"reference.not_found",
 		"change_set.invalid_operation",
 	} {
@@ -198,6 +202,11 @@ func TestValidateRejectsInvalidArtifactsAndNormalizesLineEndings(t *testing.T) {
 	} {
 		if !hasDiagnosticCode(result, code) {
 			t.Errorf("diagnostic %q absent: %#v", code, result.Diagnostics)
+		}
+	}
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "../outside.md") || strings.Contains(diagnostic.Path, "../outside.md") {
+			t.Fatalf("artifact diagnostic exposed an untrusted path: %#v", diagnostic)
 		}
 	}
 	if hasDiagnosticFor(result, "artifact.digest_mismatch", "good") {
@@ -421,6 +430,61 @@ func TestValidateRequiresCompleteMechanicalImpactAssessment(t *testing.T) {
 	}
 }
 
+func TestValidateApprovedChangeSetUsesStoredImpactAssessment(t *testing.T) {
+	snapshot := validSnapshot(t)
+	snapshot.Context = ValidationContext{ProposedChangeSets: map[string]bool{"CS-00001": false}}
+	snapshot.Requirements = append(snapshot.Requirements, Document[records.Requirement]{
+		Path:  ".protobot/requirements/REQ-G-00001.yaml",
+		Value: validRequirement("REQ-G-00001", records.EARSUbiquitous, "The system shall preserve historical impact decisions."),
+	})
+	result := Validate(snapshot)
+	if hasDiagnosticCode(result, "change_set.incomplete_impact") || hasDiagnosticCode(result, "change_set.invalid_impact") {
+		t.Fatalf("approved change set was re-evaluated against later requirements: %#v", result.Diagnostics)
+	}
+}
+
+func TestValidateStoreIntegrityDetectsRecordEdits(t *testing.T) {
+	snapshot := validSnapshot(t)
+	paths := snapshot.Config.Stores.WithDefaults()
+	for _, path := range []string{paths.Requirements, paths.Interfaces, paths.ChangeSets} {
+		if err := os.MkdirAll(filepath.Join(snapshot.Root, filepath.FromSlash(path)), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) returned error: %v", path, err)
+		}
+	}
+	requirement := validRequirement("REQ-STORE-00001", records.EARSUbiquitous, "The system shall protect structured store integrity.")
+	requirementPath := filepath.Join(snapshot.Root, filepath.FromSlash(paths.Requirements), requirement.ID+".yaml")
+	writeYAML(t, requirementPath, requirement)
+	snapshot.Config.StoreDigests = storeDigestsForRoot(t, snapshot.Root, paths)
+	if result := Validate(snapshot); !result.Valid {
+		t.Fatalf("matching store digests returned diagnostics: %#v", result.Diagnostics)
+	}
+	requirement.Text = "The system shall detect direct structured store edits."
+	writeYAML(t, requirementPath, requirement)
+	result := Validate(snapshot)
+	if !hasDiagnosticForField(result, "project.store_digest_mismatch", "store_digests.requirements") {
+		t.Fatalf("store digest mismatch diagnostic absent: %#v", result.Diagnostics)
+	}
+	writeYAML(t, requirementPath, validRequirement("REQ-STORE-00001", records.EARSUbiquitous, "The system shall protect structured store integrity."))
+	second := validRequirement("REQ-STORE-00002", records.EARSUbiquitous, "The system shall detect added structured records.")
+	secondPath := filepath.Join(snapshot.Root, filepath.FromSlash(paths.Requirements), second.ID+".yaml")
+	writeYAML(t, secondPath, second)
+	if result := Validate(snapshot); !hasDiagnosticForField(result, "project.store_digest_mismatch", "store_digests.requirements") {
+		t.Fatalf("store digest addition mismatch diagnostic absent: %#v", result.Diagnostics)
+	}
+	if err := os.Remove(secondPath); err != nil {
+		t.Fatalf("Remove(second record) returned error: %v", err)
+	}
+	if result := Validate(snapshot); !result.Valid {
+		t.Fatalf("restored store returned diagnostics: %#v", result.Diagnostics)
+	}
+	if err := os.Remove(requirementPath); err != nil {
+		t.Fatalf("Remove(requirement) returned error: %v", err)
+	}
+	if result := Validate(snapshot); !hasDiagnosticForField(result, "project.store_digest_mismatch", "store_digests.requirements") {
+		t.Fatalf("store digest deletion mismatch diagnostic absent: %#v", result.Diagnostics)
+	}
+}
+
 func TestValidateRequiresRetireOperationToBeApplied(t *testing.T) {
 	snapshot := validSnapshot(t)
 	snapshot.ChangeSets[0].Value.Operations = []records.RequirementOperation{{Action: "retire", RequirementID: "REQ-A-00001"}}
@@ -486,7 +550,7 @@ func TestValidateProjectRejectsSymlinkedControlNamespace(t *testing.T) {
 	}
 	result := ValidateProject(root)
 	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Code == "storage.decode_failed" && diagnostic.Path == ".protobot" {
+		if diagnostic.Code == "project.invalid_path" && diagnostic.Path == ".protobot/project.yaml" && diagnostic.Field == "project" {
 			return
 		}
 	}
@@ -519,7 +583,7 @@ func TestValidateProjectRejectsReservedStoreBeforeReading(t *testing.T) {
 
 	result := ValidateProject(root)
 	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Code == "storage.decode_failed" && diagnostic.Path == ".protobot/policy.yaml" {
+		if diagnostic.Code == "project.invalid_path" && diagnostic.Path == ".protobot/project.yaml" && diagnostic.Field == "stores.requirements" {
 			return
 		}
 	}
@@ -554,6 +618,49 @@ func TestValidateProjectReportsStableLoadCause(t *testing.T) {
 	t.Fatalf("stable load diagnostic absent: %#v", result.Diagnostics)
 }
 
+func TestValidateProjectClassifiesLoadCausesByType(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{".protobot/requirements", ".protobot/interfaces", ".protobot/change-sets"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) returned error: %v", directory, err)
+		}
+	}
+	config := validSnapshot(t).Config
+	config.Artifacts = nil
+	writeYAML(t, filepath.Join(root, ".protobot", "project.yaml"), config)
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "broken.yaml"), []byte("id: [unterminated\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(broken.yaml) returned error: %v", err)
+	}
+	writeYAML(t, filepath.Join(root, ".protobot", "requirements", "wrong.yaml"), validRequirement("REQ-CAUSE-00001", records.EARSUbiquitous, "The system shall classify load causes."))
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "interfaces", "notes.txt"), []byte("not a record\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(notes.txt) returned error: %v", err)
+	}
+
+	result := ValidateProject(root)
+	if !hasDiagnosticCode(result, "storage.decode_failed") || !hasDiagnosticCode(result, "record.filename_mismatch") || !hasDiagnosticCode(result, "storage.unexpected_file") {
+		t.Fatalf("load causes were not classified independently: %#v", result.Diagnostics)
+	}
+}
+
+func TestValidateProjectReportsUnsupportedVersionBeforeStrictDecode(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".protobot"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.protobot) returned error: %v", err)
+	}
+	data := []byte("schema_versions:\n  project: 2\n  specification: 1\nfuture_project_field: value\n")
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "project.yaml"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile(project.yaml) returned error: %v", err)
+	}
+
+	result := ValidateProject(root)
+	if !hasDiagnosticForField(result, "schema.unsupported_version", "schema_versions.project") {
+		t.Fatalf("unsupported schema diagnostic absent: %#v", result.Diagnostics)
+	}
+	if hasDiagnosticCode(result, "storage.decode_failed") {
+		t.Fatalf("newer schema was reported as a decode failure: %#v", result.Diagnostics)
+	}
+}
+
 func TestValidateProjectRejectsNestedStoreDirectories(t *testing.T) {
 	root := t.TempDir()
 	for _, directory := range []string{".protobot/requirements/nested", ".protobot/interfaces", ".protobot/change-sets"} {
@@ -566,11 +673,87 @@ func TestValidateProjectRejectsNestedStoreDirectories(t *testing.T) {
 
 	result := ValidateProject(root)
 	for _, diagnostic := range result.Diagnostics {
-		if diagnostic.Code == "storage.decode_failed" && diagnostic.Path == ".protobot/requirements/nested" {
+		if diagnostic.Code == "storage.unexpected_file" && diagnostic.Path == ".protobot/project.yaml" && diagnostic.Field == "stores.requirements" {
 			return
 		}
 	}
 	t.Fatalf("nested store directory was ignored: %#v", result.Diagnostics)
+}
+
+func TestValidateProjectAggregatesIndependentLoadFailures(t *testing.T) {
+	root := t.TempDir()
+	for _, directory := range []string{".protobot/requirements", ".protobot/interfaces", ".protobot/change-sets"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(directory)), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) returned error: %v", directory, err)
+		}
+	}
+	config := validSnapshot(t).Config
+	config.Artifacts = nil
+	writeYAML(t, filepath.Join(root, ".protobot", "project.yaml"), config)
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "bad.yaml"), []byte("id: [unterminated\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(bad.yaml) returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "interfaces", "notes.txt"), []byte("not a record\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(notes.txt) returned error: %v", err)
+	}
+
+	result := ValidateProject(root)
+	if !hasDiagnosticCode(result, "storage.decode_failed") || !hasDiagnosticCode(result, "storage.unexpected_file") {
+		t.Fatalf("independent load diagnostics were not aggregated: %#v", result.Diagnostics)
+	}
+	for _, diagnostic := range result.Diagnostics {
+		if strings.Contains(diagnostic.Message, "bad.yaml") || strings.Contains(diagnostic.Message, root) {
+			t.Fatalf("load diagnostic exposed an untrusted path: %#v", diagnostic)
+		}
+		if strings.Contains(diagnostic.Path, "bad.yaml") || strings.Contains(diagnostic.Path, root) {
+			t.Fatalf("load diagnostic path exposed an untrusted path: %#v", diagnostic)
+		}
+	}
+}
+
+func TestValidateProjectRejectsIntermediateSymlinks(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".git"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(.git) returned error: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".git", "config"), []byte("[remote]\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(.git/config) returned error: %v", err)
+	}
+	if err := os.Symlink(".git", filepath.Join(root, "docs")); err != nil {
+		t.Skipf("Symlink is unavailable: %v", err)
+	}
+	config := validSnapshot(t).Config
+	config.Artifacts = []records.ArtifactEntry{{
+		ID: "secret", Kind: records.ArtifactVision, Path: "docs/config", Digest: "sha256:" + strings.Repeat("0", 64), Owner: "user",
+	}}
+	result := Validate(Snapshot{Root: root, Config: config})
+	if !hasDiagnosticForField(result, "artifact.invalid_path", "artifacts[id=secret].path") {
+		t.Fatalf("intermediate artifact symlink was accepted: %#v", result.Diagnostics)
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, "safe", "requirements"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(safe/requirements) returned error: %v", err)
+	}
+	if err := os.Symlink("safe", filepath.Join(root, "records")); err != nil {
+		t.Skipf("Symlink is unavailable: %v", err)
+	}
+	config.Stores.Requirements = "records/requirements"
+	result = Validate(Snapshot{Root: root, Config: config})
+	if !hasDiagnosticForField(result, "project.invalid_path", "stores.requirements") {
+		t.Fatalf("intermediate store symlink was accepted: %#v", result.Diagnostics)
+	}
+}
+
+func TestDiagnosticsSortByPathThenCode(t *testing.T) {
+	result := Result{Diagnostics: []Diagnostic{
+		{Path: "b.yaml", Code: "z.code", RecordID: "a"},
+		{Path: "a.yaml", Code: "z.code", RecordID: "z"},
+		{Path: "a.yaml", Code: "a.code", RecordID: "z"},
+	}}
+	result.finish()
+	if result.Diagnostics[0].Path != "a.yaml" || result.Diagnostics[0].Code != "a.code" || result.Diagnostics[1].Code != "z.code" || result.Diagnostics[2].Path != "b.yaml" {
+		t.Fatalf("diagnostics were not sorted by path then code: %#v", result.Diagnostics)
+	}
 }
 
 func validSnapshot(t *testing.T) Snapshot {
@@ -689,6 +872,23 @@ func writeYAML(t *testing.T, path string, value any) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatalf("WriteFile(%q) returned error: %v", path, err)
 	}
+}
+
+func storeDigestsForRoot(t *testing.T, root string, paths records.StorePaths) records.StoreDigests {
+	t.Helper()
+	paths = paths.WithDefaults()
+	digests := records.StoreDigests{}
+	var err error
+	if digests.Requirements, err = canonicalStoreDigest(root, paths.Requirements); err != nil {
+		t.Fatalf("canonicalStoreDigest(requirements) returned error: %v", err)
+	}
+	if digests.Interfaces, err = canonicalStoreDigest(root, paths.Interfaces); err != nil {
+		t.Fatalf("canonicalStoreDigest(interfaces) returned error: %v", err)
+	}
+	if digests.ChangeSets, err = canonicalStoreDigest(root, paths.ChangeSets); err != nil {
+		t.Fatalf("canonicalStoreDigest(change sets) returned error: %v", err)
+	}
+	return digests
 }
 
 func hasDiagnostic(result Result, code, field string) bool {

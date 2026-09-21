@@ -136,6 +136,27 @@ func TestDiscoverRejectsNewerSchema(t *testing.T) {
 	}
 }
 
+func TestDiscoverRejectsNewerProjectSchemaBeforeStrictDecode(t *testing.T) {
+	root := t.TempDir()
+	configDirectory := filepath.Join(root, ".protobot")
+	if err := os.MkdirAll(configDirectory, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	data := []byte("schema_versions:\n  project: 2\n  specification: 1\nfuture_project_field: value\n")
+	if err := os.WriteFile(filepath.Join(configDirectory, "project.yaml"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	_, err := DiscoverWithGitRoot(root, func(string) (string, error) { return root, nil })
+	var versionError *schema.VersionError
+	if !errors.As(err, &versionError) {
+		t.Fatalf("DiscoverWithGitRoot error = %v, want VersionError", err)
+	}
+	if versionError.Store != "project" {
+		t.Fatalf("VersionError.Store = %q, want project", versionError.Store)
+	}
+}
+
 func TestProjectArtifactRegistryIsTypedAndCanonical(t *testing.T) {
 	root := t.TempDir()
 	configDirectory := filepath.Join(root, ".protobot")

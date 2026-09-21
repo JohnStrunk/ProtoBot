@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	CurrentProjectSchemaVersion       = 2
+	CurrentProjectSchemaVersion       = 1
 	CurrentSpecificationSchemaVersion = 1
 )
 
@@ -41,6 +41,12 @@ func (p StorePaths) WithDefaults() StorePaths {
 		p.ChangeSets = ".protobot/change-sets"
 	}
 	return p
+}
+
+type StoreDigests struct {
+	Requirements string `yaml:"requirements"`
+	Interfaces   string `yaml:"interfaces"`
+	ChangeSets   string `yaml:"change_sets"`
 }
 
 type ProjectIdentity struct {
@@ -78,6 +84,7 @@ type ProjectConfig struct {
 	Repository     RepositoryConfig `yaml:"repository"`
 	SchemaVersions SchemaVersions   `yaml:"schema_versions"`
 	Stores         StorePaths       `yaml:"stores"`
+	StoreDigests   StoreDigests     `yaml:"store_digests"`
 	Artifacts      []ArtifactEntry  `yaml:"artifacts,omitempty"`
 }
 

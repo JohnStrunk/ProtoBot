@@ -24,6 +24,9 @@ var artifactKinds = map[records.ArtifactKind]bool{
 	records.ArtifactInterfaceProse: true,
 }
 
+// artifactValidators is the code-controlled adapter registry. This validation
+// layer checks the stable adapter name and artifact-kind compatibility; the
+// CLI layer owns invoking an approved external tool with fixed arguments.
 var artifactValidators = map[string]map[records.ArtifactKind]bool{
 	"markdownlint": {
 		records.ArtifactVision:         true,
@@ -133,7 +136,7 @@ func validateArtifactPolicy(result *Result, artifact records.ArtifactEntry, proj
 func validateArtifactPath(result *Result, snapshot Snapshot, stores records.StorePaths, artifact records.ArtifactEntry, projectPath, field string) {
 	clean, pathErr := canonicalProjectPath(artifact.Path)
 	if pathErr != nil || isReservedProjectPath(clean) || pathInStructuredStore(clean, stores) {
-		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", fmt.Sprintf("Artifact path %q is not an allowed project-relative path.", artifact.Path), "Use a regular file inside the project outside reserved control paths."))
+		result.add(diagnostic("artifact.invalid_path", projectPath, artifact.ID, field+".path", "Artifact path is not an allowed project-relative path.", "Use a regular file inside the project outside reserved control paths."))
 		return
 	}
 	if snapshot.Root == "" {
@@ -153,7 +156,7 @@ func validateArtifactPath(result *Result, snapshot Snapshot, stores records.Stor
 	info, err := rootHandle.Lstat(relativePath)
 	if err != nil {
 		if os.IsNotExist(err) {
-			result.add(diagnostic("artifact.path_not_found", projectPath, artifact.ID, field+".path", fmt.Sprintf("Registered artifact path %q does not exist.", artifact.Path), "Create the artifact through ears-manager before registering it."))
+			result.add(diagnostic("artifact.path_not_found", projectPath, artifact.ID, field+".path", "Registered artifact path does not exist.", "Create the artifact through ears-manager before registering it."))
 			return
 		}
 		result.add(diagnostic("artifact.path_unreadable", projectPath, artifact.ID, field+".path", "Inspect artifact path.", "Make the registered artifact readable."))

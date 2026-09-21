@@ -271,12 +271,13 @@ Source Control Manager (reads only), and humans directly.
 **File system interface:** `ears-manager` reads and writes
 specification data on disk (under paths registered in
 `.protobot/project.yaml`). The on-disk format is an external
-interface because requirements data must be forward
-upgradeable as `ears-manager` evolves. Each store carries a
-schema version; `ears-manager` refuses to operate on data
-at a version newer than its own, and forward migration
-happens through a reviewed change set (see
-[Persistent State — Specification store](#specification-store-git)).
+interface because requirements data must be versioned as
+`ears-manager` evolves. The initial project and specification
+contracts are both version 1, including per-store integrity digests;
+the version-1 definition is finalized before first adoption. The
+tool refuses data at a newer version, while later adopted versions
+require an explicit reviewed migration (see [Persistent State —
+Specification store](#specification-store-git)).
 Callers must not parse or write these files directly — the
 CLI is the stable contract; the storage format may change
 between versions.
@@ -472,6 +473,11 @@ components.
   the test catalog and attestation paths. CI rejects edits
   by a component or Worker outside its owned/allowlisted
   paths.
+- **Integrity:** `store_digests` in `.protobot/project.yaml` protects
+  the canonical file set of each structured record store. Pre-stage
+  comparison and CI validation reject direct record edits, additions,
+  deletions, renames, and symlinked entries that do not match the
+  governed digest.
 - **Merge strategy:** Merge commits (not squash or rebase) to
   preserve the iteration DAG for evaluability.
 
@@ -773,11 +779,12 @@ Materializer ── create work item ─→ WMS Backend
 
 Persistent state outlives any single run and requires its own
 interface contract. ProtoBot has seven categories of persistent
-state. Each store carries a schema version (in
-`.protobot/project.yaml`); when a tool encounters data at a
-version newer than its own, it refuses to operate rather than
-silently corrupting state. Forward migration happens through a
-reviewed change set, not automatically.
+state. The initial project and specification stores use schema
+version 1 (in `.protobot/project.yaml`) and include structured-store
+integrity digests. When a tool encounters data at a version newer
+than its own, it refuses to operate rather than silently corrupting
+state. After version 1 is adopted, forward migration happens through
+a reviewed change set, not automatically.
 
 ### Specification store (Git)
 
@@ -908,7 +915,7 @@ incompatible decisions.
 
 | Constraint | Rationale |
 | --- | --- |
-| `ears-manager`: Go, static binary | Zero runtime dependencies across all deployment contexts — dev containers, CI runners, sandboxes, local machines. |
+| `ears-manager`: Go, static binary | Zero runtime dependencies for core storage and validation across dev containers, CI runners, sandboxes, and local machines. Optional code-controlled validator adapters may require approved tools such as `protoc` or `markdownlint`. |
 | Source Control Manager: one executable | Needs only `git`, `gh`, and `ears-manager` at run time. Its dual-era MCP SDK is bundled into the one executable and must not add a runtime to contributor machines or the Job Site environment. The language is chosen in #160 ([Packaging](architecture/source-control-manager.md#packaging)). |
 | First Drafting Table harness: OpenCode | OpenCode's model-provider flexibility and skill system provide the fastest path to a working TUI Drafting Table. |
 | First Job Site backend: Fullsend / OpenShell | Fullsend is the closest peer in the GE Agentic SDLC Working Group. OpenShell provides kernel-enforced sandboxing. Fallback: a portable rootless-OCI/microVM profile for platforms where OpenShell is unavailable (e.g., `restricted-v2` — no `CAP_SYS_ADMIN`). |

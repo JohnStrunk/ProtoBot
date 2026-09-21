@@ -79,6 +79,24 @@ func TestDecodeFieldsPreservesNestedFieldPresence(t *testing.T) {
 	}
 }
 
+func TestDecodeSchemaVersionsPrecedesStrictDecoding(t *testing.T) {
+	data := []byte("schema_versions:\n  project: 2\n  specification: 1\nfuture_project_field: value\n")
+	versions, fields, err := DecodeSchemaVersions(data)
+	if err != nil {
+		t.Fatalf("DecodeSchemaVersions returned error: %v", err)
+	}
+	if versions.Project != 2 || versions.Specification != 1 {
+		t.Fatalf("schema versions = %#v, want project 2/specification 1", versions)
+	}
+	if !fields["schema_versions.project"] || !fields["schema_versions.specification"] {
+		t.Fatalf("schema version fields = %#v", fields)
+	}
+	var value records.ProjectConfig
+	if err := Decode(data, &value); err == nil {
+		t.Fatal("strict Decode accepted the future project field")
+	}
+}
+
 func TestDecodeRejectsExplicitNullValues(t *testing.T) {
 	for _, data := range []string{
 		"verification: null\n",

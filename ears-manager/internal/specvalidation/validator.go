@@ -127,7 +127,7 @@ func Validate(snapshot Snapshot) Result {
 	validateInterfaces(&result, snapshot.Interfaces)
 	validateRequirements(&result, snapshot.Requirements, interfaces)
 	validateRelationships(&result, snapshot.Requirements, requirements)
-	validateChangeSets(&result, snapshot.ChangeSets, snapshot.Requirements, requirements, interfaces, artifacts)
+	validateChangeSets(&result, snapshot.Context, snapshot.ChangeSets, snapshot.Requirements, requirements, interfaces, artifacts)
 
 	result.finish()
 	return result
@@ -137,6 +137,7 @@ func validateProject(result *Result, snapshot Snapshot, config records.ProjectCo
 	path := projectConfigPath(snapshot.ConfigPath)
 	validateProjectMetadata(result, snapshot.ConfigFields, path, config)
 	validateStorePaths(result, snapshot.Root, path, config.Stores)
+	validateStoreIntegrity(result, snapshot, path, config.Stores, config.StoreDigests)
 	validateArtifacts(result, snapshot, path, config.Stores, config.Artifacts)
 }
 
@@ -392,7 +393,7 @@ func validateRequirement(result *Result, document Document[records.Requirement],
 	}
 	validateRequiredString(result, document.Fields, path, value.ID, "text", value.Text, "requirement.missing_field")
 	if !validEARS(value.Type, value.Text) {
-		result.add(diagnostic("requirement.ears_pattern_mismatch", path, value.ID, "text", fmt.Sprintf("Text does not match the declared %s EARS pattern.", value.Type), earsHint(value.Type)))
+		result.add(diagnostic("requirement.ears_pattern_mismatch", path, value.ID, "text", fmt.Sprintf("Text does not match the declared %s pattern.", value.Type), earsHint(value.Type)))
 	}
 	validateApplicability(result, document, value, interfaces)
 	validateVerification(result, document, rawValue)
@@ -415,8 +416,13 @@ func validateApplicability(result *Result, document Document[records.Requirement
 	if len(value.AppliesTo.Interfaces) == 0 && len(value.AppliesTo.Scopes) == 0 {
 		result.add(diagnostic("requirement.invalid_applicability", path, value.ID, "applies_to", "At least one interface or scope selector is required.", "Add a registered interface ID or a non-empty scope."))
 	}
+	seenInterfaces := make(map[string]bool, len(value.AppliesTo.Interfaces))
 	for _, interfaceID := range value.AppliesTo.Interfaces {
 		validateInterfaceSelector(result, path, value.ID, interfaceID, interfaces)
+		if seenInterfaces[interfaceID] {
+			result.add(diagnostic("requirement.duplicate_selector", path, value.ID, "applies_to.interfaces", fmt.Sprintf("Interface selector %q is repeated.", interfaceID), "Keep each applicability selector once."))
+		}
+		seenInterfaces[interfaceID] = true
 	}
 	validateScopeSelectors(result, path, value.ID, value.AppliesTo.Scopes)
 }

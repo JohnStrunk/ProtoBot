@@ -67,9 +67,9 @@ func (r *Result) finish() {
 func compareDiagnostics(left, right Diagnostic) int {
 	for _, pair := range [][2]string{
 		{left.Path, right.Path},
+		{left.Code, right.Code},
 		{left.RecordID, right.RecordID},
 		{left.Field, right.Field},
-		{left.Code, right.Code},
 		{left.Severity, right.Severity},
 		{left.Message, right.Message},
 		{left.Hint, right.Hint},

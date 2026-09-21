@@ -71,6 +71,10 @@ func validateRelationshipEdge(result *Result, document Document[records.Requirem
 		result.add(diagnostic("reference.not_found", path, value.ID, field+".target", fmt.Sprintf("Requirement %q is not registered.", relationship.Target), "Create the target requirement or remove the relationship."))
 		return
 	}
+	if relationship.Target == value.ID {
+		result.add(diagnostic("relationship.self_reference", path, value.ID, field+".target", "A requirement relationship must not target the declaring requirement.", "Reference a different requirement or remove the relationship."))
+		return
+	}
 	if relationship.Type == relationshipConflictsWith || relationship.Type == relationshipRelatedTo {
 		if !hasRelationship(target, relationship.Type, value.ID) {
 			result.add(diagnostic("relationship.not_symmetric", path, value.ID, field, fmt.Sprintf("Relationship %q to %q is not declared by both requirements.", relationship.Type, relationship.Target), "Add the inverse relationship to the target requirement."))

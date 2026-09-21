@@ -28,6 +28,50 @@ func DecodeFields(data []byte, target any) (map[string]bool, error) {
 	if target == nil {
 		return nil, fmt.Errorf("YAML decode target must not be nil")
 	}
+	root, err := decodeDocument(data)
+	if err != nil {
+		return nil, err
+	}
+
+	strictDecoder := yaml.NewDecoder(bytes.NewReader(data))
+	strictDecoder.KnownFields(true)
+	if err := strictDecoder.Decode(target); err != nil {
+		return nil, fmt.Errorf("decode YAML record: %w", err)
+	}
+	fields := make(map[string]bool)
+	collectFields(root, "", fields)
+	return fields, nil
+}
+
+// DecodeSchemaVersions reads only the schema_versions mapping before strict
+// decoding. This lets callers reject a newer schema even when it contains
+// fields unknown to the current typed model.
+func DecodeSchemaVersions(data []byte) (records.SchemaVersions, map[string]bool, error) {
+	root, err := decodeDocument(data)
+	if err != nil {
+		return records.SchemaVersions{}, nil, err
+	}
+	versions := records.SchemaVersions{}
+	fields := make(map[string]bool)
+	if root.Kind != yaml.MappingNode {
+		return versions, fields, fmt.Errorf("YAML project configuration must be a mapping")
+	}
+	for index := 0; index < len(root.Content); index += 2 {
+		key, value := root.Content[index], root.Content[index+1]
+		if key.Value != "schema_versions" {
+			continue
+		}
+		fields["schema_versions"] = true
+		collectFields(value, "schema_versions", fields)
+		if err := value.Decode(&versions); err != nil {
+			return records.SchemaVersions{}, fields, fmt.Errorf("decode schema versions: %w", err)
+		}
+		break
+	}
+	return versions, fields, nil
+}
+
+func decodeDocument(data []byte) (*yaml.Node, error) {
 	if !utf8.Valid(data) {
 		return nil, fmt.Errorf("YAML input is not valid UTF-8")
 	}
@@ -54,15 +98,7 @@ func DecodeFields(data []byte, target any) (map[string]bool, error) {
 		}
 		return nil, fmt.Errorf("read YAML document boundary: %w", err)
 	}
-
-	strictDecoder := yaml.NewDecoder(bytes.NewReader(data))
-	strictDecoder.KnownFields(true)
-	if err := strictDecoder.Decode(target); err != nil {
-		return nil, fmt.Errorf("decode YAML record: %w", err)
-	}
-	fields := make(map[string]bool)
-	collectFields(document.Content[0], "", fields)
-	return fields, nil
+	return document.Content[0], nil
 }
 
 func Encode(value any) ([]byte, error) {

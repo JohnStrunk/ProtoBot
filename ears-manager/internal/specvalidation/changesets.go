@@ -8,14 +8,14 @@ import (
 	"github.com/redhat-et/protobot/ears-manager/internal/records"
 )
 
-func validateChangeSets(result *Result, documents []Document[records.ChangeSet], requirementDocuments []Document[records.Requirement], requirements map[string]records.Requirement, interfaces map[string]records.InterfaceRecord, artifacts map[string]records.ArtifactEntry) {
+func validateChangeSets(result *Result, context ValidationContext, documents []Document[records.ChangeSet], requirementDocuments []Document[records.Requirement], requirements map[string]records.Requirement, interfaces map[string]records.InterfaceRecord, artifacts map[string]records.ArtifactEntry) {
 	seen := make(map[string]bool, len(documents))
 	for _, document := range sortChangeSetDocuments(documents) {
-		validateChangeSet(result, document, requirementDocuments, requirements, interfaces, artifacts, seen)
+		validateChangeSet(result, context, document, requirementDocuments, requirements, interfaces, artifacts, seen)
 	}
 }
 
-func validateChangeSet(result *Result, document Document[records.ChangeSet], requirementDocuments []Document[records.Requirement], requirements map[string]records.Requirement, interfaces map[string]records.InterfaceRecord, artifacts map[string]records.ArtifactEntry, seen map[string]bool) {
+func validateChangeSet(result *Result, context ValidationContext, document Document[records.ChangeSet], requirementDocuments []Document[records.Requirement], requirements map[string]records.Requirement, interfaces map[string]records.InterfaceRecord, artifacts map[string]records.ArtifactEntry, seen map[string]bool) {
 	value := document.Value
 	path := safePath(document.Path)
 	validateRecordPath(result, document.Path, records.ChangeSetStore, value.ID)
@@ -24,7 +24,11 @@ func validateChangeSet(result *Result, document Document[records.ChangeSet], req
 	validateOperations(result, path, value, requirements, interfaces, artifacts)
 	validateAffectedInterfaces(result, path, value, interfaces)
 	validateChangeSetPolicy(result, document, path, value)
-	validateImpactAssessment(result, path, value, requirementDocuments, requirements)
+	if context.isProposed(value.ID) {
+		validateImpactAssessment(result, path, value, requirementDocuments, requirements)
+	} else {
+		validateStoredImpactAssessment(result, path, value, requirements)
+	}
 	validateCreated(result, path, changeSetKind, value.ID, "created", value.Created)
 }
 
@@ -175,6 +179,28 @@ func validateImpactAssessment(result *Result, path string, value records.ChangeS
 	}
 }
 
+func validateStoredImpactAssessment(result *Result, path string, value records.ChangeSet, requirements map[string]records.Requirement) {
+	seen := make(map[string]bool, len(value.ImpactAssessment))
+	for index, assessment := range value.ImpactAssessment {
+		field := fmt.Sprintf("impact_assessment[%d]", index)
+		validateRecordedImpactTarget(result, path, value.ID, field, assessment.RequirementID, requirements)
+		validateImpactAssessmentMetadata(result, path, value.ID, field, assessment, seen)
+		if !impactOrigins[assessment.Origin] {
+			result.add(diagnostic("change_set.invalid_impact", path, value.ID, field+".origin", fmt.Sprintf("Unsupported impact origin %q.", assessment.Origin), "Use mechanical or semantic."))
+		}
+	}
+}
+
+func validateRecordedImpactTarget(result *Result, path, changeSetID, field, requirementID string, requirements map[string]records.Requirement) {
+	if err := records.ValidateRequirementID(requirementID); err != nil {
+		result.add(diagnostic("change_set.invalid_impact", path, changeSetID, field+".requirement_id", err.Error(), "Use a valid requirement ID."))
+		return
+	}
+	if _, exists := requirements[requirementID]; !exists {
+		result.add(diagnostic("reference.not_found", path, changeSetID, field+".requirement_id", fmt.Sprintf("Impact requirement %q is not registered.", requirementID), "Reference an existing requirement."))
+	}
+}
+
 func changedRequirements(operations []records.RequirementOperation) map[string]bool {
 	changed := make(map[string]bool, len(operations))
 	for _, operation := range operations {
@@ -186,6 +212,11 @@ func changedRequirements(operations []records.RequirementOperation) map[string]b
 func validateImpactAssessmentEntry(result *Result, path, changeSetID string, index int, assessment records.ImpactAssessment, requirements map[string]records.Requirement, changed, candidates, seen map[string]bool) {
 	field := fmt.Sprintf("impact_assessment[%d]", index)
 	validateImpactTarget(result, path, changeSetID, field, assessment.RequirementID, requirements, changed)
+	validateImpactAssessmentMetadata(result, path, changeSetID, field, assessment, seen)
+	validateImpactOrigin(result, path, changeSetID, field, assessment, candidates)
+}
+
+func validateImpactAssessmentMetadata(result *Result, path, changeSetID, field string, assessment records.ImpactAssessment, seen map[string]bool) {
 	if seen[assessment.RequirementID] {
 		result.add(diagnostic("change_set.duplicate_impact", path, changeSetID, field+".requirement_id", fmt.Sprintf("Impact requirement %q is repeated.", assessment.RequirementID), "Record each impact candidate once."))
 	}
@@ -196,7 +227,6 @@ func validateImpactAssessmentEntry(result *Result, path, changeSetID string, ind
 	if strings.TrimSpace(assessment.Rationale) == "" {
 		result.add(diagnostic("change_set.missing_field", path, changeSetID, field+".rationale", "Impact assessment rationale is required.", "Explain the disposition."))
 	}
-	validateImpactOrigin(result, path, changeSetID, field, assessment, candidates)
 }
 
 func validateImpactTarget(result *Result, path, changeSetID, field, requirementID string, requirements map[string]records.Requirement, changed map[string]bool) {

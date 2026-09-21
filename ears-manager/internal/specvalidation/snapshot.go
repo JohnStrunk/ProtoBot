@@ -11,6 +11,20 @@ type Document[T any] struct {
 	Fields map[string]bool
 }
 
+// ValidationContext identifies the change sets that are still proposed in the
+// snapshot. Approved manifests remain immutable historical records and are not
+// re-evaluated against later specification state.
+type ValidationContext struct {
+	ProposedChangeSets map[string]bool
+}
+
+func (c ValidationContext) isProposed(changeSetID string) bool {
+	if c.ProposedChangeSets == nil {
+		return true
+	}
+	return c.ProposedChangeSets[changeSetID]
+}
+
 // Snapshot is the complete specification state needed for project-level
 // validation. It contains no writable handles and validation never mutates it.
 type Snapshot struct {
@@ -18,6 +32,7 @@ type Snapshot struct {
 	Config       records.ProjectConfig
 	ConfigPath   string
 	ConfigFields map[string]bool
+	Context      ValidationContext
 	Requirements []Document[records.Requirement]
 	Interfaces   []Document[records.InterfaceRecord]
 	ChangeSets   []Document[records.ChangeSet]

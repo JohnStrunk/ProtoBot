@@ -165,6 +165,13 @@ func loadConfig(path, root string) (records.ProjectConfig, error) {
 	if err != nil {
 		return records.ProjectConfig{}, fmt.Errorf("read project configuration: %w", err)
 	}
+	versions, _, err := storage.DecodeSchemaVersions(data)
+	if err != nil {
+		return records.ProjectConfig{}, fmt.Errorf("decode project schema version: %w", err)
+	}
+	if err := schema.Validate(versions); err != nil {
+		return records.ProjectConfig{}, err
+	}
 	var config records.ProjectConfig
 	if err := storage.Decode(data, &config); err != nil {
 		return records.ProjectConfig{}, fmt.Errorf("decode project configuration: %w", err)

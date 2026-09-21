@@ -93,26 +93,26 @@ func ValidatePathWithin(root, relativePath string) (string, error) {
 		return "", fmt.Errorf("path %q escapes the project root", relativePath)
 	}
 
-	check := candidate
-	for {
-		info, statErr := os.Lstat(check)
-		if statErr == nil {
-			realPath, evalErr := filepath.EvalSymlinks(check)
-			if evalErr != nil {
-				return "", fmt.Errorf("resolve path symlinks: %w", evalErr)
-			}
-			if !isWithin(root, realPath) {
-				return "", fmt.Errorf("path %q resolves outside the project root", relativePath)
-			}
-			if info.Mode()&os.ModeSymlink == 0 || check == candidate {
-				break
-			}
+	relative, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return "", fmt.Errorf("resolve relative path: %w", err)
+	}
+	check := root
+	for _, component := range strings.Split(relative, string(os.PathSeparator)) {
+		if component == "" || component == "." {
+			continue
 		}
-		parent := filepath.Dir(check)
-		if parent == check {
+		check = filepath.Join(check, component)
+		info, statErr := os.Lstat(check)
+		if os.IsNotExist(statErr) {
 			break
 		}
-		check = parent
+		if statErr != nil {
+			return "", fmt.Errorf("inspect path component: %w", statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("path %q contains a symlink component", relativePath)
+		}
 	}
 	return candidate, nil
 }
