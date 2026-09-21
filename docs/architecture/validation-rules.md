@@ -713,6 +713,9 @@ decisions.
   stale-state, and mutation ownership behavior.
 - [Git and Project-Repository Integration](git-integration.md) — Git/WMS
   registration and merge boundaries.
+- [Source Control Manager](source-control-manager.md) — Reuses this
+  contract's authorization context for Git, with a proposed
+  `change_set_id`.
 - [Open Design Questions](open-questions.md) — Cross-cutting questions about
   interactive, autonomous, compliance, and interface concerns.
 - [ADR-0001](../decisions/0001-requirements-storage-format.md) — Physical

@@ -1153,6 +1153,8 @@ whether this is achievable given Red Hat's AIA requirements.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Source Control Manager](source-control-manager.md) — The Git and
+  Git host operations behind a commit or a PR request
 - [Drafting Table UX](drafting-table-ux.md) — Stable interaction
   contract for the first local Drafting Table
 - [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —

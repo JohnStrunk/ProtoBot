@@ -789,7 +789,8 @@ any harness.
   commands are not shell operations, credential-file reads, reads
   under `.git/`, and reads outside the project are refused, variable
   expansion is refused, and the SCM prints no remote URL and refuses a
-  canonical remote whose URL carries userinfo.
+  canonical remote whose URL carries userinfo other than the fixed
+  `git@` of the SCP form, as `ears-manager` accepts it.
 - **The limit of a local harness.** The agent runs as the user, on the
   user's machine. The adapter narrows what the Drafting Table role can
   reach; it does not isolate a token from the user's own shell or from
@@ -1170,7 +1171,7 @@ repository state.
 | 11 | Start a new session, without continuing, through the entry point | A new session ID. The resume reads present `CS-00003`, its branch, and the step-5 requirement as an uncommitted draft. No call reads an earlier session. |
 | 12 | Push a commit to the default branch of `origin` from outside the session, then continue the session through the entry point | The resume reads run again and present `CS-00003`, its branch, and `base_commit` from governed reads and `repo_state`, not from the conversation. The summary makes no claim about the default branch; step 14 detects the move. |
 | 13 | Start a session with the `wms` stub stopped | The summary marks blocked work as unavailable. Drafting continues. No `wms` call succeeds. |
-| 14 | The user approves and asks for a commit and a pull request | Only `scm` tools and `ears-manager` shell operations run. `commit` makes one commit in #34's message format. `publish` fetches and fails with `DEFAULT_MOVED`, because the default branch moved since `base_commit` (step 12), as #34's [failure table](../git-integration.md#failure-behavior) states. The role runs `refresh`, which adds a merge commit, then `change-set update --base-commit` with the head that `refresh` returned, re-runs `impact` and `check --change-set CS-00003` as #34's refresh sequence requires, records any new disposition with `change-set update --impact-file -`, and runs `commit` again, so the manifest's `base_commit` equals the new default-branch head and the assessment is complete. `publish` pushes the branch to `origin`. The `gh` stub records one `pr create` whose `--repo` is the canonical repository, `--base` is `main`, and `--head` is `cs/00003-<slug>`, and whose body on standard input is the SCM's rendering. No merge and no other call follows the handoff. |
+| 14 | The user approves and asks for a commit and a pull request | Only `scm` tools and `ears-manager` shell operations run. `commit` makes one commit in #34's message format. `publish` fetches and fails with `DEFAULT_MOVED`, because the default branch moved since `base_commit` (step 12), as #34's [failure table](../git-integration.md#failure-behavior) states. The role runs `refresh`, which adds a merge commit, then, in #34's [refresh sequence](../git-integration.md#refreshing-from-the-default-branch), `change-set update --base-commit` with the head that `refresh` returned, `impact`, a reviewed `change-set update --impact-file -` that records any new disposition, and `check --change-set CS-00003`, and runs `commit` again, so the manifest's `base_commit` equals the new default-branch head and the assessment is complete. `publish` pushes the branch to `origin`. The `gh` stub records one `pr create` whose `--repo` is the canonical repository, `--base` is `main`, and `--head` is `cs/00003-<slug>`, and whose body on standard input is the SCM's rendering. No merge and no other call follows the handoff. |
 | 15 | Export every session | Each export names the role, the model, and the harness version, and holds the adapter line and every tool call with its status and error text. |
 
 A session started in one bound harness and resumed in another, at step
@@ -1265,8 +1266,9 @@ material.
 - [Git and Project-Repository Integration](../git-integration.md) —
   Branches, commits, pull requests, permitted Git operations, and
   ungoverned-edit detection.
-- [Source Control Manager][scm] — The `scm` tools, their results and
-  failures, and the repository fixture run against them.
+- [Source Control Manager](../source-control-manager.md) — The `scm`
+  tools, their results and failures, and the repository fixture run
+  against them.
 - [Validation Rules](../validation-rules.md) — Lifecycle
   authorization, preflight, and the rejection of a Drafting Table
   transition.

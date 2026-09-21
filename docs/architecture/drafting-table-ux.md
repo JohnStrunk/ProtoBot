@@ -265,8 +265,11 @@ artifacts. The Drafting Table:
 1. Creates and checks out `cs/00001-project-init` from the default branch.
 2. Runs `ears-manager project init` and `change-set create` on that branch.
    See the [project initialization grammar][project-init-grammar].
-3. On explicit approval, commits the control namespace and initial manifest,
-   opens the pull request, and completes the required merge ceremony.
+3. On explicit approval, commits the control namespace and initial manifest
+   and opens the pull request through the
+   [Source Control Manager](source-control-manager.md). The user merges it on
+   the host in single-player mode, or a reviewer does in multi-player mode,
+   and registration follows.
 4. Creates and checks out the contributor branch for the initial Sketch, then
    enters the Sketching phase.
 
@@ -280,7 +283,10 @@ On session start, the Drafting Table reconstructs context from authoritative
 state rather than conversation memory:
 
 1. Identifies the project from `.protobot/project.yaml` in the working tree.
-2. Reads the active branch and proposed change-set metadata via `ears-manager`.
+2. Reads the active branch, the default-branch head, and the pull-request state
+   through the Source Control Manager's
+   [`repo_state`](source-control-manager.md#repo_state), and the proposed
+   change-set metadata via `ears-manager`.
 3. Reads current artifact and requirement deltas through `ears-manager`.
 4. Reads linked request and build-work state and versions through the WMS
    Adapter.
@@ -596,7 +602,7 @@ The Drafting Table provides visibility, not orchestration:
 | **Update Vision/Arch** | Updates draft change set | `ears-manager` | Final change set + Git commit. |
 | **Set impact status** | Updates impact assessment | `ears-manager` | Included in final change set. |
 | **Declare out of scope** | Creates draft exclusion | `ears-manager` | Included in final change set. |
-| **Approve change set** | Authorizes Git operation | Git integration | PR merge, including a self-merge in single-player mode (#34). |
+| **Approve change set** | Authorizes Git operation | Source Control Manager, under #34's rules | PR merge on the host by a reviewer, or a self-merge in single-player mode (#34). |
 | **Reject / revise** | Returns to prior checkpoint | Local harness | None; approved state intact. |
 | **Select block fix** | Links draft change set | WMS Adapter | Spec approval + WMS validation. |
 | **Materialize work item** | Creates build work item | Job Site Materializer | Registration hook post-merge. |
@@ -670,8 +676,10 @@ transitions.
 
 If registration fails after a successful merge, the specification remains
 approved at the recorded `main` commit, but WMS materialization is incomplete.
-The Drafting Table reports the registration failure and retries the same
-idempotent registration call using the change-set ID and merge commit; another
+The Drafting Table reports the registration failure and re-runs the same
+idempotent `register-approved-change-set` call with the change-set ID only.
+The merge commit comes from the Source Control Manager's
+[`approved_merge`](source-control-manager.md#approved-state-read-face); another
 merge or specification approval is not required.
 
 ---
@@ -810,7 +818,11 @@ Agent: Approval recorded for revision e8f29ab.
        Staging artifacts and committing to branch cs/add-cli-help-requirements.
        Committed revision e8f29ab.
        Pushing branch and opening a PR against main.
-       PR merged to main as commit f4a21c7.
+       PR opened. Merge it on the host when you are ready.
+
+User:  Merged.
+
+Agent: PR merged to main as commit f4a21c7.
        Running single-player registration hook...
        Change set CS-00005 registered against main commit f4a21c7.
        Work item WI-078 materialized in WMS with status
@@ -823,8 +835,9 @@ Agent: Approval recorded for revision e8f29ab.
 
 Acceptance evidence is verified through a harness-neutral fixture suite. A test
 driver substitutes deterministic agents and local fakes for OpenCode,
-`ears-manager`, the WMS Adapter, and Git. Fixtures record user input, tool
-calls, presented semantic checkpoints, and final authoritative state.
+`ears-manager`, the WMS Adapter, and the Source Control Manager. Fixtures
+record user input, tool calls, presented semantic checkpoints, and final
+authoritative state.
 
 ### Required test scenarios
 
@@ -855,6 +868,7 @@ Every fixture test must assert:
 - exact owning boundary for every tool call;
 - that no registered specification write occurred outside `ears-manager`;
 - that no WMS mutation occurred outside the WMS Adapter and Validation Rules;
+- that no Git or Git host write occurred outside the Source Control Manager;
 - that approval was explicit and bound to the displayed revision; and
 - that replay traces emit inputs, outputs, decisions, and tool results
   sufficient to evaluate agent quality without a live Job Site.
@@ -878,7 +892,7 @@ OAuth tokens, hosted session manager, or live cloud services.
 | **UX-008** | Gaps block final approval | Unresolved gaps prevent specification completion and autonomous bugs. |
 | **UX-009** | Exact revision approval | Approval binds to displayed commit SHA; prevents stale-state bugs. |
 | **UX-010** | Checkpoints not approval | Partial draft acceptance never implies complete change-set approval. |
-| **UX-011** | Governed tool ownership | Preserves architectural boundaries of `ears-manager`, Git, and WMS. |
+| **UX-011** | Governed tool ownership | Preserves architectural boundaries of `ears-manager`, the Source Control Manager, and WMS. |
 | **UX-012** | Failures preserve checkpoint | Conversational fluency never masks tool failure or partial state. |
 | **UX-013** | Concurrent changes invalidate | Stale presentations force refresh and re-approval before merge. |
 | **UX-014** | Harness-neutral test matrix | Enables offline evaluation and deterministic verification. |
@@ -925,6 +939,8 @@ OAuth tokens, hosted session manager, or live cloud services.
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
+- [Source Control Manager](source-control-manager.md) — The Git and Git
+  host operations behind a commit or a PR request
 - [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, the guard, and harness obligations
 - [OpenCode Harness Binding](agent-harness/opencode.md) — The first

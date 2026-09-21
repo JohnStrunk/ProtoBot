@@ -117,19 +117,30 @@ The decision has three parts:
 
 ```text
 source-control-manager [--output human|json] <operation> [options]
-source-control-manager serve --face drafting-table
+source-control-manager serve --face drafting-table [--transport stdio|streamable-http]
 source-control-manager --version
 ```
 
 The operations are `repo-state`, `branch-init`, `branch-resume`,
 `commit`, `publish`, `refresh`, and `approved-merge`, with the fields of
 [Requests](#requests) as options. The MCP tool names use `_` where the
-CLI uses `-`. A CLI call runs under the face that its operation belongs
-to: the first six under the Drafting Table face and the
-`drafting-table` role, and `approved-merge` under the approved-state
-read face and the `materializer` or `reconciler` role that the caller's
-configuration names. It gets the same checks as an MCP
-call. The CLI is a convenience for people and services, not a boundary,
+CLI uses `-`. An option is its field's name with `_` replaced by `-`
+and a trailing `_id` dropped: `change_set_id` is `--change-set`, and
+`branch_prefix` is `--branch-prefix`.
+
+`serve` fixes the transport when it starts: `stdio`, the default, for a
+harness binding, or `streamable-http` for the hosted face behind the
+Gate, which also takes the Gate's verification key from the deployment.
+The transport decides whether the process is hosted
+([Checks on every call](#checks-on-every-call)), and no request changes
+it.
+
+A CLI call runs under the face that its operation belongs to: the
+first six under the Drafting Table face and the `drafting-table` role,
+and `approved-merge` under the approved-state read face and the
+`materializer` or `reconciler` role that the caller's configuration
+names. It gets the same checks as an MCP call. The CLI is a
+convenience for people and services, not a boundary,
 because a person at a terminal has Git anyway. In the Drafting Table
 role it is not a shell operation, so the guard refuses it, and the role
 reaches the SCM only through the face that its binding started.
@@ -140,7 +151,8 @@ exists. The implementation language is the choice of #160, the
 implementation issue, as the guard's is #77's
 ([Out-of-scope decisions][adapter-oos]).
 It needs an MCP SDK that serves both eras below on stdio, such as
-`mcp` 2.0 for Python.
+`mcp` 2.0 for Python, within the executable's constraints in
+[Environmental Constraints][env-constraints].
 
 ### MCP protocol
 
@@ -244,9 +256,13 @@ Two more facts count for the SCM:
   ([Codex open point 8][codex-open]). If it holds, the role in Codex
   reaches Git and the Git host through the `scm` server
   ([Codex binding][codex-user-runs]). The user then no longer types the
-  push and the pull request by hand. That is a deliberate trade: the
-  role still publishes only on the user's explicit request, and only
-  what the SCM's rules allow.
+  push and the pull request by hand. That is a deliberate trade, with
+  a recorded risk: the session skill tells the role to publish only on
+  the user's explicit request, but no mechanism enforces it, because
+  every binding allows `publish` without a prompt. A model steered by
+  injected text can publish a proposed change set. It can publish only
+  what the SCM's rules allow, and a reviewer sees it as a pull request
+  before anything merges.
 - **The guard's Git and `gh` vectors were the largest group.** Each
   new command form was another shell grammar to get right. They leave
   the guard.
@@ -299,12 +315,20 @@ approval, which is the merge of the pull request.
   could change a registered file after the digest check, or drop the
   trailer, and hosted it would run next to a credential. The SCM runs
   every Git command with an empty hooks directory of its own and
-  `core.fsmonitor` off. After staging, it compares every staged blob
-  with the working-tree file it came from, and refuses with
-  `STAGED_CONTENT_CHANGED` when a filter changed it. Hosted, it also
-  runs Git with its own global configuration and no system
-  configuration ([Hosted isolation](#hosted-isolation)). CI still runs
-  the project's own checks on every push.
+  `core.fsmonitor` off, and commits with `--cleanup=verbatim`, so no
+  cleanup mode or comment character strips the trailer. At the digest
+  check it records the content of every path it will stage, and after
+  staging it compares every staged blob with that record, so a clean
+  filter or a write between the two steps stops the commit with
+  `STAGED_CONTENT_CHANGED`. Locally, the programs of the user's own Git
+  configuration, the clone's `.git/config` included, still run as the
+  user's: a credential helper, a signing program, and a filter or merge
+  driver that `.gitattributes` names and that configuration defines. A
+  repository cannot ship them, because it cannot ship configuration.
+  Hosted, the SCM runs Git with its own global configuration and no
+  system configuration, so none of them exists
+  ([Hosted isolation](#hosted-isolation)). CI still runs the project's
+  own checks on every push.
 - **Stateless.** The SCM keeps no store. Every operation reads Git, the
   host, and `ears-manager` again, so a retry after a lost response is
   safe ([Security posture and persistent state][scm-state]).
@@ -326,7 +350,7 @@ approval, which is the merge of the pull request.
 | Integration/Merge service | Service | `wi/` branches, patches, merges | Job Site face, future ([Q21][q21]) | Its own `wi/` branch, under a lease |
 | Workers, the Implementation-aware Test Worker, Inspectors, the Patch/Ownership Validator | Agents and services | None | None | None |
 
-Workers "never receive the canonical remote or repository credentials"
+Workers never receive the canonical remote or repository credentials
 ([Job Site internal structure][js-internal]), and "Workers and
 implementation-aware test agents receive no Git or WMS mutation role"
 ([Authentication and Credential Isolation][credential-isolation]). So
@@ -424,7 +448,7 @@ Code and Codex ([The adapter manifest][manifest]).
 
 | #33 shell operation | Drafting Table face |
 | --- | --- |
-| `git rev-parse --show-toplevel`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --verify <rev>`, `git status --porcelain`, `git merge-base`, `git remote -v`, `git fetch <remote>`, `gh pr view` | `repo_state` |
+| `git rev-parse --show-toplevel`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --verify <rev>`, `git status --porcelain`, `git merge-base <rev> <rev>`, `git merge-base --is-ancestor <rev> <rev>`, `git remote -v`, `git fetch <remote>`, `gh pr view` | `repo_state` |
 | `git switch -c <prefix>00001-project-init <default>` | `branch_init` |
 | `git switch <prefix><nnnnn>-<slug>` | `branch_resume` |
 | `git add -- <path> ...`, `git commit -F -` | `commit` |
@@ -440,17 +464,19 @@ the Drafting Table in the `drafting-table` role, or a person through the
 CLI in the same role. The authorization of every row starts with the
 checks in [Authorization](#authorization); the column lists what the
 operation adds. Every row can also fail with the codes that the
-[failure table](#failure-behavior) marks _All_, and every row that
+[failure table](#failure-behavior) marks _All_; every row that
 reaches a remote with the remote codes: `REMOTE_NOT_FOUND`,
 `REMOTE_CREDENTIAL_IN_URL`, `REMOTE_PUSH_REDIRECTED`,
-`CREDENTIAL_UNAVAILABLE`, and `REMOTE_UNAVAILABLE`.
+`CREDENTIAL_UNAVAILABLE`, and `REMOTE_UNAVAILABLE`; every row except
+`repo_state` and `branch_init` with `PROJECT_NOT_FOUND`; and every row
+that reads `ears-manager` with `SPEC_TOOL_FAILED`.
 
 | Operation | Object | Refs read and written | Authorization | Result | Failure |
 | --- | --- | --- | --- | --- | --- |
 | `repo_state` | The project, and the change set of the current branch when there is one | Reads `HEAD`, the refs of `<remote>` after a fetch, and the pull request of `<branch>`. Writes no branch, except the fast-forward of the local `<default>` that #34 allows | Read. Before `.protobot/` exists it reports the branch and nothing else | Project fields, the current branch and its change set, `base_commit` against the default head, uncommitted change-set paths, the pull request's number, state, URL, and merge commit, and the local change-set branches | `PROJECT_NOT_AT_ROOT`, `PROJECT_UNREADABLE`, and the remote codes, except that an unreachable remote or host, and an ambiguous pull request, are reported states, not failures |
 | `branch_init` | The project before initialization | Fetches the upstream of the local `<default>` and fast-forwards it. Creates `refs/heads/<prefix>00001-project-init` from it | Only while no `.protobot/` exists at the working-tree root; `<default>` is the branch that its upstream remote's `HEAD` names; the prefix is not reserved | The branch and the commit it was cut from | `ALREADY_INITIALIZED`, `RESERVED_PREFIX`, `UNCOMMITTED_CHANGES`, `DEFAULT_NOT_FOUND`, `DEFAULT_DIVERGED`, `BRANCH_EXISTS`, and the remote codes for the upstream remote |
 | `branch_resume` | The change set named in the request | Switches `HEAD` to the one local branch `<prefix><nnnnn>-<slug>` of that change set | The change set's manifest exists at the branch tip | The branch and its tip | `CHANGE_SET_NOT_FOUND`, `AMBIGUOUS_BRANCH`, `UNCOMMITTED_CHANGES` |
-| `commit` | The change set of the current branch | Writes one commit on `refs/heads/<branch>` | The current branch is a change-set branch; every staged path is a path of the change set that #34 lets the Drafting Table stage | The commit, its subject and trailer, and its paths | `NOT_A_CHANGE_SET_BRANCH`, `SPEC_DIGEST_MISMATCH`, `SPEC_CHECK_FAILED`, `PATH_NOT_STAGEABLE`, `STAGED_CONTENT_CHANGED`, `UNSAFE_TEXT`, `NOTHING_TO_COMMIT` |
+| `commit` | The change set of the current branch | Writes one commit on `refs/heads/<branch>` | The current branch is a change-set branch; every staged path is a path of the change set that #34 lets the Drafting Table stage | The commit, its subject and trailer, and its paths | `NOT_A_CHANGE_SET_BRANCH`, `INIT_REMOTE_MISMATCH`, `SPEC_DIGEST_MISMATCH`, `SPEC_CHECK_FAILED`, `PATH_NOT_STAGEABLE`, `STAGED_CONTENT_CHANGED`, `UNSAFE_TEXT`, `NOTHING_TO_COMMIT` |
 | `publish` | The change set of the current branch and its pull request | Pushes `refs/heads/<branch>` to the same name on `<remote>`, without force and without tags. Creates or updates the pull request of `<branch>` | The same branch rule; the pull request is the one of `<branch>`, as the [host adapter](#host-adapter-boundary) finds it | The pushed commit, and the pull request's number, URL, and whether it was created, updated, or unchanged | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `NOTHING_TO_PUBLISH`, `BASE_NOT_ON_DEFAULT`, `DEFAULT_MOVED`, `BASE_COMMIT_STALE`, `UNSAFE_TEXT`, `PR_MERGED`, `PR_CLOSED`, `AMBIGUOUS_PULL_REQUEST`, `PUSH_REJECTED_NON_FAST_FORWARD`, `PUSH_REJECTED_PROTECTED`, `HOST_REQUEST_FAILED`, and the remote codes |
 | `refresh` | The change set of the current branch | Merges `<remote>/<default>` into `refs/heads/<branch>` | The same branch rule | The merge commit, and the new default head that `change-set update --base-commit` must record | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `MERGE_CONFLICT`, and the remote codes |
 
@@ -461,21 +487,32 @@ The SCM fills every placeholder from the working tree and
 | --- | --- |
 | `<prefix>` | `repository.branch_prefix` |
 | `<default>` | `repository.default_branch` |
-| `<remote>` | The remote whose configured fetch URL, with any userinfo removed, equals `repository.canonical_remote` |
-| `<repo>` | The `<owner>/<name>` of `repository.canonical_remote` on the Git host |
+| `<remote>` | The remote whose configured fetch URL, with any userinfo other than the fixed `git@` of the SCP form removed, equals `repository.canonical_remote` |
+| `<repo>` | The `<host>/<owner>/<name>` of `repository.canonical_remote`, host included |
 | `<branch>` | The current branch, of the form `<prefix><nnnnn>-<slug>`, where `CS-<nnnnn>` is a change set in the store. The slug is not bound, for the reason #33 gives ([Shell operations][shell-ops]) |
 
 Every operation that reaches `<remote>` checks it first, and
 `branch_init` checks the upstream remote of the local default branch
-the same way. It refuses
-with `REMOTE_CREDENTIAL_IN_URL` when the configured URL, or an
-effective URL after Git's `insteadOf` and `pushInsteadOf` rewrites,
-carries userinfo. It refuses with `REMOTE_PUSH_REDIRECTED` when the
-effective push URL differs from the effective fetch URL, for example
-through `remote.<name>.pushurl`, so a push never goes somewhere that a
-fetch does not read. Both errors name the remote, never a URL. A
-rewrite that applies to fetch and push alike, as the fixture's
-`insteadOf` rule does, passes.
+the same way:
+
+- It refuses with `REMOTE_CREDENTIAL_IN_URL` when the configured URL,
+  or an effective URL after Git's `insteadOf` and `pushInsteadOf`
+  rewrites, carries userinfo, by the rule of `ears-manager project
+  init` ([Project initialization grammar][em-init-grammar]): any
+  userinfo in an `https://` or `ssh://` URL, a user name alone
+  included, and any SCP-style form other than the fixed
+  `git@host:path`. A token given as the user name is refused like any
+  other userinfo.
+- It refuses with `REMOTE_PUSH_REDIRECTED` when the remote has more
+  than one fetch URL or push URL, or when its effective push URL
+  differs from its effective fetch URL, for example through
+  `remote.<name>.pushurl` or a second `remote.<name>.url`, so a push
+  never goes somewhere that a fetch does not read.
+
+Both errors name the remote, never a URL. A rewrite that applies to
+fetch and push alike, as the fixture's `insteadOf` rule does, passes:
+locally it is the user's own configuration, and hosted the SCM's own
+configuration has none ([Hosted isolation](#hosted-isolation)).
 
 ### Requests
 
@@ -490,10 +527,14 @@ does not match its rule is `INVALID_REQUEST`, and nothing runs.
 | `commit` | `body`, optional prose of at most 2000 characters, with no line that starts with `Change-Set:` and no [text that GitHub acts on](#text-that-github-acts-on) |
 | `publish` | None |
 | `refresh` | None |
+| `approved_merge` | `change_set_id`, required, `^CS-[0-9]{5}$` |
 
 No request names a ref, a remote, a repository, a path, a title, or a
 commit, with one exception: `branch_init` takes the prefix and the
 default branch, because no project records them yet, and checks both.
+Its prefix rule is stricter than `ears-manager`'s, which refuses only a
+reserved prefix: a project whose prefix has more than one segment, such
+as `team/cs/`, is initialized by the user outside the role.
 The only text that the model writes is the optional commit body, which
 is prose that #34 allows.
 
@@ -511,7 +552,19 @@ is prose that #34 allows.
 4. Fetch `<remote>`, without tags. When the fetch fails, report
    `remote.reachable: false` with the failure code and continue with
    the local refs.
-5. Fast-forward the local `<default>` to `<remote>/<default>` when that
+5. Read the current branch. Classify it as a change-set branch, the
+   default branch, another branch, or a detached `HEAD`. For a
+   change-set branch, read the manifest through `ears-manager --output
+   json change-set show`, and compare `base_commit` with the head of
+   `<remote>/<default>`.
+6. List uncommitted changes. Name each changed path of the change set.
+   Count every other changed path, and never name it.
+7. Read the pull request of `<branch>` through the host adapter. When
+   the host cannot be reached, report the pull request as
+   `unavailable`, and when more than one matches, as `ambiguous`.
+8. List the local branches whose names start with `<prefix>`, with the
+   change-set number in each name and whether `<remote>` has it.
+9. Fast-forward the local `<default>` to `<remote>/<default>` when that
    is a fast-forward. When `<default>` is checked out, do it only when
    no tracked file has an uncommitted change. `git fetch` alone does not
    move the local default branch, and #34 cuts every change-set branch
@@ -519,21 +572,9 @@ is prose that #34 allows.
    so #34 allows this one write to a branch that no change set owns
    ([Permitted Git operations][git-ops]). A local `<default>` that has
    commits the remote lacks is never moved. The result reports it as
-   `diverged`.
-6. Read the current branch. Classify it as a change-set branch, the
-   default branch, another branch, or a detached `HEAD`. For a
-   change-set branch, read the manifest through `ears-manager --output
-   json change-set show`, and compare `base_commit` with the default
-   head.
-7. List uncommitted changes. Name each changed path of the change set.
-   Count every other changed path, and never name it.
-8. Read the pull request of `<branch>` through the host adapter. When
-   the host cannot be reached, report the pull request as
-   `unavailable`, and when more than one matches, as `ambiguous`.
-   `repo_state` fails at no step after step 5, so the fast-forward
-   never comes with a failed result.
-9. List the local branches whose names start with `<prefix>`, with the
-   change-set number in each name and whether `<remote>` has it.
+   `diverged`. This is the last step, and it runs only when every step
+   before it succeeded, so the fast-forward never comes with a failed
+   result.
 
 The result is what the session skill's resume steps need
 ([resuming a session][ux-resume]): the project, the branch, the change
@@ -558,8 +599,11 @@ and the pull request. Its `data` fields are:
 2. Refuse with `RESERVED_PREFIX` when the prefix is `wi/`, the one
    reserved prefix today ([Repository fields][repo-fields]).
 3. Refuse with `UNCOMMITTED_CHANGES` when a tracked file has an
-   uncommitted change. Untracked files, such as a Vision that
-   `project init` will register, carry over.
+   uncommitted change. Untracked files carry over. A Vision or
+   Architecture path that `project init` registers must already be
+   committed on the default branch: the initialization commit holds
+   only the control namespace (#34), so an untracked one would fail
+   `ears-manager check` in CI.
 4. Refuse with `DEFAULT_NOT_FOUND` when the local `<default>` does not
    exist, has no commit, has no upstream branch, or is not the branch
    that its upstream remote's `HEAD` names. This ties the default
@@ -577,6 +621,12 @@ This is the one operation whose ref parts come from the request,
 because no project records them yet. The role then runs `ears-manager
 project init` with the same prefix and default branch, and the guard
 checks the prefix against the branch it is on ([Guard rules][guard-rules]).
+`project init` also takes the canonical remote from the command, so the
+first `commit` on the initialization branch refuses with
+`INIT_REMOTE_MISMATCH` unless `repository.canonical_remote` equals the
+fetch URL of the upstream remote of `<default>`, the remote that
+`branch_init` checked. A fork's URL therefore never becomes the
+project's canonical remote.
 Every later operation reads both from `project.yaml`. If the prefix
 differs, the branch is not a change-set branch of the project, and
 `commit` refuses. If the default branch differs, the first `publish`
@@ -594,8 +644,10 @@ A normal change-set branch is not cut by the SCM.
    is the user's to check out, because its commits were never reviewed
    in this checkout.
 2. Read the manifest at the branch tip through `ears-manager --output
-   json change-set show --change-set CS-<nnnnn> --at <tip>`. A failed
-   read is `CHANGE_SET_NOT_FOUND`, with the `ears-manager` envelope.
+   json change-set show --change-set CS-<nnnnn> --at <tip>`. A read
+   that finds no manifest is `CHANGE_SET_NOT_FOUND`, with the
+   `ears-manager` envelope. Status `2`, `3`, `6`, or `70` is
+   `SPEC_TOOL_FAILED`.
 3. Refuse with `UNCOMMITTED_CHANGES` when a tracked file has an
    uncommitted change, so that one change set's draft never moves into
    another's branch.
@@ -604,35 +656,57 @@ A normal change-set branch is not cut by the SCM.
 ### `commit`
 
 1. Resolve the change set of the current branch, or refuse with
-   `NOT_A_CHANGE_SET_BRANCH`.
-2. **Run the pre-stage digest check.** Run `ears-manager --output json
-   check --change-set CS-<nnnnn>`. A failed `check` refuses the commit,
-   and nothing is staged, with one exception: status `5` alone, an
-   impact assessment that is incomplete or stale, is returned as a
-   warning, so a draft can be committed before impact review ends. CI
-   still gates the merge on it (#34).
-   - A diagnostic with the code `artifact.digest_mismatch` makes the
-     refusal `SPEC_DIGEST_MISMATCH`. The error names each path with
-     `ears-manager`'s diagnostics unchanged, and the two routes forward
-     of #34 ([The pre-stage digest comparison][pre-stage]). The user
-     runs the discard, `git checkout -- <path>`, as #33 decided. #30
-     lists no code for a digest mismatch; the `ears-manager`
-     implementation of #110 adds this one, as #30 allows.
-   - Any other status `4`, a specification that is not valid, is
-     `SPEC_CHECK_FAILED`, with the envelope. A `.protobot/` file that
-     carries a credential, which #34 makes a `check` failure, is
-     refused here, before it can be pushed.
-   - Status `2`, `3`, `6`, or `70` is `SPEC_TOOL_FAILED`, as for every
-     other `ears-manager` read.
-3. **Derive the file set.** Take the paths that `change-set show`
+   `NOT_A_CHANGE_SET_BRANCH`. On the initialization branch, refuse with
+   `INIT_REMOTE_MISMATCH` unless `repository.canonical_remote` equals
+   the fetch URL of the upstream remote of `<default>`
+   ([`branch_init`](#branch_init)).
+2. **Derive the file set.** Take the paths that `change-set show`
    returns for the change set, its manifest included, and add
-   `.protobot/project.yaml` and `.protobot/projection.yaml`. Keep the
-   paths whose content differs from `HEAD`. Refuse with
+   `.protobot/project.yaml`. Add `.protobot/projection.yaml` only on
+   the initialization branch, where `project init` writes it, or when
+   its difference from `HEAD` is limited to `shared` entries for paths
+   of the change set, which `ears-manager` writes when it registers a
+   path or repeats a registration (#34,
+   [What is committed][what-committed]). Any other change to
+   `projection.yaml` is project policy that a person edits: it stays
+   out of the commit, and the result names it in `diagnostics`. Keep
+   the paths whose content differs from `HEAD`. Refuse with
    `PATH_NOT_STAGEABLE` when a path breaks #34's
    [path rules][path-rules]: outside the working tree, under
    `.protobot/attestations/`, `.protobot/test-catalog.jsonl`, or owned
-   by a component other than `ears-manager` or `user`. Refuse with
-   `NOTHING_TO_COMMIT` when no path is left.
+   by a component other than `ears-manager` or `user`; when it lies
+   under `.agents/`, `.claude/`, `.codex/`, `.opencode/`, `.github/`,
+   or `.git/`, or is `opencode.json`, `AGENTS.md`, or `CLAUDE.md`,
+   which the guard keeps from `artifact put`
+   ([Shell operations][shell-ops]) and the SCM refuses too, because
+   hosted no guard runs; or when it is `.gitattributes` or
+   `.gitmodules`, which name filters, drivers, and submodules. Refuse
+   with `NOTHING_TO_COMMIT` when no path is left.
+3. **Run the pre-stage digest check.** Record the content of every path
+   of the file set, then run `ears-manager --output json check
+   --change-set CS-<nnnnn>`. A failed `check` refuses the commit, and
+   nothing is staged, with two exceptions that are returned as
+   warnings: status `5` alone, an impact assessment that is incomplete
+   or stale, so a draft can be committed before impact review ends, and
+   a digest mismatch of a registered path outside the file set, which
+   the commit leaves out. CI still gates the merge on the impact
+   assessment (#34).
+   - A diagnostic with the code `artifact.digest_mismatch` for a path of
+     the file set makes the refusal `SPEC_DIGEST_MISMATCH`. The error
+     names each path with `ears-manager`'s diagnostics unchanged, and
+     the two routes forward of #34
+     ([The pre-stage digest comparison][pre-stage]). The user runs the
+     discard, `git checkout -- <path>`, as #33 decided. A mismatch of a
+     registered path outside the file set is the second warning: #34
+     checks the artifacts that the change set touches, and the commit
+     leaves that path out. #30 lists no code for a digest mismatch; the
+     `ears-manager` implementation of #110 adds this one, as #30 allows.
+   - Any other status `4`, apart from that warning, a specification
+     that is not valid, is `SPEC_CHECK_FAILED`, with the envelope. A
+     `.protobot/` file that carries a credential, which #34 makes a
+     `check` failure, is refused here, before it can be pushed.
+   - Status `2`, `3`, `6`, or `70` is `SPEC_TOOL_FAILED`, as for every
+     other `ears-manager` read.
 4. **Render the message.** The subject is `spec(CS-<nnnnn>):
    <intent>`, where `<intent>` is the manifest `intent` on one line, with
    every run of white space replaced by one space. The body, when the
@@ -642,9 +716,10 @@ A normal change-set branch is not cut by the SCM.
    [text that GitHub acts on](#text-that-github-acts-on); the user
    revises it through `change-set update`.
 5. **Stage and commit exactly those paths.** Stage each path by name.
-   Compare every staged blob with the working-tree file it came from,
-   and refuse with `STAGED_CONTENT_CHANGED` when a filter changed it.
-   Commit only those paths. A change that is staged for any other path
+   Compare every staged blob with the content recorded in step 3, and
+   refuse with `STAGED_CONTENT_CHANGED` when a filter or a write since
+   the check changed it. Commit only those paths, with
+   `--cleanup=verbatim`. A change that is staged for any other path
    stays staged and stays out of the commit. When a step fails after
    staging, the SCM unstages the paths it staged, so the index is as it
    was.
@@ -695,7 +770,9 @@ but #33 refused it, and the SCM keeps that refusal
    update whose title and body are unchanged changes nothing.
 
 A host failure after the push leaves the branch pushed. The result says
-so, with `mutation: partial` and `pushed: true`, and the same call
+so, with `mutation: partial`: `error.details.pushed` names the pushed
+commit, as `data.pushed` does on success, and `error.details.refs`
+names the pushed ref. The same call
 completes the work: the push is then a no-op, and the pull request is
 created. This matches #34's "Pull-request creation failed" row.
 
@@ -723,7 +800,11 @@ The body opens with an HTML comment that says the SCM rendered it and
 that the next `publish` replaces it. Every value taken from a record,
 the intent included, is rendered inside a code span or a fenced block,
 so it renders as text and never as Markdown structure, a link, or HTML.
-The same inputs give the same body, byte for byte.
+A value that spans lines goes in a fenced block. The delimiter of each
+span or fence is a backtick run one longer than the longest backtick
+run in the value, and at least three for a fence, so no value can close
+its own span or fence. The same inputs give the same body, byte for
+byte.
 
 #### Text that GitHub acts on
 
@@ -737,6 +818,13 @@ line it writes outside a code span: the commit subject and body, and
 the pull-request title. A request body that holds a closing keyword
 with a reference, or an `@` mention, is `INVALID_REQUEST`. An intent
 that holds one is `UNSAFE_TEXT`.
+
+The match is wide on purpose. A closing keyword is any of GitHub's
+nine, `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`,
+`resolve`, `resolves`, and `resolved`, in any letter case, with or
+without a colon, followed by a reference: `#12`, `GH-12`,
+`owner/repo#12`, or an issue URL. A mention is `@` followed by a user
+or a team name, such as `@name` or `@org/team`.
 
 ### `refresh`
 
@@ -774,11 +862,11 @@ it: the fast-forward of the local default branch.
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init`, after `branch_init` |
 | Read repository state | `repo_state` |
-| Fetch | `repo_state`, `branch_init`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch |
+| Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch |
 | Fast-forward the local default branch | `repo_state` and `branch_init`, only by fast-forward |
 | Create a change-set branch | `ears-manager change-set create`; the initialization branch is `branch_init` |
 | Switch to an existing change-set branch | `branch_resume`, to a local branch only |
-| Stage | `commit`, by explicit path |
+| Stage | `commit`, by explicit path, and it unstages those paths again after a failed commit |
 | Commit | `commit`, on explicit user request |
 | Push a change-set branch | `publish`, without force, to `<remote>` only |
 | Open or update a pull request | `publish`, against `<default>`, with the body rendered by code |
@@ -806,7 +894,7 @@ checkout with the caller's own read credential.
 
 | Operation | Caller and role | Object | Refs | Authorization | Result | Failure |
 | --- | --- | --- | --- | --- | --- | --- |
-| `approved_merge` | `register-approved-change-set` and the Materializer, `materializer`; the Materializer/Dispatcher's recovery, `reconciler` | An approved change set | Reads `<remote>/<default>` after a fetch, and the host's record of the change set's merged pull request; writes nothing | Read | The change-set ID, its merge commit, and the default head that was read | `NOT_APPROVED`, `NOT_A_MERGE_COMMIT`, `MERGE_COMMIT_MISMATCH`, `HOST_UNAVAILABLE`, `REMOTE_UNAVAILABLE`, `CREDENTIAL_UNAVAILABLE` |
+| `approved_merge` | `register-approved-change-set` and the Materializer, `materializer`; the Materializer/Dispatcher's recovery, `reconciler` | An approved change set | Reads `<remote>/<default>` after a fetch, and the host's record of the change set's merged pull request; writes nothing | Read | The change-set ID, its merge commit, and the default head that was read | `NOT_APPROVED`, `NOT_A_MERGE_COMMIT`, `MERGE_COMMIT_MISMATCH`, `HOST_UNAVAILABLE`, `PROJECT_NOT_FOUND`, `SPEC_TOOL_FAILED`, the codes that the failure table marks _All_, and the remote codes of the [operation matrix](#operation-matrix) |
 
 The merge commit is derived from Git and confirmed by the host:
 
@@ -898,7 +986,7 @@ mode; only the second one gains a trusted context behind the Gate.
 **The SCM has its own authorization namespace**, as the WMS request
 namespace does ([Boundary and ownership][wms-namespace]). It takes the
 fields and the fail-closed rules of #32's
-[authorization context][auth-context], with three differences:
+[authorization context][auth-context], with five differences:
 
 - The faces are the command families. An SCM operation is allowed only
   when it is in the caller's face and in `allowed_actions`; #32's
@@ -908,6 +996,12 @@ fields and the fail-closed rules of #32's
 - Gate step 3 of [Authentication and Credential
   Isolation][credential-isolation] checks the change set, because a
   proposed change set has no WMS contract version.
+- `allowed_refs` may be empty for an operation that writes no ref of
+  `<remote>`, because before a change set exists there is no branch to
+  name ([Checks on every call](#checks-on-every-call)).
+- An `UNAUTHORIZED_ACTION` names the face, the operation, and the
+  context field that failed, in the SCM's
+  [result protocol](#result-protocol), not #32's rejection fields.
 
 The roles are #32's names: `drafting-table`, `materializer`, and
 `reconciler`, and later `job-site`.
@@ -921,13 +1015,21 @@ check that fails. No Git write and no host call runs before checks 1 to
 
 1. **Operation.** The operation is one of the face's. Otherwise
    `UNAUTHORIZED_ACTION`.
-2. **Trusted context, hosted only.** The context reaches the SCM signed
-   by the Gate, with the SCM as its audience; an unsigned, forged, or
-   expired context is refused. It has an authenticated `subject`, the
-   face's role, a trusted `project_id`, the `change_set_id` when the
-   operation needs one, non-empty `allowed_actions` and `allowed_refs`
-   with no wildcard, an unexpired `expires_at`, and a `policy_version`,
-   and the operation is in `allowed_actions`. Otherwise
+2. **Trusted context, hosted only.** Hosted means that the process
+   serves Streamable HTTP. The deployment fixes the transport when it
+   starts the process; the SCM never infers the mode from a request, a
+   header, or a missing context. On that transport every request needs
+   a context that reaches the SCM signed by the Gate, with the SCM as
+   its audience; a missing, unsigned, forged, or expired context is
+   refused, never served as a local call. The context has an
+   authenticated `subject`, the face's role, a trusted `project_id`,
+   the `change_set_id` when the operation acts on a change set,
+   non-empty `allowed_actions` with no wildcard, `allowed_refs` with no
+   wildcard, which is non-empty when the operation writes a ref of
+   `<remote>`, an unexpired `expires_at`, and a `policy_version`, and
+   the operation is in `allowed_actions`. The `Mcp-Method` and
+   `Mcp-Name` headers name the same method and tool as the body,
+   because the Gate authorizes and records the call by them. Otherwise
    `UNAUTHORIZED_ACTION`.
 3. **Request.** The fields match the request schema. Otherwise
    `INVALID_REQUEST`.
@@ -936,13 +1038,15 @@ check that fails. No Git write and no host call runs before checks 1 to
    `UNAUTHORIZED_ACTION` for a mismatch. `repo_state` and `branch_init`
    skip this check while no `.protobot/` exists, because initialization
    is what creates the project.
-5. **Object.** For an operation that acts on a change set, the change
-   set comes from the current branch, or from the request for
-   `branch_resume` and `approved_merge`, and exists in the store.
-   Hosted, it equals the context's change set. Otherwise
-   `NOT_A_CHANGE_SET_BRANCH`,
-   `CHANGE_SET_NOT_FOUND`, or `UNAUTHORIZED_ACTION` for a mismatch.
-   `repo_state` skips this check, and reports the branch it finds.
+5. **Object.** For `commit`, `publish`, and `refresh`, the change set
+   comes from the current branch and exists in the store of the
+   working tree, or the call fails with `NOT_A_CHANGE_SET_BRANCH`. For
+   `branch_resume` and `approved_merge`, it comes from the request, and
+   the operation's own steps find it where it lives: at the tip of its
+   local branch (`CHANGE_SET_NOT_FOUND`), or at `<remote>/<default>`
+   (`NOT_APPROVED`). Hosted, it equals the context's change set, or
+   the call fails with `UNAUTHORIZED_ACTION`. `repo_state` skips this
+   check, and reports the branch it finds.
 6. **Refs, before each write.** The ref that the write changes is in
    the role's ref policy below. Hosted, a ref of `<remote>` is also in
    `allowed_refs`. Otherwise `UNAUTHORIZED_ACTION`, and nothing is
@@ -963,9 +1067,19 @@ local fast-forward writes only the SCM's own workspace. No role writes
 `refs/heads/<default>` on `<remote>`, a `wi/` branch from the Drafting
 Table face, a tag, or a remote's configuration.
 
-The Gate never sees a ref, because no request carries one. Behind the
-Gate, the SCM is therefore the only check of the refs a call writes,
-and the host's branch protection is the check behind it.
+No request carries a ref, so the Gate has no ref on the request to
+check. It still mints `allowed_refs` in its step 2
+([Authentication and Credential Isolation][credential-isolation]) from
+trusted state, never from the request: for the Drafting Table face,
+the one branch of the session's change set on `<remote>`,
+`refs/heads/<prefix><nnnnn>-<slug>`, as the Web Drafting Table's
+session record names it. The session record learns that branch from
+the SCM's own `repo_state` result, which passes through the Gate,
+never from the runtime. Before a change set exists, `allowed_refs` is
+empty, and only an operation that writes no ref of `<remote>`, such as
+`repo_state` or `branch_init`, passes. Behind the Gate, the SCM is
+therefore the only check of the refs a call writes, and the host's
+branch protection is the check behind it.
 
 ---
 
@@ -1002,8 +1116,15 @@ it. The deployment therefore keeps these rules:
 - The runtime reaches the SCM only through the Gate, and the SCM
   accepts only a context that the Gate signed for it.
 - The runtime has no write access to the workspace's `.git/`. Only the
-  SCM writes Git state there, so the repository's own configuration is
-  the SCM's.
+  SCM, and `ears-manager` for the branch that `change-set create` cuts,
+  write Git state there, so the repository's own configuration is the
+  SCM's.
+- The runtime writes neither `.protobot/` nor a registered path
+  directly, because the SCM trusts both: `project.yaml` names the refs
+  and holds the registry digests that `check` compares. Hosted,
+  `ears-manager` therefore runs outside the runtime, beside the SCM. How
+  the runtime calls it is the Web Drafting Table deployment's decision
+  ([Out-of-scope decisions](#out-of-scope-decisions)).
 - The SCM runs Git with its own global configuration and no system
   configuration, and with the pins of [Design principles](#design-principles).
 - The broker-issued credential reaches the SCM's Git and host adapter
@@ -1047,7 +1168,10 @@ remote only, so a Drafting Table pull request never comes from a fork.
 
 **The first adapter is GitHub, through `gh`.** It runs `gh pr list`,
 `gh pr create`, and `gh pr edit` with argument lists, `--repo <repo>`
-on every call, and the body on standard input. `gh pr list` asks for
+on every call, and the body on standard input. `<repo>` names the host,
+and the adapter clears `GH_REPO` and `GH_HOST`, so `gh` never falls
+back to a default host: a pull request of a GitHub Enterprise project
+never goes to github.com. `gh pr list` asks for
 every state and for the head repository of each result, and the
 adapter filters as stated above. In single-player and multi-player
 mode, `gh` keeps the user's token in its own store, so the SCM never
@@ -1133,9 +1257,13 @@ Failed result:
   or context must be renewed outside the agent), `reconcile` (read state
   with `repo_state` or `approved_merge` before anything else), or
   `never` (a bug in the caller). `refresh-branch` is named apart from
-  #32's `refresh`, which means "read the state again".
+  #32's `refresh`, which means "read the state again", and `revise` is
+  the SCM's name for #30's `revise-request`.
 - **`diagnostics`** carries warnings, and every `ears-manager` envelope
   that the operation read, unchanged, when it explains the result.
+- **`trace`** is present only when the MCP request's `_meta` carried an
+  OpenTelemetry trace context, and copies it unchanged
+  ([MCP protocol](#mcp-protocol)).
 
 The result carries no timestamp, so a replay against the same
 repository and the same host stub compares byte for byte, as the #30
@@ -1164,16 +1292,17 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `DEFAULT_DIVERGED` | `branch_init` | The local default branch has commits that its upstream lacks | — | `user` |
 | `BRANCH_EXISTS` | `branch_init` | The initialization branch exists; the details say local, remote, or both | Branch `cs/<nnnnn>-<slug>` already exists | `user` |
 | `REMOTE_NOT_FOUND` | All that reach `<remote>` | No remote has the canonical URL | — | `user` |
-| `REMOTE_CREDENTIAL_IN_URL` | All that reach a remote | The configured or an effective URL of the remote carries userinfo; the details name the remote only | — | `user` |
-| `REMOTE_PUSH_REDIRECTED` | All that reach `<remote>` | The effective push URL of `<remote>` differs from its effective fetch URL | — | `user` |
+| `REMOTE_CREDENTIAL_IN_URL` | All that reach a remote | The configured or an effective URL of the remote carries userinfo other than the fixed `git@` of the SCP form; the details name the remote only | — | `user` |
+| `REMOTE_PUSH_REDIRECTED` | All that reach a remote | The remote has more than one fetch or push URL, or its effective push URL differs from its effective fetch URL | — | `user` |
 | `NOT_A_CHANGE_SET_BRANCH` | `commit`, `publish`, `refresh` | The current branch is not a change-set branch of the project | Push rejected by branch protection: the SCM refuses a push to the default branch before it runs | `never` |
-| `CHANGE_SET_NOT_FOUND` | `branch_resume` | No local branch holds the requested change set | — | `revise` |
+| `CHANGE_SET_NOT_FOUND` | `branch_resume` | No local branch holds the requested change set, or its tip has no manifest of it | — | `revise` |
 | `AMBIGUOUS_BRANCH` | `branch_resume` | Two local branches carry the requested change-set number | — | `user` |
 | `UNCOMMITTED_CHANGES` | `branch_init`, `branch_resume`, `publish`, `refresh` | Uncommitted changes that the operation would carry or misreport; the details name them | — | `user` |
-| `SPEC_DIGEST_MISMATCH` | `commit` | `check` reports `artifact.digest_mismatch`; the details name each path and the two routes forward | Registered path digest mismatch | `user` |
-| `SPEC_CHECK_FAILED` | `commit` | `check` failed with status `4`, and without a digest-mismatch diagnostic | `ears-manager check` failed; registered path missing from the projection manifest | `revise` |
-| `PATH_NOT_STAGEABLE` | `commit` | A path of the change set breaks #34's path rules | — | `never` |
-| `STAGED_CONTENT_CHANGED` | `commit` | A Git filter changed a staged file, so the commit would not hold what `check` saw | — | `user` |
+| `INIT_REMOTE_MISMATCH` | `commit` | On the initialization branch, `repository.canonical_remote` is not the fetch URL of the upstream remote of the default branch; the details name the discard of the uncommitted `.protobot/` and a new `project init` | — | `user` |
+| `SPEC_DIGEST_MISMATCH` | `commit` | `check` reports `artifact.digest_mismatch` for a path of the file set; the details name each path and the two routes forward | Registered path digest mismatch | `user` |
+| `SPEC_CHECK_FAILED` | `commit` | `check` failed with status `4`, and without a digest-mismatch diagnostic for a path of the file set | `ears-manager check` failed; registered path missing from the projection manifest | `revise` |
+| `PATH_NOT_STAGEABLE` | `commit` | A path of the change set breaks #34's path rules, is one that the guard keeps from `artifact put`, or is `.gitattributes` or `.gitmodules` | — | `never` |
+| `STAGED_CONTENT_CHANGED` | `commit` | A Git filter, or a write since the digest check, changed a staged file, so the commit would not hold what `check` saw | — | `user` |
 | `UNSAFE_TEXT` | `commit`, `publish` | The intent holds text that GitHub acts on | — | `revise` |
 | `NOTHING_TO_COMMIT` | `commit` | No path of the change set differs from `HEAD` | — | `never` |
 | `NOTHING_TO_PUBLISH` | `publish` | The branch has no commit that the default branch lacks | — | `never` |
@@ -1211,12 +1340,12 @@ Every call produces one audit record:
 | --- | --- |
 | `operation`, `face` | The operation and the face that served it |
 | `object` | The project ID and the change-set ID |
-| `refs` | Every ref the call wrote, in `mutation.refs` |
+| `refs` | Every ref the call wrote: `mutation.refs`, or `error.details.refs` for a partial `publish` |
 | `commands` | The argument lists of the state-changing commands |
 | `outcome` or `error.code` | The result |
-| `commits`, `pull_request` | In `data`, when the call made or read them |
+| Commits and pull request | The `data` fields that name them, such as `commit`, `merge_commit`, `pushed`, `cut_from`, and `pull_request`, when the call made or read them |
 | `subject`, `role`, `policy_version`, service actor | Hosted only, from the Gate |
-| Trace context | The OpenTelemetry trace context that the MCP request carried, when it carried one ([MCP protocol](#mcp-protocol)) |
+| `trace` | The OpenTelemetry trace context that the MCP request carried, when it carried one ([MCP protocol](#mcp-protocol)) |
 
 Locally, the result envelope is the audit record. The harness keeps it
 in the session record with every other tool result, which is the trace
@@ -1241,28 +1370,35 @@ either.
   on the machine still has `git` and `gh`
   ([Credentials][credentials]).
 - **No shell and no repository program.** Every command is an argument
-  list. Hooks and `fsmonitor` do not run, and a filter that changes a
-  staged file stops the commit ([Design principles](#design-principles)).
+  list. Hooks and `fsmonitor` do not run, and a filter or a write that
+  changes a staged file stops the commit. Locally, the programs of the
+  user's own Git configuration still run
+  ([Design principles](#design-principles)).
   The SCM sets `GIT_TERMINAL_PROMPT=0` and `GH_PROMPT_DISABLED=1`, so a
   missing credential fails instead of prompting.
 - **Requests are data.** No request names a ref, a path, a remote, or a
   repository, except the two checked `branch_init` fields. The commit
   body is a validated value, never syntax.
-- **Only reviewed commits leave the checkout.** `refresh` merges only
-  the default branch, which a reviewer approved. Commits that someone
-  else pushed to the change-set branch, and a change-set branch that
-  only the remote has, are the user's to review.
+- **The SCM merges no unreviewed remote commit.** `refresh` merges only
+  the default branch. Commits that someone else pushed to the
+  change-set branch, and a change-set branch that only the remote has,
+  are the user's to review. The SCM does not inspect the local branch:
+  `publish` pushes every commit of it that the remote lacks, including
+  one that another local session or tool made, and the reviewer sees
+  them in the pull request.
 - **No text that GitHub acts on.** The SCM writes no closing keyword or
   mention outside a code span ([Text that GitHub acts
   on](#text-that-github-acts-on)), so a commit or a pull request never
   closes an issue that is a build work item.
 - **No credential leaves the SCM.** Results, errors, and audit records
   name remotes, never their URLs, and refuse a remote whose configured
-  or effective URL carries userinfo. `project.yaml` never holds a
+  or effective URL carries userinfo other than the fixed `git@` of the
+  SCP form. `project.yaml` never holds a
   credential ([Repository fields][repo-fields]), and a `check` failure
   for one stops the commit.
 - **Hosted, the SCM is the ref boundary behind the Gate.** The Gate
-  authenticates the caller and scopes the credential; it sees no ref,
+  authenticates the caller, scopes the credential, and mints
+  `allowed_refs` from trusted state; it checks no ref on the request,
   because no request carries one. The SCM checks every ref it writes
   against the ref policy and `allowed_refs`
   ([Checks on every call](#checks-on-every-call)), and
@@ -1277,7 +1413,7 @@ The SCM keeps no store of its own. It adds no category to
 | Store | What the SCM does |
 | --- | --- |
 | Specification store (Git) | Reads through `ears-manager`; commits and pushes the paths `ears-manager` wrote |
-| Project configuration (`.protobot/`) | Reads the Git-facing fields of `project.yaml`; commits `project.yaml` and `projection.yaml` when `ears-manager` changed them; never touches the test catalog or attestations |
+| Project configuration (`.protobot/`) | Reads the Git-facing fields of `project.yaml`; commits `project.yaml` when it changed, and `projection.yaml` only at initialization or when the change set registers a new path; never touches the test catalog or attestations |
 | Deployment-level registry | Hosted, the Gate uses it to decide which projects a user may open; it never supplies the project identity |
 | Web session state | Hosted, the Gate's context names the session's workspace; the SCM never reads or writes the session store |
 | Request backlog, work-item lifecycle, claim coordinator | None |
@@ -1293,10 +1429,10 @@ host adapter.
 | # | Question | Answer |
 | --- | --- | --- |
 | 1 | One shared service, or a core with one face per role? | A core with one face per role. The role is fixed by the face a caller gets, and Job Site rules never enter a component that the Drafting Table depends on. |
-| 2 | Who cuts the change-set branch? | `ears-manager change-set create`, as #30 decides. The branch name needs the change-set ID that it allocates and the slug of the intent that it records, and one command keeps the manifest, `base_commit`, and the branch together. The SCM cuts only the initialization branch, which needs neither. |
+| 2 | Who cuts the change-set branch? | `ears-manager change-set create`, as #30 decides. The branch name needs the change-set ID that it allocates and the slug of the intent that it records, and one command keeps the manifest, `base_commit`, and the branch together. The SCM cuts only the initialization branch, which needs neither. Hosted, `ears-manager` runs beside the SCM, outside the runtime ([Hosted isolation](#hosted-isolation)). |
 | 3 | Does the SCM read the manifest, digests, `compare`, and `impact` itself? | Yes, through `ears-manager --output json`, with argument lists. The caller never passes them in, so no model-written content returns. |
 | 4 | Where does single-player registration live? | It stays the Job Site's `register-approved-change-set`, a shell operation of the role. It takes the change-set ID only, and reads the merge commit through `approved_merge`. |
-| 5 | Does `commit` run the project's Git hooks? | No, in every mode, and no other repository program either ([Design principles](#design-principles)). |
+| 5 | Does `commit` run the project's Git hooks? | No, in every mode, and no other program that a repository can ship either. Locally, the programs of the user's own Git configuration still run ([Design principles](#design-principles)). |
 | 6 | Is the Job Site's escalation issue an SCM action or a WMS action? | Not an SCM action. An issue is work-management state, and the WMS Adapter already owns the blocked state that the issue reports. The Job Site's escalation contract decides its route. |
 | 7 | Which identity does each caller act as? | The Drafting Table acts as the user; the read face as its caller; the Job Site as a bot or app identity, still open ([Identity](#identity)). |
 | 8 | Does the Projector read canonical source through the SCM? | No. SCM operations report state, and the Projector needs tree content at a commit inside the private integration environment, which it reads with its own read-only access. The Job Site face may revisit it ([Q21][q21]). |
@@ -1313,12 +1449,12 @@ is its harness-neutral transcript.
 ### Setup
 
 - #34's setup: a bare repository as `origin` with one commit on `main`,
-  which holds `docs/vision.md` and `docs/architecture.md`, and one clone
-  with a Git identity. `repository.canonical_remote` is a GitHub-shaped
-  URL that an `insteadOf` rule in the clone rewrites to the bare
-  repository, for fetch and push alike, so `<repo>` has an owner and a
-  name. The clone's `main` tracks `origin/main`, and `origin/HEAD` names
-  `main`.
+  which holds `README.md`, `docs/vision.md`, and `docs/architecture.md`,
+  and one clone with a Git identity. `repository.canonical_remote` is a
+  GitHub-shaped URL that an `insteadOf` rule in the clone rewrites to
+  the bare repository, for fetch and push alike, so `<repo>` has a
+  host, an owner, and a name. The clone's `main` tracks `origin/main`,
+  and `origin/HEAD` names `main`.
 - A second clone that stands in for the host's merge button and for
   other contributors. It merges pull-request branches into `main` of
   `origin` with merge commits, and pushes other commits. The caller's
@@ -1334,9 +1470,11 @@ is its harness-neutral transcript.
   with a fixture key, for the SCM as audience.
 - The driver. It starts `source-control-manager serve --face
   drafting-table` in the clone and calls its tools as a modern MCP
-  client, revision 2026-07-28, with no harness and no model. It starts
-  `ears-manager` and `register-approved-change-set` with argument
-  lists. No step runs a
+  client, revision 2026-07-28, with no harness and no model. For the
+  hosted checks it starts a second instance with `--transport
+  streamable-http` behind the fake Gate, and sends each call as a
+  Streamable HTTP request. It starts `ears-manager` and
+  `register-approved-change-set` with argument lists. No step runs a
   shell. A file edit in a step is the driver standing in for the user's
   text editor or shell, never a caller operation.
 
@@ -1351,13 +1489,6 @@ Step 4 expects an `ears-manager` that reports `artifact.digest_mismatch`.
 With one that does not, the same step returns `SPEC_CHECK_FAILED`, which
 also stages nothing ([`commit`](#commit)).
 
-Steps 3 and 5 differ from #34's text in one path. #34 lists
-`projection.yaml` among the changed files, but `project init` already
-classified the default Vision and Architecture paths in step 1, and
-`artifact put` adds a classification only for a new path
-([Artifacts][em-artifacts]). The SCM commits only paths that changed,
-so `projection.yaml` is not among them.
-
 ### Steps
 
 | # | Action | Expected result |
@@ -1368,8 +1499,8 @@ so `projection.yaml` is not among them.
 | 4 | The driver edits `docs/vision.md` directly; `commit` | `SPEC_DIGEST_MISMATCH`: nothing is staged and no commit is created. The details name `docs/vision.md` with `ears-manager`'s diagnostics, and name `git checkout -- docs/vision.md` as the discard that the user runs. `ears-manager check` exits non-zero for the same path. |
 | 5 | The driver runs the discard; `commit` | Exactly one commit, of the two artifacts, the manifest, and `project.yaml`. The subject is `spec(CS-00002): <intent>`, and the trailer is `Change-Set: CS-00002`. |
 | 6 | `publish` | `origin` has `cs/00002-<slug>` at the same commit, and `main` is unchanged. The `gh` stub records one `pr create` whose standard input is `<rendered:CS-00002>`: the intent, `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. |
-| 7 | The second clone pushes an unrelated commit to `main`; `publish`; `refresh`; `publish`; `ears-manager change-set update --base-commit`, `impact`, and `check`; `commit`; `publish` | The first `publish` fails with `DEFAULT_MOVED`. `refresh` adds a merge commit with two parents and returns the new `main` head. The second `publish` fails with `BASE_COMMIT_STALE`. After the update, `commit` records the manifest, and `publish` pushes and updates the pull request. The manifest's `base_commit` equals the new `main` head. `git log --walk-reflogs` shows no rebase, and the branch's first commit is unchanged. |
-| 8 | The second clone merges `cs/00002-<slug>`; `register-approved-change-set` with `CS-00002`, twice; `publish` | `main` of `origin` is a merge commit with two parents. The registration stub records one call with `CS-00002`, that merge commit, the materialization key, and the registration idempotency key; the second run records no new call and returns the first result. `publish` fails with `PR_MERGED`. A write to the merged manifest through `ears-manager` is refused. |
+| 7 | The second clone pushes an unrelated commit to `main`; `publish`; `refresh`; `publish`; #34's refresh sequence: `ears-manager change-set update --base-commit`, `impact`, a reviewed `change-set update --impact-file -`, and `check`; `commit`; `publish` | The first `publish` fails with `DEFAULT_MOVED`. `refresh` adds a merge commit with two parents and returns the new `main` head. The second `publish` fails with `BASE_COMMIT_STALE`. After the update, `commit` records the manifest, and `publish` pushes and updates the pull request. The manifest's `base_commit` equals the new `main` head. `git log --walk-reflogs` shows no rebase, and the branch's first commit is unchanged. |
+| 8 | The second clone merges `cs/00002-<slug>`; `register-approved-change-set` with `CS-00002`, twice; `publish`; `repo_state`; a write to the merged manifest through `ears-manager` | `main` of `origin` is a merge commit with two parents. The registration stub records one call with `CS-00002`, that merge commit, the materialization key, and the registration idempotency key; the second run records no new call and returns the first result. `publish` fails with `PR_MERGED`. `repo_state` fast-forwards the local `main` to the merge commit, and the write to the merged manifest is then refused. |
 
 ### Negative checks
 
@@ -1402,7 +1533,7 @@ The second table tests the SCM's own boundary.
 | A tool outside the face: `approved_merge` over the MCP face | `UNAUTHORIZED_ACTION`; the tool list names exactly the six Drafting Table tools |
 | Another repository: `publish` with a `repo` field | `INVALID_REQUEST`; the `gh` stub records no call |
 | A pull request from a fork with the same branch name: the `gh` stub adds a closed pull request whose head is `cs/00002-<slug>` in a fork, then `repo_state` | `repo_state` reports the canonical pull request, open; the fork's closed pull request is ignored |
-| A credential in the remote URL: the driver sets the URL of `origin` with userinfo, then `repo_state` | `REMOTE_CREDENTIAL_IN_URL`, naming `origin`; no result holds the URL or the planted `PROTOBOT-FIXTURE-TOKEN` |
+| A credential in the remote URL: the driver sets the URL of `origin` with a token as the user name and no password, then `repo_state` | `REMOTE_CREDENTIAL_IN_URL`, naming `origin`; no result holds the URL or the planted `PROTOBOT-FIXTURE-TOKEN` |
 | A redirected push: the driver sets `remote.origin.pushurl` to another bare repository, then `publish` | `REMOTE_PUSH_REDIRECTED`; neither repository receives a push |
 | A conflicting refresh: the second clone pushes a conflicting change to `docs/vision.md` on `main`, then `refresh` | `MERGE_CONFLICT`, classifying `docs/vision.md` as a registered artifact; `HEAD`, the index, and the working tree are unchanged, and no merge is in progress |
 | Uncommitted work before a push: `ears-manager artifact put`, then `publish` | `UNCOMMITTED_CHANGES`, naming the artifact, the manifest, and `project.yaml`; nothing is pushed |
@@ -1410,7 +1541,18 @@ The second table tests the SCM's own boundary.
 | A closing keyword in the intent: `ears-manager change-set update` sets the intent to `Fixes #1`, then `commit` | `UNSAFE_TEXT`; no commit |
 | A hosted call with a Gate context for `CS-00009` | `UNAUTHORIZED_ACTION`; no command runs |
 | A hosted call with a context that the fake Gate did not sign | `UNAUTHORIZED_ACTION`; no command runs |
-| `approved_merge` for `CS-00002` after step 8, with the `gh` stub stopped | `HOST_UNAVAILABLE`; the registration stub records no call |
+| A hosted call with no context: a Streamable HTTP request that carries no Gate context | `UNAUTHORIZED_ACTION`; no command runs, and the call is not served as a local one |
+| `approved_merge` for `CS-00002` after step 8, with the `gh` stub stopped | `HOST_UNAVAILABLE`; the registration stub records no new call |
+| An SCP-style remote: in a copy of the state before step 1, the URL of `origin` is `git@github.com:protobot-fixture/fixture.git`, rewritten to the bare repository; then `branch_init` | It succeeds as in step 1; the fixed `git@` is not a credential |
+| Two URLs on one remote: the driver adds a second `remote.origin.url`, then `publish` | `REMOTE_PUSH_REDIRECTED`; neither repository receives a push |
+| A path that the guard protects: the `ears-manager` stub registers and writes `AGENTS.md` in the change set, then `commit` | `PATH_NOT_STAGEABLE`; no commit |
+| A fork's URL at initialization: in a copy of the state before step 1, the clone has a second remote for a fork; `branch_init`, `ears-manager project init` with the fork's URL as the canonical remote, `change-set create`, then `commit` | `INIT_REMOTE_MISMATCH`; no commit |
+| A clean filter: the driver defines a filter in the clone's configuration that changes `docs/vision.md` when it is staged, writes the Vision through `ears-manager artifact put`, then `commit` | `STAGED_CONTENT_CHANGED`; no commit, and the index is as it was |
+| A closing keyword in the body: `commit` with the body `Fixes #1` | `INVALID_REQUEST`; no commit |
+| A closing keyword that reached a commit: the driver commits an intent of `Fixes #1` in its own shell, then `publish` | `UNSAFE_TEXT`; nothing is pushed, and the `gh` stub records no `pr create` or `pr edit` |
+| No canonical remote: the driver removes `origin`, then `repo_state` | `REMOTE_NOT_FOUND`; no command runs |
+| A hosted call whose `allowed_refs` names another branch: `publish` | `UNAUTHORIZED_ACTION` before the push; the remote branch is unchanged |
+| A hosted call with an expired context, a context for another audience, a context whose `allowed_actions` lacks the operation, a context whose `allowed_refs` holds a wildcard, or an `Mcp-Name` header that names another tool than the body: `commit` each time | `UNAUTHORIZED_ACTION` each time; no command runs |
 
 ---
 
@@ -1426,6 +1568,7 @@ The second table tests the SCM's own boundary.
 | Commit signing policy | A project and deployment decision, as #34 says. The SCM follows the Git configuration of the process that runs it. |
 | Conflict-resolution UX | The failure result names and classifies the files. How the Drafting Table presents them is UX (#28). |
 | Where a hosted session keeps its workspace | A deployment concern ([Web Drafting Table][web-dt]). The hosted face runs beside that workspace, under the rules of [Hosted isolation](#hosted-isolation). |
+| How the hosted runtime calls `ears-manager` | Hosted, `ears-manager` runs beside the SCM, outside the runtime, because the runtime may write neither `.git/` nor `.protobot/` ([Hosted isolation](#hosted-isolation)). The route, a tool face or a service, is the Web Drafting Table deployment's decision, and #30's decision about moving `ears-manager` to tools feeds it. |
 | The format of the Gate's signed context | A deployment detail inside the Gate pattern. This document requires only that the SCM can verify the signature, the audience, and the expiry. |
 | Kit import commits | #34 leaves the writer of `.protobot/kits.lock` unnamed, so no change set lists it and `commit` never stages it. Whoever settles Kit packaging names that owner ([Kits](components.md#kits)). |
 | Moving `ears-manager` and registration out of the shell | #30's decision for `ears-manager`. When both move to tools, the role needs no shell at all. |
@@ -1445,8 +1588,9 @@ The second table tests the SCM's own boundary.
   Source Control Manager, and authentication and credential isolation.
 - [Git and Project-Repository Integration](git-integration.md) — The Git
   rules the SCM enforces, and the repository fixture.
-- [Agent Harness Adapter Contract][adapter] — The manifest, the role,
-  the shell operations that stay, and the guard.
+- [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
+  The manifest, the role, the shell operations that stay, and the
+  guard.
 - [OpenCode Harness Binding](agent-harness/opencode.md),
   [Claude Code Harness Binding](agent-harness/claude-code.md), and
   [Codex Harness Binding](agent-harness/codex.md) — How each harness
@@ -1479,7 +1623,7 @@ The second table tests the SCM's own boundary.
 [codex-user-runs]: agent-harness/codex.md#what-the-user-runs-in-codex
 [credential-isolation]: components.md#authentication-and-credential-isolation
 [credentials]: agent-harness/adapter-contract.md#credentials
-[em-artifacts]: ears-manager-cli.md#artifacts
+[em-init-grammar]: ears-manager-cli.md#project-initialization-grammar
 [env-constraints]: ../architecture.md#environmental-constraints
 [evaluability]: components.md#evaluability
 [exit-conditions]: agent-harness/adapter-contract.md#exit-conditions
@@ -1510,5 +1654,6 @@ The second table tests the SCM's own boundary.
 [ux-resume]: drafting-table-ux.md#resuming-an-existing-session
 [vision-nongoals]: ../vision.md#non-goals
 [web-dt]: ../architecture.md#user-facing-interfaces
+[what-committed]: git-integration.md#what-is-committed
 [wms-fixture]: drafting-table-wms.md#fake-adapter-fixture
 [wms-namespace]: drafting-table-wms.md#boundary-and-ownership

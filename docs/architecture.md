@@ -66,7 +66,7 @@ Environmental constraints are listed in a
 | 10 | Kit source | Package source | Kits | Drafting Table |
 | 11 | IdeaBot handoff _(manual, Q4)_ | Pipeline input | IdeaBot | Drafting Table |
 | 12 | Prototype and demo artifacts | Pipeline output | Job Site | TransferBot, stakeholders |
-| 13 | Source Control Manager | MCP tools + CLI | Source Control Manager | Drafting Table (TUI and Web), Job Site (registration, Materializer) |
+| 13 | Source Control Manager | MCP tool surface + CLI | Source Control Manager | Drafting Table (TUI and Web), Job Site (registration, Materializer) |
 
 Most interfaces are described in dedicated sections below.
 The Job Site intake interface and the claim coordinator are
@@ -213,8 +213,9 @@ prompt loading; no harness-specific APIs beyond those.
 
 **Runtime dependencies:** The WMS Adapter API (for work-item
 lifecycle state), the `ears-manager` binary (for all
-specification reads and writes), the Source Control Manager (for
-branches, commits, and PRs), and a Git working tree.
+specification reads and writes, and change-set branches), the Source
+Control Manager (for commits, pushes, PRs, refresh merges, and the
+initialization branch), and a Git working tree.
 
 See [System Components — Specification
 Toolkit](architecture/components.md#specification-toolkit) for design details.
@@ -367,10 +368,12 @@ in the
 
 The Source Control Manager (SCM) is the governed boundary between
 ProtoBot and Git and the Git host. It turns the user's decision about a
-proposed change set into branches, commits, and PRs, and reports that
-state back. The agent decides _when_; the SCM decides _how_.
+proposed change set into commits, pushes, PRs, and refresh merges, cuts
+the initialization branch, and reports that state back. `ears-manager
+change-set create` cuts every other change-set branch. The agent
+decides _when_; the SCM decides _how_.
 
-**Interface type:** MCP tool surface and CLI — one executable,
+**Interface type:** MCP tool surface + CLI — one executable,
 `source-control-manager`, with one narrow face per role. The MCP face
 speaks the stateless MCP revision 2026-07-28, and still serves clients
 of the legacy revision 2025-11-25 on stdio.
@@ -473,9 +476,9 @@ components.
   preserve the iteration DAG for evaluability.
 
 **Callers:** The Drafting Table through the Source Control Manager
-(branches, commits, PRs), the Job Site (integration branches,
-merges), `ears-manager` (specification working tree), and CI
-(validation gates).
+(commits, pushes, PRs, and the initialization branch), the Job Site
+(integration branches, merges), `ears-manager` (specification working
+tree and change-set branches), and CI (validation gates).
 
 See [System Components — Content Storage
 Model](architecture/components.md#content-storage-model) for the full
@@ -905,6 +908,7 @@ incompatible decisions.
 | Constraint | Rationale |
 | --- | --- |
 | `ears-manager`: Go, static binary | Zero runtime dependencies across all deployment contexts — dev containers, CI runners, sandboxes, local machines. |
+| Source Control Manager: one executable | Needs only `git`, `gh`, and `ears-manager` at run time. Its dual-era MCP SDK is bundled into the one executable and must not add a runtime to contributor machines or the Job Site environment. The language is chosen in #160 ([Packaging](architecture/source-control-manager.md#packaging)). |
 | First Drafting Table harness: OpenCode | OpenCode's model-provider flexibility and skill system provide the fastest path to a working TUI Drafting Table. |
 | First Job Site backend: Fullsend / OpenShell | Fullsend is the closest peer in the GE Agentic SDLC Working Group. OpenShell provides kernel-enforced sandboxing. Fallback: a portable rootless-OCI/microVM profile for platforms where OpenShell is unavailable (e.g., `restricted-v2` — no `CAP_SYS_ADMIN`). |
 | Prototype outputs: UBI + Hummingbird images | Lightweight, fast-turnaround demo builds on Red Hat certified base images. |

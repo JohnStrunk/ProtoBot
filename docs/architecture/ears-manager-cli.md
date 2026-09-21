@@ -844,6 +844,8 @@ new design track.
   approval behavior
 - [Git and Project-Repository Integration](git-integration.md) — Branches,
   commits, pull requests, and approved state
+- [Source Control Manager](source-control-manager.md) — The caller that
+  stages, commits, and publishes what `ears-manager` writes
 - [Open Design Questions](open-questions.md) — Remaining unresolved design
   questions
 - [ADR-0001](../decisions/0001-requirements-storage-format.md) — Physical

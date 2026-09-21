@@ -109,9 +109,11 @@ ProtoBot has eight primary logical components and reusable asset families:
    atomic lifecycle transitions.
 6. **Source Control Manager (SCM)** — The deterministic component that
    turns the user's decision about a governed object into Git and Git
-   host state: branches, commits, and pull requests. The Drafting Table
-   reaches Git only through it, and the Job Site reads approved merge
-   commits through it. It never decides content.
+   host state: commits, pushes, pull requests, refresh merges, and the
+   initialization branch. The Drafting Table reaches Git and the Git
+   host only through it, apart from the change-set branch that
+   `ears-manager change-set create` cuts, and the Job Site reads
+   approved merge commits through it. It never decides content.
 7. **Validation Rules** — Domain logic that enforces well-formedness
    on work item state transitions. Shared across the Drafting
    Table and the Job Site — both use these rules when writing to the
@@ -281,11 +283,13 @@ The final cross-harness packaging boundary remains an open question.
   WMS backend (via the adapter). Specification content lives in the
   project's git repo (on contributor or change-set branches before
   approval and build-work-item branches during execution), accessed
-  exclusively through `ears-manager`. Branches, commits, and PRs are
-  made through the SCM. The toolkit does not maintain its own state
-  store.
+  exclusively through `ears-manager`. Commits, pushes, PRs, refresh
+  merges, and the initialization branch are made through the SCM;
+  `ears-manager change-set create` cuts change-set branches. The
+  toolkit does not maintain its own state store.
 - **Versioned and testable.** The toolkit should be versioned
-  alongside the WMS Adapter API it targets. Changes to EARS patterns,
+  alongside the WMS Adapter API and the Source Control Manager's tool
+  and result schema it targets. Changes to EARS patterns,
   gap-closing heuristics, or the specification hierarchy should be
   testable independently of any particular Drafting Table
   implementation.
@@ -321,10 +325,11 @@ The final cross-harness packaging boundary remains an open question.
   describe and the agent runs through the harness's shell tool, and
   Git and the Git host through the Source Control Manager's MCP tools.
   The WMS Adapter tools handle work item lifecycle; `ears-manager`
-  handles all spec read/write operations; the SCM handles branches,
-  commits, and PRs. The agent should not need to manipulate spec files
-  or run Git directly. Whether `ears-manager` also moves to tools, so
-  that the role needs no shell at all, is open with #30.
+  handles all spec read/write operations and cuts change-set branches;
+  the SCM handles commits, pushes, PRs, refresh merges, and the
+  initialization branch. The agent should not need to manipulate spec
+  files or run Git directly. Whether `ears-manager` also moves to
+  tools, so that the role needs no shell at all, is open with #30.
 
 ---
 
@@ -1990,9 +1995,14 @@ At every mutation boundary, a Gate:
 1. Validates token signature, issuer, audience, expiry, and subject.
 2. Maps the trusted subject and work-item contract to an authorization
    context: project, role, work item/change set, allowed refs, actions,
-   and expiry. Caller-supplied project or branch claims are not trusted.
+   and expiry. For the Source Control Manager's Drafting Table face, it
+   maps the trusted subject and the proposed change set that the Web
+   session record names. Caller-supplied project or branch claims are
+   not trusted.
 3. Authorizes the requested action against that context and the current
-   WMS contract version.
+   WMS contract version. A proposed change set has no WMS contract
+   version, so for the Source Control Manager's Drafting Table face the
+   Gate checks the change set instead.
 4. Obtains a project/action-scoped downstream credential from an external
    broker. Git hosting should use short-lived installation/service tokens
    where available; the Gate enforces branch restrictions that the token
@@ -2013,7 +2023,9 @@ For Git and the Git host, the mutation boundary is the
 [Source Control Manager](source-control-manager.md#authorization). The
 Drafting Table is the only agent with a Git mutation role, and it
 exercises it only through the SCM's Drafting Table face. In hosted
-modes that face runs behind the Gate, which applies the steps above.
+modes that face runs behind the Gate, which applies the steps above
+with the differences that the SCM's
+[Authorization](source-control-manager.md#authorization) states.
 
 Authorization acceptance tests cover wrong issuer/audience, expired or
 forged tokens, cross-project access, role escalation, wrong work item or

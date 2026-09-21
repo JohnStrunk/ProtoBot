@@ -63,8 +63,13 @@ this binding:
   steps that remain
   ([What the user runs in Codex](#what-the-user-runs-in-codex)). The
   user therefore no longer types the push and the pull request by hand.
-  That is a deliberate trade: the role publishes only on the user's
-  explicit request, and only what the SCM's rules allow.
+  That is a deliberate trade, with a recorded risk: the session skill
+  tells the role to publish only on the user's explicit request, but
+  no mechanism enforces it, because the role profile approves the
+  `scm` tools without a prompt. A model steered by injected text can
+  publish a proposed change set. It can publish only what the SCM's
+  rules allow, and a reviewer sees it as a pull request before
+  anything merges.
 
 ---
 
