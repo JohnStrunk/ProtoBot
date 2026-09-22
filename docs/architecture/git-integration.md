@@ -117,12 +117,13 @@ directory is the root of a Git working tree. If the file is
 missing, if it sits below the working-tree root, or if the
 directory is not a Git working tree at all, resolution fails and
 no Git or `ears-manager` operation runs. The one exception is a
-working tree with no `.protobot/` directory at its root: there the
+working tree with nothing named `.protobot` at its root: there the
 steps of [Project initialization](#project-initialization) run,
-because they create the file. The SCM's `repo_state` reports such a
-tree as not initialized, and its `branch_init` cuts the
-initialization branch in it
-([`repo_state`](source-control-manager.md#repo_state)).
+because they create the file. A `.protobot` that is a symbolic link or
+not a directory is not that exception: resolution fails there too. The
+SCM's `repo_state` reports a tree with nothing named `.protobot` as
+not initialized, and its `branch_init` cuts the initialization branch
+in it ([`repo_state`](source-control-manager.md#repo_state)).
 
 **Caller-supplied project claims are not trusted.** A project
 name, branch, or remote supplied in a prompt, a command-line flag,
@@ -774,7 +775,10 @@ On a mismatch the Drafting Table:
 The discard restores the last committed content. When the path also
 holds a governed write that is not committed yet, that write goes
 with it, and it is repeated through `ears-manager`; the digest
-matches again only then.
+matches again only then. For a structured store, the discard restores
+its tracked records only. A record that a direct edit added is
+untracked, so the Drafting Table names it too, and the user removes it
+before the store digest matches again.
 
 Unregistered files in the working tree are not an error. They are
 simply never staged by the Drafting Table.
@@ -811,7 +815,7 @@ The later layers hold when the harness layer is off.
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init` writes `.protobot/project.yaml` and `.protobot/projection.yaml` without committing; Git commits them with the initial manifest on the change-set branch |
 | Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base`, and `remote` for listing only |
-| Fetch | From `repository.canonical_remote` only. Before `project.yaml` exists, from the upstream remote of the local default branch only, to cut the initialization branch from a fresh head, and `git ls-remote` of that remote, to see whether the initialization branch exists there |
+| Fetch | From `repository.canonical_remote` only, into remote-tracking refs only, never a local branch or a tag. Before `project.yaml` exists, from the upstream remote of the local default branch only, to cut the initialization branch from a fresh head, and `git ls-remote` of that remote, to see whether the initialization branch exists there |
 | Fast-forward the local default branch | Only to the head of `repository.default_branch` on the canonical remote, or, before `project.yaml` exists, on the upstream remote of the local default branch; only by fast-forward; and, when it is checked out, only with no uncommitted change to a tracked file; a fetch alone leaves the local ref stale, and a change-set branch is cut from it |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
@@ -900,7 +904,7 @@ detects with a stable code
 | Push rejected by branch protection | Push exit status | Names the protected branch | Push the change-set branch instead and open a pull request. A push to the default branch is a bug in the caller, not a state to retry |
 | Merge refused by branch protection | Host API response | Names the protected branch, the failing requirement, and the declared `review_mode` | Satisfy the requirement, such as a green check or a review. If `review_mode` says `single-player` and the host still demands a reviewer, the declaration and the host disagree and the project configuration must be corrected |
 | Push rejected, missing or expired credential | Push exit status | Names the remote and the credential source for the mode | Refresh the credential outside the agent; the agent never receives one directly |
-| Pull-request creation failed | Host API response | Names the host status and whether the branch was pushed | Retry creation; the branch and its commits are already correct |
+| Pull-request creation failed | Host API response | Names the host status and whether the branch was pushed | Retry creation when the host refused the request; the branch and its commits are already correct. When the host may have applied it, as after a 5xx or a timeout, read the pull request's state first, then retry |
 | `ears-manager check` failed in CI | Non-zero exit in the merge gate | The check's complete deterministic diagnostic set | Fix through `ears-manager`, commit, push to the same branch |
 | Merge conflict in a change-set manifest or index file | Merge of the default branch | Names the conflicting file | Resolve mechanically; sorted lists and fixed key order keep the resolution deterministic ([ADR-0001][adr1-diff]) |
 | Merge conflict in a requirement record | Merge of the default branch | Names the record | Rare by design, since records are one file each; resolve through `ears-manager` and revalidate |

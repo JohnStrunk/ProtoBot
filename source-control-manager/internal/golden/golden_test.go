@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -113,10 +112,9 @@ func mainLine(d *driver) {
 	if d.git(d.clone(), "ls-files", "-s") != index {
 		d.t.Fatal("4-assert: the index changed")
 	}
-	check, status := d.ears([]string{"--output", "json", "check"}, nil)
-	if status != 4 || !strings.Contains(fmt.Sprint(check), "docs/vision.md") {
-		d.t.Fatalf("4-check: exit %d, %v", status, check)
-	}
+	// The validator names the artifact by its ID; the SCM maps it to
+	// docs/vision.md, as the 4-commit result above shows.
+	d.checkStep("4-check")
 
 	// Step 5.
 	d.git(d.clone(), "checkout", "--", "docs/vision.md")
@@ -417,6 +415,28 @@ var negativeChecks = []check{
 		}
 		d.expect("n34-7-second-merge-commit", d.step("n34-7-second-merge-commit")["scm_read"].(map[string]any)["result"], out)
 	}},
+	{"n34-9 structured record outside ears-manager", "after-6", func(d *driver) {
+		cases := []struct {
+			step string
+			edit func()
+		}{
+			// An edit of a record in a store that the change set does not
+			// touch: the approved manifest of CS-00001.
+			{"n34-9-commit-edit", func() { d.appendLine(".protobot/change-sets/cs-00001.yaml", "# A direct edit.") }},
+			// A record added to a store that the change set does not touch.
+			{"n34-9-commit-add", func() { d.write(".protobot/requirements/REQ-FIX-00001.yaml", "id: REQ-FIX-00001\n") }},
+		}
+		for _, c := range cases {
+			d.restore("after-6")
+			d.earsStep("n34-9-artifact-put-vision")
+			c.edit()
+			head := d.rev(d.clone(), "HEAD")
+			d.callStep(c.step)
+			if d.rev(d.clone(), "HEAD") != head {
+				d.t.Fatalf("%s: a commit was created", c.step)
+			}
+		}
+	}},
 	{"scm-1 rewrite", "after-6", func(d *driver) {
 		d.git(d.clone(), "commit", "--quiet", "--amend", "-m", "An amended commit")
 		d.bind("c2x", d.rev(d.clone(), "HEAD"))
@@ -656,6 +676,82 @@ var negativeChecks = []check{
 			d.t.Fatalf("refresh on cs/00002-fixes#1: %s", out)
 		}
 	}},
+	{"a change-set path replaced by a directory before publish", "after-6", func(d *driver) {
+		vision := filepath.Join(d.clone(), "docs", "vision.md")
+		if err := os.Remove(vision); err != nil {
+			d.t.Fatal(err)
+		}
+		d.write("docs/vision.md/notes.md", "notes\n")
+		calls := d.gh().Calls
+		out := d.call("publish", nil)
+		if !bytes.Contains(out, []byte(`"code":"UNCOMMITTED_CHANGES"`)) || !bytes.Contains(out, []byte(`"docs/vision.md"`)) {
+			d.t.Fatalf("publish with a directory at a change-set path: %s", out)
+		}
+		if d.gh().Calls != calls {
+			d.t.Fatal("the gh stub received a call")
+		}
+		d.assertRefs(map[string]string{"origin/refs/heads/cs/00002-add-the-initial-sketch": "c2"})
+	}},
+	{"a symlinked control directory", "after-6", func(d *driver) {
+		// A valid project file outside the working tree, behind the link.
+		outside := filepath.Join(d.work, "control")
+		if err := os.Rename(filepath.Join(d.clone(), ".protobot"), outside); err != nil {
+			d.t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(d.clone(), ".protobot")); err != nil {
+			d.t.Fatal(err)
+		}
+		out := d.call("repo_state", nil)
+		if !bytes.Contains(out, []byte(`"code":"PROJECT_UNREADABLE"`)) || !bytes.Contains(out, []byte(`"path":".protobot/"`)) {
+			d.t.Fatalf("repo_state through a symlinked .protobot: %s", out)
+		}
+	}},
+	{"a fetch refspec that maps into local refs", "after-6", func(d *driver) {
+		d.git(d.clone(), "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/heads/mirror/*")
+		d.git(d.clone(), "config", "--add", "remote.origin.fetch", "+refs/tags/*:refs/tags/*")
+		d.upstreamCommit("CHANGELOG.md", "# Changes\n", "Add a changelog")
+		d.git(d.second(), "tag", "fixture-tag", "main")
+		d.git(d.second(), "push", "--quiet", "origin", "fixture-tag")
+		out := d.call("repo_state", nil)
+		if !bytes.Contains(out, []byte(`"ok":true`)) {
+			d.t.Fatalf("repo_state: %s", out)
+		}
+		if refs := d.git(d.clone(), "for-each-ref", "--format=%(refname)", "refs/heads/mirror/", "refs/tags/"); refs != "" {
+			d.t.Fatalf("the fetch moved local refs: %s", refs)
+		}
+		if got, want := d.rev(d.clone(), "refs/remotes/origin/main"), d.rev(d.origin(), "refs/heads/main"); got != want {
+			d.t.Fatalf("origin/main is %s, want %s", got, want)
+		}
+	}},
+	{"a host failure after a no-op push", "after-6", func(d *driver) {
+		cases := []struct{ answer, mutation, retry string }{
+			// A 5xx can come after GitHub applied the edit.
+			{"HTTP 502: Bad Gateway (https://api.github.com/graphql)", "unknown", "reconcile"},
+			// A validation error is a refusal: the host did not change.
+			{"HTTP 422: Validation Failed (https://api.github.com/graphql)", "none", "retry"},
+		}
+		for _, c := range cases {
+			d.restore("after-6")
+			d.setGH(func(s *ghState) {
+				for i := range s.Pulls {
+					if s.Pulls[i].Number == 2 {
+						s.Pulls[i].Body = "Edited on the host."
+					}
+				}
+				s.Fail = map[string]string{"edit": c.answer}
+			})
+			out := d.call("publish", nil)
+			want := []string{`"code":"HOST_REQUEST_FAILED"`, `"mutation":"` + c.mutation + `"`, `"retry":"` + c.retry + `"`, `"pull_request":2`}
+			for _, w := range want {
+				if !bytes.Contains(out, []byte(w)) {
+					d.t.Fatalf("publish after %q lacks %s: %s", c.answer, w, out)
+				}
+			}
+			if bytes.Contains(out, []byte(`"refs"`)) {
+				d.t.Fatalf("a no-op push names a pushed ref: %s", out)
+			}
+		}
+	}},
 	{"scm-9 other repository", "after-6", func(d *driver) {
 		calls := d.gh().Calls
 		d.callStep("scm-9-other-repo")
@@ -767,7 +863,8 @@ var negativeChecks = []check{
 		if _, status := d.ears([]string{"--output", "json", "change-set", "update", "--change-set", "CS-00002", "--intent", "Fixes #1"}, nil); status != 0 {
 			d.t.Fatalf("change-set update exited %d", status)
 		}
-		d.git(d.clone(), "add", "--", ".protobot/change-sets/cs-00002.yaml")
+		// The write changes the manifest and the change-set store digest.
+		d.git(d.clone(), "add", "--", ".protobot/change-sets/cs-00002.yaml", ".protobot/project.yaml")
 		d.git(d.clone(), "commit", "--quiet", "-m", "Set the intent in the user's own shell")
 		calls := len(d.gh().Recorded)
 		d.callStep("scm-26-publish")

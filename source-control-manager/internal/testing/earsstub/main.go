@@ -3,7 +3,9 @@
 // the #30 contract that the fixture drives: project init, change-set
 // create, show, update, and compare, artifact put, impact, and check, with
 // #30's envelopes and exit statuses. It reports artifact.digest_mismatch
-// for a registered path whose content does not match its digest.
+// for a registered path whose content does not match its digest, and
+// project.store_digest_mismatch for a structured store whose records do
+// not match its store_digests entry, which every governed write updates.
 //
 // EARS_STUB_CONTROL may name a JSON file whose "extra_paths" map adds paths
 // to the change-set show result of a change set, so the fixture can hand
@@ -50,7 +52,15 @@ type Project struct {
 		Interfaces   string `yaml:"interfaces" json:"interfaces"`
 		ChangeSets   string `yaml:"change_sets" json:"change_sets"`
 	} `yaml:"stores" json:"stores"`
-	Artifacts []Artifact `yaml:"artifacts" json:"artifacts"`
+	StoreDigests StoreDigests `yaml:"store_digests" json:"store_digests"`
+	Artifacts    []Artifact   `yaml:"artifacts" json:"artifacts"`
+}
+
+// StoreDigests holds one digest for each structured store (ADR-0002).
+type StoreDigests struct {
+	Requirements string `yaml:"requirements" json:"requirements"`
+	Interfaces   string `yaml:"interfaces" json:"interfaces"`
+	ChangeSets   string `yaml:"change_sets" json:"change_sets"`
 }
 
 // Artifact is a registry entry.
@@ -102,6 +112,8 @@ type Diagnostic struct {
 	Code     string `json:"code"`
 	Severity string `json:"severity"`
 	Path     string `json:"path,omitempty"`
+	RecordID string `json:"record_id,omitempty"`
+	Field    string `json:"field,omitempty"`
 	Message  string `json:"message"`
 }
 
@@ -262,6 +274,74 @@ func (s *stub) loadProject() (*Project, *failure) {
 	return &p, nil
 }
 
+// storeDigest is the digest of one structured store: the sorted visible
+// YAML record paths, each with the digest of its content. It returns false
+// for a store that holds a symbolic link or a visible entry that is not a
+// YAML record, which the validator of #108 reports as unreadable.
+func (s *stub) storeDigest(store string) (string, bool) {
+	var lines []string
+	ok := true
+	_ = filepath.WalkDir(s.file(store), func(full string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		rel, _ := filepath.Rel(s.root, full)
+		rel = filepath.ToSlash(rel)
+		if rel != store && strings.HasPrefix(d.Name(), ".") {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		switch {
+		case d.IsDir():
+			return nil
+		case !d.Type().IsRegular() || !strings.HasSuffix(d.Name(), ".yaml"):
+			ok = false
+			return nil
+		}
+		data, err := os.ReadFile(full)
+		if err != nil {
+			ok = false
+			return nil
+		}
+		lines = append(lines, rel+" "+digest(data))
+		return nil
+	})
+	sort.Strings(lines)
+	return digest([]byte(strings.Join(lines, "\n"))), ok
+}
+
+// storeFields names each store with its store_digests field.
+func storeFields(p *Project) []struct{ path, field string } {
+	return []struct{ path, field string }{
+		{p.Stores.Requirements, "requirements"},
+		{p.Stores.Interfaces, "interfaces"},
+		{p.Stores.ChangeSets, "change_sets"},
+	}
+}
+
+func (d *StoreDigests) field(name string) *string {
+	switch name {
+	case "requirements":
+		return &d.Requirements
+	case "interfaces":
+		return &d.Interfaces
+	}
+	return &d.ChangeSets
+}
+
+// saveProjectWithStores recomputes every store digest after a governed
+// write and saves project.yaml, as ears-manager does atomically with the
+// record change.
+func (s *stub) saveProjectWithStores(p *Project) error {
+	for _, store := range storeFields(p) {
+		value, _ := s.storeDigest(store.path)
+		*p.StoreDigests.field(store.field) = value
+	}
+	return s.saveYAML(".protobot/project.yaml", p)
+}
+
 func (s *stub) saveYAML(rel string, v any) error {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -326,7 +406,7 @@ func (s *stub) projectInit() (any, []string, *failure) {
 		projection.Paths = append(projection.Paths, Class{Path: a.path, Class: "shared"})
 	}
 	sort.Strings(registered)
-	if err := s.saveYAML(".protobot/project.yaml", p); err != nil {
+	if err := s.saveProjectWithStores(&p); err != nil {
 		return nil, nil, fail(6, "io.write_failed", "The project cannot be written.")
 	}
 	if err := s.saveYAML(".protobot/projection.yaml", projection); err != nil {
@@ -414,7 +494,11 @@ func (s *stub) changeSetCreate() (any, []string, *failure) {
 	if err := s.saveYAML(manifest, m); err != nil {
 		return nil, nil, fail(6, "io.write_failed", "The manifest cannot be written.")
 	}
-	return map[string]any{"change_set": map[string]any{"id": id, "base_commit": base, "branch": branch, "manifest_path": manifest}}, []string{manifest}, nil
+	if err := s.saveProjectWithStores(p); err != nil {
+		return nil, nil, fail(6, "io.write_failed", "The project cannot be written.")
+	}
+	return map[string]any{"change_set": map[string]any{"id": id, "base_commit": base, "branch": branch, "manifest_path": manifest}},
+		[]string{manifest, ".protobot/project.yaml"}, nil
 }
 
 var numbered = regexp.MustCompile(`cs-([0-9]{5})\.yaml$`)
@@ -612,11 +696,15 @@ func (s *stub) changeSetUpdate() (any, []string, *failure) {
 	if err := s.saveYAML(manifest, m); err != nil {
 		return nil, nil, fail(6, "io.write_failed", "The manifest cannot be written.")
 	}
+	if err := s.saveProjectWithStores(p); err != nil {
+		return nil, nil, fail(6, "io.write_failed", "The project cannot be written.")
+	}
 	status := "complete"
 	if m.ImpactStale {
 		status = "stale"
 	}
-	return map[string]any{"change_set_id": id, "assessment_status": status, "changed_paths": []string{manifest}}, []string{manifest}, nil
+	changed := []string{manifest, ".protobot/project.yaml"}
+	return map[string]any{"change_set_id": id, "assessment_status": status, "changed_paths": changed}, changed, nil
 }
 
 func (s *stub) changeSetCompare() (any, *failure) {
@@ -742,11 +830,11 @@ func (s *stub) artifactPut() (any, []string, *failure) {
 		}
 		changed = append(changed, ".protobot/projection.yaml")
 	}
-	if err := s.saveYAML(".protobot/project.yaml", p); err != nil {
-		return nil, nil, fail(6, "io.write_failed", "The project cannot be written.")
-	}
 	if err := s.saveYAML(s.manifestPath(p, id), m); err != nil {
 		return nil, nil, fail(6, "io.write_failed", "The manifest cannot be written.")
+	}
+	if err := s.saveProjectWithStores(p); err != nil {
+		return nil, nil, fail(6, "io.write_failed", "The project cannot be written.")
 	}
 	return map[string]any{"artifact": entry, "operation": map[string]string{"action": action, "artifact_id": artifactID}}, changed, nil
 }
@@ -767,7 +855,10 @@ func (s *stub) check() (any, *failure) {
 		checked = append(checked, a.Path)
 		data, err := os.ReadFile(s.file(a.Path))
 		if err != nil || digest(data) != a.Digest {
-			diagnostics = append(diagnostics, Diagnostic{Code: "artifact.digest_mismatch", Severity: "error", Path: a.Path,
+			// The shape of the validator of #108: the path of project.yaml,
+			// where the digest lives, and the artifact by its ID.
+			diagnostics = append(diagnostics, Diagnostic{Code: "artifact.digest_mismatch", Severity: "error",
+				Path: ".protobot/project.yaml", RecordID: a.ID, Field: "artifacts[id=" + a.ID + "].digest",
 				Message: "The content of the registered path does not match its registry digest."})
 		}
 		if classes[a.Path] != "shared" {
@@ -775,12 +866,29 @@ func (s *stub) check() (any, *failure) {
 				Message: "The registered path is not classified shared."})
 		}
 	}
+	for _, store := range storeFields(p) {
+		value, readable := s.storeDigest(store.path)
+		switch {
+		case !readable:
+			diagnostics = append(diagnostics, Diagnostic{Code: "project.store_digest_unreadable", Severity: "error",
+				Path: ".protobot/project.yaml", Field: "store_digests." + store.field,
+				Message: "The store holds a symbolic link or an entry that is not a YAML record."})
+		case value != *p.StoreDigests.field(store.field):
+			diagnostics = append(diagnostics, Diagnostic{Code: "project.store_digest_mismatch", Severity: "error",
+				Path: ".protobot/project.yaml", Field: "store_digests." + store.field,
+				Message: "The records of the store do not match its store digest."})
+		}
+	}
 	if len(diagnostics) > 0 {
 		sort.Slice(diagnostics, func(i, j int) bool {
-			if diagnostics[i].Path != diagnostics[j].Path {
-				return diagnostics[i].Path < diagnostics[j].Path
+			a, b := diagnostics[i], diagnostics[j]
+			if a.Path != b.Path {
+				return a.Path < b.Path
 			}
-			return diagnostics[i].Code < diagnostics[j].Code
+			if a.Code != b.Code {
+				return a.Code < b.Code
+			}
+			return a.RecordID+a.Field < b.RecordID+b.Field
 		})
 		return nil, fail(4, "validation.failed", "The specification is not valid.", diagnostics...)
 	}

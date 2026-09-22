@@ -59,6 +59,9 @@ type State struct {
 	Recorded []Call `json:"recorded"`
 	// Reads counts every call, reads included.
 	Calls int `json:"calls"`
+	// Fail makes a pr command ("create" or "edit") fail after the stub
+	// records it, with this text on stderr, and changes nothing.
+	Fail map[string]string `json:"fail,omitempty"`
 }
 
 func main() {
@@ -102,10 +105,18 @@ func run(args []string) int {
 	case "create":
 		stdin, _ := io.ReadAll(os.Stdin)
 		state.Recorded = append(state.Recorded, Call{Argv: append([]string{"gh"}, args...), Stdin: string(stdin)})
+		if text, ok := state.Fail["create"]; ok {
+			fmt.Fprintln(os.Stderr, text)
+			return 1
+		}
 		return create(state, repo, opts, string(stdin))
 	case "edit":
 		stdin, _ := io.ReadAll(os.Stdin)
 		state.Recorded = append(state.Recorded, Call{Argv: append([]string{"gh"}, args...), Stdin: string(stdin)})
+		if text, ok := state.Fail["edit"]; ok {
+			fmt.Fprintln(os.Stderr, text)
+			return 1
+		}
 		if len(positional) != 1 {
 			fmt.Fprintln(os.Stderr, "ghstub: edit takes one number")
 			return 2

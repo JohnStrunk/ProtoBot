@@ -162,9 +162,11 @@ func (c *call) fetch(remote string) *result.Failure {
 }
 
 // tryFetch fetches, and reports whether git ran at all, so repo_state can
-// report a fetch that ran and failed as a state.
+// report a fetch that ran and failed as a state. The refspec is explicit,
+// and the empty --refmap stops git from also mapping the fetched refs
+// through remote.<name>.fetch, which could name a local branch or a tag.
 func (c *call) tryFetch(remote string) (*result.Failure, bool) {
-	args := []string{"fetch", "--no-tags", remote}
+	args := []string{"fetch", "--no-tags", "--refmap=", remote, "+refs/heads/*:refs/remotes/" + remote + "/*"}
 	res, err := c.git.Run(gitx.Opts{Record: true}, args...)
 	if err != nil {
 		return c.gitFailure(err), false

@@ -100,6 +100,11 @@ func Resolve(dir string) (*Project, *result.Failure) {
 	if err != nil {
 		return nil, result.Fail(result.ProjectNotFound, "The current directory cannot be resolved.")
 	}
+	// A .protobot that is a symbolic link would make every read of the
+	// project come from outside the working tree.
+	if info, err := os.Lstat(filepath.Join(root, ".protobot")); err == nil && (info.Mode()&os.ModeSymlink != 0 || !info.IsDir()) {
+		return nil, result.Fail(result.ProjectUnreadable, ".protobot/ is a symbolic link or not a directory.", jsonx.F("path", ".protobot/"))
+	}
 	for current := start; ; {
 		candidate := filepath.Join(current, filepath.FromSlash(ConfigPath))
 		if _, statErr := os.Lstat(candidate); statErr == nil {

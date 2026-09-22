@@ -88,6 +88,7 @@ func (c *call) deriveFileSet(head string, mode deriveMode) (*fileSet, *result.Fa
 			if mode == strictMode {
 				return nil, notStageable([]string{raw})
 			}
+			dirs = append(dirs, raw)
 			continue
 		}
 		if strings.HasSuffix(raw, "/") {
@@ -117,6 +118,12 @@ func (c *call) deriveFileSet(head string, mode deriveMode) (*fileSet, *result.Fa
 	}
 
 	fs := &fileSet{}
+	// List mode names every path it cannot compare, a directory where the
+	// change set has a file included, as an uncommitted change, so publish
+	// never pushes while such a path differs from HEAD.
+	if mode == listMode {
+		fs.changed = append(fs.changed, dirs...)
+	}
 	delete(set, project.ProjectionPath)
 	if c.branch == c.initBranch() {
 		set[project.ProjectionPath] = true

@@ -495,6 +495,29 @@ func (d *driver) earsStep(step string) map[string]any {
 	return doc
 }
 
+// checkStep runs a failing ears-manager check step and compares the
+// code, path, record_id, and field of each diagnostic with the step's.
+func (d *driver) checkStep(step string) {
+	d.t.Helper()
+	doc := d.earsStep(step)
+	got := []any{}
+	failure, _ := doc["error"].(map[string]any)
+	diagnostics, _ := failure["diagnostics"].([]any)
+	for _, item := range diagnostics {
+		diagnostic, _ := item.(map[string]any)
+		kept := map[string]any{}
+		for _, key := range []string{"code", "path", "record_id", "field"} {
+			if value, ok := diagnostic[key]; ok {
+				kept[key] = value
+			}
+		}
+		got = append(got, kept)
+	}
+	if err := d.match(step+".diagnostics", d.step(step)["diagnostics"], got); err != nil {
+		d.t.Fatalf("%v: %v", err, doc)
+	}
+}
+
 // review records a disposition for every candidate of an impact result,
 // standing in for the user's review.
 func (d *driver) review(impact map[string]any) {
@@ -675,11 +698,12 @@ type ghPull struct {
 }
 
 type ghState struct {
-	Down     bool     `json:"down"`
-	Next     int      `json:"next_number"`
-	Pulls    []ghPull `json:"pulls"`
-	Recorded []ghCall `json:"recorded"`
-	Calls    int      `json:"calls"`
+	Down     bool              `json:"down"`
+	Next     int               `json:"next_number"`
+	Pulls    []ghPull          `json:"pulls"`
+	Recorded []ghCall          `json:"recorded"`
+	Calls    int               `json:"calls"`
+	Fail     map[string]string `json:"fail,omitempty"`
 }
 
 func (d *driver) gh() ghState {

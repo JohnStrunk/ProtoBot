@@ -155,50 +155,42 @@ func (c *call) digestCheck(fileSet []string) *result.Failure {
 
 	// Status 4 is a specification that is not valid. Status 5 is an
 	// incomplete or stale impact assessment, which is a warning only when
-	// it comes alone: a digest mismatch of the file set refuses the commit
-	// whichever status carries it.
+	// it comes alone: a digest mismatch that #34 compares refuses the
+	// commit whichever status carries it.
 
-	var inSet, outside []string
-	otherError := false
-	errorDiagnostics := []ears.Diagnostic{}
+	var errorDiagnostics []ears.Diagnostic
 	if call.Env.Error != nil {
 		errorDiagnostics = call.Env.Error.Diagnostics
 	}
-	for _, d := range errorDiagnostics {
-		if d.Severity == "warning" || d.Severity == "info" {
-			continue
-		}
-		if d.Code != digestMismatchCode || d.Path == "" {
-			otherError = true
-			continue
-		}
-		p, ok := project.CleanRelative(d.Path)
-		if !ok {
-			otherError = true
-			continue
-		}
-		if holdsFileSetPath(p, fileSet) {
-			inSet = append(inSet, p)
-		} else {
-			outside = append(outside, p)
-		}
-	}
-	sort.Strings(inSet)
-	sort.Strings(outside)
+	inSet, stores, outside, otherError := classifyDigests(errorDiagnostics, c.config(), fileSet)
 	if len(inSet) > 0 {
 		reapply := "ears-manager artifact put"
-		for _, p := range inSet {
-			if a, ok := c.config().ArtifactFor(p); !ok || a.Path != p {
-				reapply = "ears-manager artifact put, or the matching requirement or interface subcommand"
-			}
+		if len(stores) > 0 {
+			reapply = "ears-manager artifact put, or the matching requirement or interface subcommand"
 		}
-		return result.Fail(result.SpecDigestMismatch, "A registered path does not match its registry digest.",
+		details := []jsonx.Field{
 			jsonx.F("paths", inSet),
 			jsonx.F("check", checkDetails()),
 			jsonx.F("routes", jsonx.O(
 				jsonx.F("discard", append([]string{"git", "checkout", "--"}, inSet...)),
 				jsonx.F("reapply", reapply),
-			)))
+			)),
+		}
+		// The discard restores the tracked records of a store, but a
+		// record added outside ears-manager is untracked and stays, so
+		// the details name it for the user to remove.
+		if len(stores) > 0 {
+			args := append([]string{"ls-files", "--others", "-z", "--"}, stores...)
+			out, err := c.git.ReadRaw(gitx.Opts{}, args...)
+			if err != nil {
+				return c.gitFailure(err)
+			}
+			if untracked := gitx.SplitZ(out); len(untracked) > 0 {
+				sort.Strings(untracked)
+				details = append(details, jsonx.F("untracked", untracked))
+			}
+		}
+		return result.Fail(result.SpecDigestMismatch, "A registered artifact or a structured store does not match its digest.", details...)
 	}
 	if call.Status == ears.StatusValidation && (otherError || len(outside) == 0) {
 		return result.Fail(result.SpecCheckFailed, "ears-manager check failed.", jsonx.F("check", checkDetails()))
@@ -218,15 +210,79 @@ func (c *call) digestCheck(fileSet []string) *result.Failure {
 	return nil
 }
 
-// holdsFileSetPath reports a path of the file set, or a registered
-// directory that holds one.
-func holdsFileSetPath(p string, fileSet []string) bool {
-	for _, f := range fileSet {
-		if project.Under(f, p) {
-			return true
+// storeDigestMismatchCode is the validator's code for a structured store,
+// such as the requirement store, whose record set does not match the
+// store_digests entry of project.yaml.
+const storeDigestMismatchCode = "project.store_digest_mismatch"
+
+// classifyDigests sorts the error diagnostics of check. A digest mismatch
+// maps to the artifact or store that it names: an artifact by its
+// record_id in the registry, a store by its store_digests.<store> field.
+// The diagnostic's own path names project.yaml, where the digest lives, so
+// it is read only as the artifact path of an older result shape. #34
+// compares every structured store and the artifacts that the change set
+// touches, so a store mismatch, or an artifact of the file set, goes to
+// inSet, and the stores among them also to stores; an artifact outside
+// the file set goes to outside; any other error sets otherError.
+func classifyDigests(diagnostics []ears.Diagnostic, config *project.Config, fileSet []string) (inSet, stores, outside []string, otherError bool) {
+	for _, d := range diagnostics {
+		if d.Severity == "warning" || d.Severity == "info" {
+			continue
+		}
+		p, store, ok := digestPath(d, config)
+		switch {
+		case !ok:
+			otherError = true
+		case store:
+			inSet = append(inSet, p)
+			stores = append(stores, p)
+		case contains(fileSet, p):
+			inSet = append(inSet, p)
+		default:
+			outside = append(outside, p)
 		}
 	}
-	return false
+	return dedupeSorted(inSet), dedupeSorted(stores), dedupeSorted(outside), otherError
+}
+
+// digestPath returns the artifact or store path of a digest mismatch, and
+// whether it is a store.
+func digestPath(d ears.Diagnostic, config *project.Config) (string, bool, bool) {
+	switch d.Code {
+	case digestMismatchCode:
+		if d.RecordID != "" {
+			for _, artifact := range config.Artifacts {
+				if artifact.ID == d.RecordID {
+					return artifact.Path, false, true
+				}
+			}
+			return "", false, false
+		}
+		if p, ok := project.CleanRelative(d.Path); ok && p != project.ConfigPath {
+			return p, false, true
+		}
+	case storeDigestMismatchCode:
+		switch d.Field {
+		case "store_digests.requirements":
+			return config.Stores.Requirements, true, true
+		case "store_digests.interfaces":
+			return config.Stores.Interfaces, true, true
+		case "store_digests.change_sets":
+			return config.Stores.ChangeSets, true, true
+		}
+	}
+	return "", false, false
+}
+
+func dedupeSorted(items []string) []string {
+	sort.Strings(items)
+	var out []string
+	for i, item := range items {
+		if i == 0 || item != items[i-1] {
+			out = append(out, item)
+		}
+	}
+	return out
 }
 
 // writeCommit is commit step 5. The SCM never stages into the user's

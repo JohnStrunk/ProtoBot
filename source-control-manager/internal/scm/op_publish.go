@@ -178,11 +178,23 @@ func (c *call) publish() (*outcome, *result.Failure) {
 	if pushed {
 		refs = []string{ref}
 	}
-	afterPush := func(herr *host.Error) *result.Failure {
+	// A failed create or update after the push: when the host refused it,
+	// the host did not change, and only the push can have; when the host
+	// may have applied it before the answer failed, the outcome is open.
+	afterPush := func(herr *host.Error, number int) *result.Failure {
 		f := result.Fail(result.HostRequestFailed, "The host failed the pull-request request after the push.",
-			jsonx.F("class", herr.Class), jsonx.F("pushed", head))
+			jsonx.F("class", herr.Class), jsonx.F("branch", c.branch), jsonx.F("pushed", head))
+		if number > 0 {
+			f.Details = append(f.Details, jsonx.F("pull_request", number))
+		}
 		if pushed {
 			f.Details = append(f.Details, jsonx.F("refs", refs))
+		}
+		switch {
+		case herr.Open():
+			f.Message = "The host may have applied the pull-request request before it failed; read the state with repo_state."
+			f = f.WithMutation(result.MutationUnknown).WithRetry(result.RetryReconcile)
+		case pushed:
 			f = f.WithMutation(result.MutationPartial)
 		}
 		return f
@@ -193,12 +205,12 @@ func (c *call) publish() (*outcome, *result.Failure) {
 	case existing == nil:
 		created, herr := adapter.Create(repo.DefaultBranch, c.branch, title, body)
 		if herr != nil {
-			return nil, afterPush(herr)
+			return nil, afterPush(herr, 0)
 		}
 		pr, action = created, actionCreated
 	case existing.Title != title || existing.Body != body:
 		if herr := adapter.Update(existing.Number, title, body); herr != nil {
-			return nil, afterPush(herr)
+			return nil, afterPush(herr, existing.Number)
 		}
 		pr, action = *existing, actionUpdated
 	default:
@@ -276,9 +288,20 @@ func (c *call) push(remote, ref string) (bool, *result.Failure) {
 			jsonx.F("branch", branch), jsonx.F("remote_head", nullable(remoteHead)))
 	}
 	if code := transportClass(string(res.Stderr)); code != "" {
-		return false, c.transportFailure(remote, args, res)
+		return false, pushTransportFailure(code, c.transportFailure(remote, args, res))
 	}
 	return false, commandFailure(args, res).WithMutation(result.MutationUnknown)
+}
+
+// pushTransportFailure marks a push that failed in transport. The
+// connection can fail after the remote updated the ref, so the outcome is
+// open. Git authenticates before it sends the pack, so a missing
+// credential changed nothing.
+func pushTransportFailure(code result.Code, f *result.Failure) *result.Failure {
+	if code == result.RemoteUnavailable {
+		return f.WithMutation(result.MutationUnknown).WithRetry(result.RetryReconcile)
+	}
+	return f
 }
 
 // pushStatus finds the porcelain status line of ref: its flag and summary.
@@ -371,13 +394,15 @@ func (c *call) refresh() (*outcome, *result.Failure) {
 	if !res.OK() {
 		return nil, c.mergeFailure(args, res, head, from)
 	}
+	// The merge moved the branch, so a failed read from here on cannot
+	// tell to which commit.
 	merge, _, err := c.git.Commit("HEAD")
 	if err != nil {
-		return nil, c.gitFailure(err)
+		return nil, c.gitFailure(err).WithMutation(result.MutationUnknown)
 	}
 	parents, err := c.git.Read("rev-list", "--parents", "-n", "1", merge)
 	if err != nil {
-		return nil, c.gitFailure(err)
+		return nil, c.gitFailure(err).WithMutation(result.MutationUnknown)
 	}
 	if fields := strings.Fields(parents); len(fields) != 3 || fields[1] != head || fields[2] != defaultHead {
 		return nil, result.Fail(result.GitFailed, "The merge commit does not join HEAD and the default head that the SCM checked.",

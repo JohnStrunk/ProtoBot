@@ -38,6 +38,12 @@ type Error struct {
 
 func (e *Error) Error() string { return "host request failed: " + string(e.Class) }
 
+// Open reports a failure after which the host may still have applied the
+// request: the host was unavailable, or gh gave no answer, as when its
+// deadline killed it. A refusal, such as a credential or a validation
+// error, left the host unchanged.
+func (e *Error) Open() bool { return e.Class == ClassUnavailable || e.Status < 0 }
+
 // Pull request states.
 const (
 	StateOpen   = "open"
@@ -213,8 +219,14 @@ func (g *GitHub) run(args []string, stdin []byte) ([]byte, *Error) {
 	if runErr := cmd.Run(); runErr != nil {
 		var exitErr *exec.ExitError
 		if !errors.As(runErr, &exitErr) {
+			if cmd.Process != nil {
+				// gh started and gave no answer: its deadline ended it.
+				return nil, &Error{Class: ClassUnavailable, Status: -1}
+			}
 			return nil, &Error{Class: ClassOther}
 		}
+		// A signal, as from the deadline, leaves ExitCode at -1, which
+		// Open reads as no answer.
 		return nil, &Error{Class: Classify(stderr.String() + "\n" + stdout.String()), Status: exitErr.ExitCode()}
 	}
 	return stdout.Bytes(), nil
