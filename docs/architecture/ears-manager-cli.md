@@ -578,16 +578,11 @@ explicit.
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
-`change-set create` allocates the next unused sequence number and records a
-full 40-character `base_commit`. Normal creation cuts the branch named by
-`repository.branch_prefix` and the slug rules in #34. Project initialization
-is the documented exception: when the working tree is already on the
-pre-cut `cs/<nnnnn>-project-init` branch, the project is not yet approved, and
-that branch has no manifest, `change-set create` records the existing branch
-and does not return `change_set.branch_exists`. This is the only branch
-reuse case and corresponds to [Git and Project-Repository
-Integration](git-integration.md#project-initialization). A failed creation
-leaves neither a manifest nor a new branch.
+In the EM-04 first release, `change-set create` allocates the next unused
+sequence number, records a full 40-character `base_commit`, and writes the
+manifest. It does not create or check out a branch. Branch creation and branch
+reuse are deferred to the follow-on Git integration. A failed creation leaves
+no manifest.
 
 Every successful `change-set update` returns a `before` and `after` manifest
 summary, the resulting `assessment_status`, and sorted `changed_paths`.
@@ -637,11 +632,11 @@ Success data contains:
 
 An invalid specification returns the failure envelope with one or more stable
 diagnostics and status `4`; project discovery or schema-version failures use
-status `3`. When `--change-set` finds an incomplete, stale, or mismatched
-proposed impact assessment, `check` returns status `5` so the caller refreshes
-and re-reviews state rather than revising record content. Approved manifests
-are checked against their stored historical assessment. `check` never repairs
-files.
+status `3`. In the follow-on impact scope, an incomplete, stale, or mismatched
+proposed impact assessment returns status `5` so the caller refreshes and
+re-reviews state rather than revising record content. The EM-04 first release
+does not evaluate impact completeness. Approved manifests are checked against
+their stored historical assessment. `check` never repairs files.
 
 ### `change-set compare`
 

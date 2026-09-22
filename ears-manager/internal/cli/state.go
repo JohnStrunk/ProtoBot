@@ -249,7 +249,6 @@ func draftOnlyDiagnostic(diagnostic specvalidation.Diagnostic) bool {
 
 func draftIncompleteDiagnostic(diagnostic specvalidation.Diagnostic) bool {
 	return diagnostic.Code == "change_set.incomplete_impact" ||
-		diagnostic.Code == "change_set.stale_impact" ||
 		(diagnostic.Code == "change_set.missing_field" && diagnostic.Field == "impact_assessment")
 }
 
