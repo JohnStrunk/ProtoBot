@@ -196,6 +196,10 @@ to function:
    Fullsend integration; a direct OpenShell adapter as the fallback.
 5. **Validation Rules** — shared domain logic for work item
    lifecycle transitions.
+6. **Source Control Manager** — the deterministic component that
+   turns a proposed change set into commits, pushes, and PRs on the
+   user's request, so that no agent runs Git itself. `ears-manager`
+   cuts every change-set branch except the initialization branch.
 
 The interactive work starts locally in OpenCode with draft
 Specification Toolkit skills. The first Job Site implementation is

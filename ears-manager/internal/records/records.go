@@ -43,6 +43,12 @@ func (p StorePaths) WithDefaults() StorePaths {
 	return p
 }
 
+type StoreDigests struct {
+	Requirements string `yaml:"requirements"`
+	Interfaces   string `yaml:"interfaces"`
+	ChangeSets   string `yaml:"change_sets"`
+}
+
 type ProjectIdentity struct {
 	ID   string `yaml:"id"`
 	Name string `yaml:"name"`
@@ -58,12 +64,10 @@ type RepositoryConfig struct {
 type ArtifactKind string
 
 const (
-	ArtifactVision           ArtifactKind = "vision"
-	ArtifactArchitecture     ArtifactKind = "architecture"
-	ArtifactInterfaceIDL     ArtifactKind = "interface-idl"
-	ArtifactInterfaceProse   ArtifactKind = "interface-prose"
-	ArtifactRequirementStore ArtifactKind = "requirement-store"
-	ArtifactChangeSet        ArtifactKind = "change-set"
+	ArtifactVision         ArtifactKind = "vision"
+	ArtifactArchitecture   ArtifactKind = "architecture"
+	ArtifactInterfaceIDL   ArtifactKind = "interface-idl"
+	ArtifactInterfaceProse ArtifactKind = "interface-prose"
 )
 
 type ArtifactEntry struct {
@@ -80,6 +84,7 @@ type ProjectConfig struct {
 	Repository     RepositoryConfig `yaml:"repository"`
 	SchemaVersions SchemaVersions   `yaml:"schema_versions"`
 	Stores         StorePaths       `yaml:"stores"`
+	StoreDigests   StoreDigests     `yaml:"store_digests"`
 	Artifacts      []ArtifactEntry  `yaml:"artifacts,omitempty"`
 }
 

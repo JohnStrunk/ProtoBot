@@ -99,9 +99,12 @@ and every harness already owns its sessions.
   boundary stays authoritative: it rejects a lifecycle transition from
   the `drafting-table` role with `UNAUTHORIZED_ACTION` (case VR-006).
 - **#34** ([Git and Project-Repository Integration](../git-integration.md))
-  defines the Git rules. It leaves the harness permission layer and the
-  Git host client binding to #33; both are decided in
-  [Shell operations](#shell-operations).
+  defines the Git rules. It leaves the harness permission layer to #33,
+  which decides it in [Shell operations](#shell-operations).
+- **#125** ([Source Control Manager][scm]) defines the component that
+  performs the Git and Git host operations of #34 for the role, and its
+  host client binding. This document registers the SCM's `scm` tools
+  in the manifest, and every binding starts the `scm` server.
 - **#77** implements the OpenCode Drafting Table MVP: the adapter
   core, the OpenCode binding, the `drafting-specifications` skill, and
   the [fixture session](#fixture-session) as its test plan.
@@ -112,16 +115,16 @@ and every harness already owns its sessions.
 
 | Layer | Contains | Written | Changes when |
 | --- | --- | --- | --- |
-| Specification Toolkit | Skills: the session protocol, elicitation, Sketching and Dimensioning guidance, the `ears-manager` CLI guidance, and the [host mapping](#host-mapping). MCP tool definitions for the WMS Adapter. Reference material. | Once, for every harness | The specification method changes |
+| Specification Toolkit | Skills: the session protocol, elicitation, Sketching and Dimensioning guidance, the `ears-manager` CLI guidance, and the [host mapping](#host-mapping). MCP tool definitions for the WMS Adapter and the Source Control Manager. Reference material. | Once, for every harness | The specification method changes |
 | Adapter core | The [manifest](#the-adapter-manifest), the [Drafting Table role](#the-drafting-table-role), the [shell operations](#shell-operations), the [guard](#the-guard) and its test vectors, and the [fixture](#fixture-session) | Once, for every harness | This contract changes |
 | Harness binding | The harness's own files: MCP registration, skill discovery, the role's native rules, the entry point, the hook that calls the guard, and access to the session record | Once per harness | That harness changes |
-| Governed systems | `ears-manager`, the WMS Adapter, Git and the Git host | Their own contracts (#30, #31, #34) | Their contracts change |
+| Governed systems | `ears-manager`, the WMS Adapter, and the Source Control Manager in front of Git and the Git host | Their own contracts (#30, #31, #34, #125) | Their contracts change |
 
 Three rules keep the layers apart:
 
 1. **No Toolkit file names a harness.** A Toolkit skill names
    operations — `ears-manager requirement add`, a WMS operation from
-   issue #31, a Git operation from issue #34 — and never a harness
+   issue #31, an SCM operation from issue #125 — and never a harness
    tool, a permission key, or a harness config file.
 2. **The adapter core names a harness in one place only:** the guard's
    [tool vocabulary](#tool-vocabulary), which has one row per harness.
@@ -174,7 +177,8 @@ every Toolkit file and every adapter-core file stays byte-identical.
 │       └── eliciting-requirements/
 └── <binding files>                one set per harness, in its own directories
 
-On PATH: ears-manager, drafting-table-guard, the WMS Adapter MCP server,
+On PATH: ears-manager, drafting-table-guard, source-control-manager,
+         the WMS Adapter MCP server,
          register-approved-change-set (single-player, from the Job Site)
 ```
 
@@ -233,6 +237,14 @@ governed_mcp_servers:
       - lifecycle_preflight
       - blocked_work_submit_resolution
       - blocked_work_acknowledge
+  scm:
+    tools:
+      - repo_state
+      - branch_init
+      - branch_resume
+      - commit
+      - publish
+      - refresh
 ```
 
 - A binding takes its entry-point name, its skill allowlist, its
@@ -242,9 +254,14 @@ governed_mcp_servers:
   that the copy matches.
 - The tool list of a governed server is the role's allowlist for it.
   The names are the canonical operation names with `.` and `-` replaced by
-  `_`; a harness adds its server prefix (`wms_` or `mcp__wms__`). A lifecycle
-  transition is never on it. The fixture's manifest lists the names its
+  `_`; a harness adds its server prefix (`<server>_` in OpenCode,
+  `mcp__<server>__` in Claude Code and Codex). A lifecycle transition is
+  never on the `wms` list. The fixture's manifest lists the names its
   `wms` stub serves.
+- The `scm` list is the Drafting Table face of the
+  [Source Control Manager][scm], which a binding starts with
+  `source-control-manager serve --face drafting-table`. No Git or Git
+  host operation reaches the role any other way.
 - A new Toolkit skill is one manifest line, plus the same line in each
   binding's native copy.
 - The manifest holds no credential and no path rule.
@@ -262,9 +279,9 @@ Drafting Table role. Only that role performs governed mutations.
 | Write a file directly | No | — |
 | Read requests and work items, create and refine requests, submit reviewed resolutions | Yes | The `wms` tools the manifest lists |
 | Transition a work item | No. The manifest lists no such tool, and the WMS boundary rejects it (#32, case VR-006) | — |
-| Git and pull-request operations | Only the [shell operations](#shell-operations), on the current change-set branch, its pull request, and the canonical repository | The harness's shell tool |
+| Git and pull-request operations | Only the `scm` tools the manifest lists; the SCM binds every ref, path, message, and pull request to the current change set and the canonical repository | The `scm` MCP server |
 | Merge a pull request, delete a branch, or discard an edit | No; the user does these ([Stricter than #34](#stricter-than-34)) | — |
-| Register an approved change set | Yes, single-player, after the user merged | `register-approved-change-set` |
+| Register an approved change set | Yes, single-player, after the user merged | `register-approved-change-set`, which reads the merge commit through the SCM |
 | See and load skills | Toolkit skills only, in the model's skill list and in a load | The harness's skill mechanism |
 | Subagents, web fetch, web search, other MCP servers | No | — |
 | Credentials | None held. Credential files are not readable, and a remote URL that carries one is not printed ([Credentials](#credentials)). A local harness does not isolate the user's own credentials from the user's own machine. | — |
@@ -285,25 +302,25 @@ whose name contains `credential` or `secret`. Guard rule 5 refuses a
 read of any of them. That list is the guard's floor, not a promise
 that a project holds no token elsewhere; a binding's native copy may
 deny fewer, and the guard carries the rest. `.git/` is denied because
-the role reads Git state through the shell operations, never from
+the role reads Git state through the SCM's `repo_state`, never from
 files, and `.git/config` can hold a remote URL with a credential.
 `.protobot/` is denied, except `project.yaml`, because callers never
 parse the store
 ([`ears-manager` CLI](../../architecture.md#ears-manager-cli));
 `project.yaml` is configuration that #34 lets the Drafting Table read,
-and #30 keeps it free of credentials. A Git read command can still
-print a store file, so that deny is a contract rule, not a secrecy
-boundary.
+and #30 keeps it free of credentials. An `ears-manager` read can still
+return a store record's content, so that deny is a contract rule, not a
+secrecy boundary.
 
 ### Governed operations
 
-The role reaches governed state through two routes, both named by the
+The role reaches governed state through three routes, all named by the
 manifest:
 
 - **`ears-manager` is a CLI**
   ([`ears-manager` CLI Integration Contract](../ears-manager-cli.md)),
-  and the role runs it through the harness's shell tool, as it runs
-  Git. Every call carries `--output json` before the command, so the
+  and the role runs it through the harness's shell tool. Every call
+  carries `--output json` before the command, so the
   result is one JSON envelope that the shell tool returns unchanged,
   and a non-zero exit carries the CLI's own diagnostic envelope with
   its status, 2 to 70. Field values such as a requirement text travel
@@ -331,6 +348,21 @@ manifest:
   rule library; the WMS write boundary stays authoritative. The
   Drafting Table never transitions a work item itself
   ([Registration](../git-integration.md#registration)).
+- **`scm` is an MCP server**, the Drafting Table face of the
+  [Source Control Manager][scm]. It is a local process over MCP stdio in
+  every mode that uses a binding, because the working tree is local, so
+  it needs no MCP authentication. It speaks the stateless MCP revision
+  2026-07-28, and still serves a harness client that speaks only the
+  legacy revision 2025-11-25 ([MCP protocol][scm-mcp]), so every
+  bound harness can load it. Its tools carry the SCM's operations and
+  result envelope: `repo_state`, `branch_init`, `branch_resume`,
+  `commit`, `publish`, and `refresh`. Each takes the change set of the
+  current branch, or a change-set ID, and never a ref, a path, a
+  remote, or a message, except the checked prefix and default branch
+  of `branch_init` and an optional commit body. The SCM derives the
+  rest and renders the commit message and the pull-request body
+  itself. The binding's prompt maps the tools to `scm_<operation>` or
+  `mcp__scm__<operation>`, as for `wms`.
 
 This contract takes three things from #30, and settles a fourth that
 the CLI contract leaves open:
@@ -349,8 +381,9 @@ the CLI contract leaves open:
   of #30's golden fixture.
 - **The branch cut.** `change-set create` cuts and checks out the
   change-set branch, and a failed creation leaves neither a manifest
-  nor a branch, so the role never creates a branch itself, except the
-  initialization branch that #34 needs before `project init`.
+  nor a branch, so the role never creates a branch itself. The one
+  exception is the initialization branch that #34 needs before
+  `project init`, which the SCM's `branch_init` cuts.
 - **A read of the project fields.** No #30 read command returns the
   Git-facing fields of `project.yaml`, such as
   `repository.canonical_remote`, `repository.default_branch`, and
@@ -363,7 +396,8 @@ the CLI contract leaves open:
   credential in it. So the role and the guard read
   `.protobot/project.yaml` directly, the role reads nothing else under
   `.protobot/`, and the registered artifact paths come from
-  `artifact list`.
+  `artifact list`. The SCM's `repo_state` also returns the Git-facing
+  fields.
 
 #### The first consumer: `eliciting-requirements`
 
@@ -391,46 +425,32 @@ below are the ones the fixture asserts:
 
 ### Shell operations
 
-`ears-manager` and Git run through the harness's own shell tool, as
-the strawman states ([OpenCode-plus-skill strawman][strawman]). The
-Drafting Table role may run only the operations below, and only in the
-forms shown. They are the `ears-manager` commands of #30 and the part
-of the
-[Permitted Git operations](../git-integration.md#permitted-git-operations)
-of #34 that a Drafting Table step needs, written as commands.
+`ears-manager` runs through the harness's own shell tool, as the
+strawman states ([OpenCode-plus-skill strawman][strawman]). Git and the
+Git host do not. The role reaches them only through the `scm` tools of
+the [Source Control Manager][scm], which derive every ref, path,
+message, and pull request from the change set. The Drafting Table role
+may run only the shell operations below, and only in the forms shown.
+They are the `ears-manager` commands of #30, the clock, and
+registration.
 
 The guard fills every placeholder from the working tree and the project
 fields, never from the command, the prompt, or the conversation:
 
 | Placeholder | Value |
 | --- | --- |
-| `<remote>` | The remote whose URL equals `repository.canonical_remote` |
-| `<repo>` | The `<owner>/<name>` of `repository.canonical_remote` on the Git host |
 | `<default>` | `repository.default_branch` |
 | `<prefix>` | `repository.branch_prefix` |
 | `<branch>` | The current branch, read with `git rev-parse --abbrev-ref HEAD`. It must have the form `<prefix><nnnnn>-<slug>`, where `<nnnnn>` is a change set in the store. |
-| `<nnnnn>`, `<slug>` | `<nnnnn>` is the five-digit number of a change set that `ears-manager --output json change-set list` returns for the current checkout or, for `git switch`, at the tip of a local `<prefix>*` branch read with `--at <commit>`, because an unmerged change set's manifest exists only on its branch. `<slug>` is not bound: #34 derives it from the intent when the branch is cut, the intent can change afterwards through `change-set update`, and a tool reads the prefix, not the slug ([One branch per change set](../git-integration.md#one-branch-per-change-set)) |
-| `<title>` | The `intent` of the current change set on one line, as #34 renders the pull-request title; the guard reads it through `change-set show` and the command carries it as one quoted word |
-| `<rev>` | `HEAD`, `<remote>/<default>`, `<branch>`, or a full 40-character commit hash |
-| `<path>` | A path that `ears-manager --output json change-set show --change-set <id>` returns for the current change set, its manifest included, or `.protobot/project.yaml` or `.protobot/projection.yaml`; that is #34's staging rule, registered paths the change set touched |
+| `<nnnnn>` | The five-digit number of a change set that `ears-manager --output json change-set list` returns for the current checkout. `<slug>` is not bound: #34 derives it from the intent when the branch is cut, the intent can change afterwards through `change-set update`, and a tool reads the prefix, not the slug ([One branch per change set](../git-integration.md#one-branch-per-change-set)) |
 
 | Operation | Command forms | Constraint |
 | --- | --- | --- |
 | Read specifications | `ears-manager --output json <read>`, where `<read>` is `<group> list`, `<group> show`, `artifact get`, `change-set compare`, `check`, or `impact` with #30's options; and `ears-manager <any> --help` and `ears-manager --version` | Read-only |
 | Write specifications | `ears-manager --output json <write>`, where `<write>` is `artifact put`, `interface add` or `update`, `requirement add`, `update`, or `retire`, or `change-set create` or `update` with #30's options; `artifact put --content-stdin` and `change-set update --impact-file -` take their input on standard input in a quoted here-document | #30's grammar; `--content-file` and `--impact-file` only with `-` |
-| Initialize a project | `git switch -c <prefix>00001-project-init <default>`, then `ears-manager --output json project init` with #30's options | Only while `.protobot/` does not exist ([guard rule 1](#guard-rules)); #34's initialization order needs the branch before `project init` |
+| Initialize a project | `ears-manager --output json project init` with #30's options, after the `scm` tool `branch_init` cut `<prefix>00001-project-init` | Only while `.protobot/` does not exist ([guard rule 1](#guard-rules)); #34's initialization order needs the branch before `project init` |
 | Read the clock | `date -u +%Y-%m-%dT%H:%M:%SZ` | Read-only; the value of every `--created` option that #30 requires |
-| Read repository state | `git rev-parse --show-toplevel`, `git rev-parse --abbrev-ref HEAD`, `git rev-parse --verify <rev>`, `git status --porcelain`, `git merge-base <rev> <rev>`, `git merge-base --is-ancestor <rev> <rev>`, `git remote -v` | Read-only. `git remote -v` is refused when any remote URL carries userinfo, such as `user:token@`, and the refusal names the remote; #34 keeps credentials in the credential helper, never in a URL ([Repository fields](../git-integration.md#repository-fields)). |
-| Fetch | `git fetch <remote>` | Nothing after the remote |
-| Switch to a change-set branch | `git switch <prefix><nnnnn>-<slug>` | Only to an existing branch whose `<nnnnn>` is a change set in the store, on resume. `ears-manager change-set create` cuts and checks out a new branch, so the role never runs `git switch -c` after initialization |
-| Stage | `git add -- <path> ...` | On `<branch>`; every path is a `<path>`, and never `.` |
-| Commit | `git commit -F -` with the message in a quoted here-document | On `<branch>` |
-| Merge the default branch in | `git merge --no-ff --no-edit <remote>/<default>`, `git merge --abort` | On `<branch>` |
-| Push the change-set branch | `git push <remote> <branch>` | The current branch only |
-| Open a pull request | `gh pr create --repo <repo> --base <default> --head <branch> --title <title> --body-file -` with the body in a quoted here-document | The canonical repository and the current branch only |
-| Update a pull request | `gh pr edit <branch> --repo <repo> --body-file -`, with `--title <title>` before `--body-file -` when the intent changed | The pull request of the current branch only |
-| Read a pull request | `gh pr view <branch> --repo <repo> --json <fields>` | `<fields>` is a comma-separated subset of `number`, `state`, `url`, `baseRefName`, `headRefName`, and `mergeCommit` |
-| Register an approved change set | `register-approved-change-set` with the change-set ID of `<branch>` and the full merge commit; the command derives the materialization key and the distinct registration idempotency key from `project.id` and those two values using #34's canonical tuple | Single-player, after the user merged the pull request |
+| Register an approved change set | `register-approved-change-set --change-set CS-<nnnnn>`, where `<nnnnn>` is the change set of `<branch>`. The command reads the merge commit through the SCM's [`approved_merge`][scm-read], and derives the materialization key and the distinct registration idempotency key from `project.id` and those two values using #34's canonical tuple | Single-player, after the user merged the pull request |
 
 The guard parses the command as shell words into an argument list and
 a standard-input text, and matches the list against the forms; it
@@ -447,30 +467,26 @@ or equal to `opencode.json`, `AGENTS.md`, or `CLAUDE.md`, because those
 are adapter, binding, and instruction files, never artifacts. The guard
 refuses:
 
-- an option or argument that the form does not show, such as `--force`,
-  `--amend`, `--no-verify`, `--delete`, or `--squash`, and with them
-  every option that writes a file or runs a program, such as
-  `--output` on a Git command, `--upload-pack`, `--receive-pack`, or
-  `--exec`;
-- a global Git option before the subcommand, such as `-c` or `-C`, and
-  an environment assignment before the command;
+- an option or argument that the form does not show;
+- an environment assignment before the command;
 - output redirection, command substitution, and variable expansion
   outside a quoted here-document body;
 - a command that does not parse to exactly one simple command, so a
   quoted here-document whose body holds its own delimiter line ends
   early, and the second command that follows is refused; and
-- any other command, so a push to the default branch is refused before
-  it runs, as the
+- any other command. Every `git` and `gh` command is among them, and
+  so is `source-control-manager`, so a push to the default branch
+  cannot even be asked for in the shell, as the
   [repository fixture](../git-integration.md#repository-fixture)
-  requires.
+  requires. The `scm` tools refuse it too.
 
-Three properties follow from the forms:
+Three properties follow:
 
-- **Targets come from state, not from the caller.** `<branch>`,
-  `<remote>`, `<repo>`, `<path>`, `<title>`, and `<nnnnn>` are bound
-  to the working tree, the project fields, and the change sets in the
-  store, in the same way that #34 takes the project
-  identity from the working tree
+- **Targets come from state, not from the caller.** The SCM derives
+  every Git target from the working tree, the project fields, and the
+  change set, and the guard binds registration's `<nnnnn>` to the
+  current branch, in the same way that #34 takes the project identity
+  from the working tree
   ([The project root](../git-integration.md#the-project-root)) and the
   Gate binds allowed refs in hosted modes
   ([Authentication and Credential Isolation][credential-isolation]).
@@ -478,61 +494,58 @@ Three properties follow from the forms:
   to a branch that no change set owns, edit another pull request, open
   a pull request in another repository, or stage a file outside the
   current change set.
-- **Messages, bodies, and specification text are data.** A commit
-  message, a pull-request body, an artifact's content, and an impact
-  file travel in a quoted here-document, and a requirement text
-  travels as a quoted option value; the guard parses both as data, so
-  no text becomes shell syntax. A
-  pull-request title is the manifest intent on one line (#34); it
-  travels as one quoted word that the guard checks against the intent,
-  and the guard refuses expansion and substitution inside it, so every
-  character of the intent is data. A
-  harness whose native patterns match here-document text may refuse a
-  text that contains a forbidden option; reword it.
-- **The Git host client is `gh`.** The first project is hosted on
-  GitHub, so the same client serves every harness; another host's
-  client gets the same shell-operation shape. `gh pr merge`, `gh api`,
-  `gh auth`, and every other `gh` command are refused. A non-zero exit
-  of `gh` is reported with its status and message, and matches the row
-  "Pull-request creation failed" of #34's
+- **Messages, bodies, and specification text are data.** An artifact's
+  content and an impact file travel in a quoted here-document, and a
+  requirement text travels as a quoted option value; the guard parses
+  both as data, so no text becomes shell syntax. The commit message
+  and the pull-request body are rendered by the SCM from `ears-manager`
+  output. The role writes at most the optional commit body, as a tool
+  field. A harness whose native patterns match here-document text may
+  refuse a text that contains a forbidden option; reword it.
+- **The Git host client belongs to the SCM.** The SCM's
+  [host adapter][scm-host] drives `gh` on GitHub, for every harness.
+  The role runs no `gh` command: `gh pr merge`, `gh api`, `gh auth`,
+  and every other `gh` command are refused in its shell, as every Git
+  command is. A failed host request returns a stable SCM code, which
+  matches the row "Pull-request creation failed" of #34's
   [failure table](../git-integration.md#failure-behavior).
 
 A binding may copy these operations into its harness's native command
-rules as an early layer. Native patterns usually cannot read project
-fields or the current branch, so a native copy uses the defaults
-`origin`, `cs/`, and `main`, and a wildcard where the form has
-`<repo>`, `<branch>`, `<rev>`, or `<path>`. A project with other
-defaults edits that copy. The guard always binds the real values.
+rules as an early layer, with a wildcard where a form takes a value.
+The guard always binds the real values. The binding also allows the
+`scm` tools that the manifest lists, in the role only.
 
 A harness sandbox may refuse a shell operation before the guard's
-answer matters, for example a Git write when the sandbox keeps `.git/`
-read-only. The role then reports the refusal and names the command,
-and the user runs it, as for a discard and a merge
-([Stricter than #34](#stricter-than-34)). The binding document says
-which operations that covers; in the
-[Codex binding](codex.md#what-the-user-runs-in-codex) it is every Git
-write, `ears-manager change-set create`, every `gh` command, and
-registration.
+answer matters, for example `ears-manager change-set create`, which
+cuts a branch, when the sandbox keeps `.git/` read-only. The role then
+reports the refusal and names the command, and the user runs it, as for
+a discard and a merge ([Stricter than #34](#stricter-than-34)). The
+binding document says which operations that covers; in the
+[Codex binding](codex.md#what-the-user-runs-in-codex) it is
+`change-set create` and registration. The `scm` server runs as its own
+process, outside a tool sandbox, so its tools are not refused there.
 
 #### Stricter than #34
 
 The [Permitted Git operations](../git-integration.md#permitted-git-operations)
 of #34 are the most that the Drafting Table may do. Three entries of
-that list exist for this contract: `remote`, for listing only, among
-the reads, switching to an existing change-set branch on resume, and
-the abort of a conflicted merge. The shell operations leave out five
-of #34's operations, and one route that #34 offers, because no
-Drafting Table step needs them, each one reaches past the current
-change set, or #30 performs them:
+that list exist for this contract: `remote`, for listing only, among the
+reads, switching to an existing change-set branch on resume, and the
+abort of a conflicted merge. The SCM's Drafting Table face covers them:
+`repo_state` resolves the remote itself, `branch_resume` switches, and
+`refresh` aborts a conflicted merge. The face leaves out five of #34's
+operations, and one route that #34 offers, because no Drafting Table
+step needs them, each one reaches past the current change set, or #30
+performs them:
 
-| #34 names | Shell operations | Why |
+| #34 names | Drafting Table role | Why |
 | --- | --- | --- |
-| Reading state with `log`, `diff`, `show`, and `ls-files` | Not a shell operation | No step needs them. `ears-manager change-set compare` shows the change, and `show` and `diff` print store files under `.protobot/`, which the role does not read. |
-| Creating a change-set branch | Not a shell operation, except `cs/00001-project-init` during initialization | `ears-manager change-set create` cuts and checks out the branch (#30). Initialization is the one case where the branch must exist first, and guard rule 1 allows the initialization form under the role before `.protobot/` exists. |
-| Amending an unpushed commit on explicit request | Refused | A command alone does not show whether a commit was pushed. |
+| Reading state with `log`, `diff`, `show`, and `ls-files` | Not an operation; `repo_state` reports what a step needs | No step needs them. `ears-manager change-set compare` shows the change, and `show` and `diff` print store files under `.protobot/`, which the role does not read. |
+| Creating a change-set branch | Not an operation, except `cs/00001-project-init`, which the SCM's `branch_init` cuts | `ears-manager change-set create` cuts and checks out the branch (#30). Initialization is the one case where the branch must exist first, and guard rule 1 lets the role run `project init` on it before `.protobot/` exists. |
+| Amending an unpushed commit on explicit request | Refused. `commit` has no amend | History stays append-only, the rule for every pushed commit, so no second rule is needed for an unpushed one. |
 | Merging one's own pull request, in single-player mode | Refused. The user merges on the Git host, then asks the role to register. | The merge is the approval event ([Registration](../git-integration.md#registration)), so a person makes it, never an agent tool call ([Compliance](../components.md#compliance-ess--aia)). |
 | Deleting a merged change-set branch | Refused. The host deletes merged head branches, or the user does. | Drafting needs no deleted ref, and a wrong delete can remove a colleague's branch. |
-| Discarding a direct edit, the route #34 offers after a digest mismatch | Refused. The diagnostic names `git checkout -- <path>`, and the user runs it. | A discard destroys text that the user wrote. |
+| Discarding a direct edit, the route #34 offers after a digest mismatch | Refused. The SCM's diagnostic names `git checkout -- <path>`, and the user runs it. | A discard destroys text that the user wrote. |
 
 ### The guard
 
@@ -599,11 +612,15 @@ document names them, and guard rules 5 and 6 treat them as reads.
    a `.protobot/` directory there, the directory is not a ProtoBot
    project: outside the Drafting Table role the guard allows
    everything, and under the role it still applies rules 5 and 6, with
-   the initialization form and the reads as the only shell operations.
-   The initialization form is the one case where `<prefix>` and
-   `<default>` come from the command, because no project records them
-   yet; `project init` then records them, and the guard checks that
-   they name the branch it is on. With the directory but no readable
+   `ears-manager project init`, `ears-manager <any> --help`,
+   `ears-manager --version`, and the clock as the only shell
+   operations. The `scm` tools work there too (rule 4), so the role can
+   read state and cut the initialization branch. `project init` is the
+   one case where `<prefix>` and `<default>` come from the command,
+   because no project records them yet; the guard checks that the
+   prefix names the branch it is on, `<prefix>00001-project-init`,
+   which `branch_init` cut. A different default branch fails at the
+   first `publish`. With the directory but no readable
    `project.yaml`, the project counts as found and the read in rule 2
    as failed, so a malformed project fails closed.
 2. **Ask `ears-manager`, and read `project.yaml`.** For each decision
@@ -649,10 +666,9 @@ document names them, and guard rules 5 and 6 treat them as reads.
    form of the harness's [vocabulary row](#tool-vocabulary) is
    refused. The guard reads the
    current branch with `git rev-parse --abbrev-ref HEAD`, the project
-   fields from `project.yaml`, and the change sets, their paths, and
-   the intent through `ears-manager`, and refuses a command whose
-   `<branch>`, `<remote>`, `<repo>`, `<path>`, or `<title>` does not
-   match them, or whose `<nnnnn>` is not a change set in the store.
+   fields from `project.yaml`, and the change sets through
+   `ears-manager`, and refuses a registration whose `<nnnnn>` is not
+   the change set of `<branch>`.
 7. **Other roles' shell commands.** A command whose output redirection
    targets a guarded path written from the project root, such as
    `> docs/vision.md`, is refused. A path in any other position is not
@@ -667,11 +683,11 @@ The adapter core ships test vectors: a JSON input, a harness, a role,
 the expected exit status, and a fragment of the expected reason. The
 vectors run against the guard directly, and again through each
 binding's hook, in [the fixture](#guard-vectors). Two vectors expect
-an allow in a clone without `.protobot/`: `git switch -c
-cs/00001-project-init main` under the role, the initialization form,
-and `sed -i` on a file outside the role, because the directory is not
-yet a ProtoBot project. A third expects a refusal there: `true` under
-the role, so the Codex probe holds before initialization too.
+an allow in a clone without `.protobot/`: the `scm` tool `branch_init`
+under the role, and `sed -i` on a file outside the role, because the
+directory is not yet a ProtoBot project. A third expects a refusal
+there: `true` under the role, so the Codex probe holds before
+initialization too.
 
 ---
 
@@ -709,12 +725,12 @@ sequenceDiagram
     participant G as Guard
     participant EM as ears-manager (shell)
     participant WMS as wms tools
-    participant Sh as Shell (Git, gh)
+    participant SCM as scm tools (Git, gh)
 
     User->>H: drafting-table entry point, with intent
     H->>DT: Turn in the Drafting Table role
     DT->>H: Load drafting-specifications
-    DT->>Sh: rev-parse, remote -v, status
+    DT->>SCM: repo_state
     DT->>EM: Read the active change set
     DT->>WMS: Query blocked work items
     DT-->>User: Start summary and recording notice
@@ -723,7 +739,7 @@ sequenceDiagram
     User->>DT: Accept a candidate
     DT->>EM: requirement add
     User->>DT: Commit and open a pull request
-    DT->>Sh: add, commit, push, gh pr create
+    DT->>SCM: commit, publish
     Note over H,G: The harness calls the guard before every tool call
 ```
 
@@ -740,7 +756,7 @@ caught, never whether it is caught.
 
 | Write route to a guarded path | Drafting Table role | Every other role | Caught later by |
 | --- | --- | --- | --- |
-| File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage verification, `ears-manager check`, CI path ownership |
+| File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage digest comparison, `ears-manager check`, CI path ownership |
 | Shell writer, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Same |
 | Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root | Same |
 | Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | Same |
@@ -748,9 +764,9 @@ caught, never whether it is caught.
 
 A route marked "not stopped" is real. An agent outside the role can
 still change a registered file through its shell, for example after
-`cd docs`. The pre-stage verification refuses to stage the change,
+`cd docs`. The pre-stage digest comparison refuses to stage the change,
 `ears-manager check` fails in CI, and the Drafting Table offers the two
-routes forward from [Pre-stage verification][pre-stage].
+routes forward from [The pre-stage digest comparison][pre-stage].
 
 A user can also switch the harness layer off, by editing a binding or
 starting the harness without hooks. The later layers do not depend on
@@ -766,13 +782,15 @@ any harness.
   and commands, not tokens, in the same way that `project.yaml` never
   holds one ([Repository fields](../git-integration.md#repository-fields)).
 - **A local harness uses the user's own credentials, in every mode.**
-  Git uses the user's credential helper and `gh` its own store, whether
-  the project's `review_mode` is single-player or multi-player. The
-  Drafting Table role cannot print a credential: environment and
-  file-printing commands are not shell operations, credential-file
-  reads, reads under `.git/`, and reads outside the project are
-  refused, variable expansion is refused, and `git remote -v` is
-  refused when a remote URL carries userinfo.
+  The SCM runs Git and `gh`, which use the user's credential helper and
+  `gh`'s own store, whether the project's `review_mode` is
+  single-player or multi-player. The Drafting Table role runs neither,
+  and cannot print a credential: environment and file-printing
+  commands are not shell operations, credential-file reads, reads
+  under `.git/`, and reads outside the project are refused, variable
+  expansion is refused, and the SCM prints no remote URL and refuses a
+  canonical remote whose URL carries userinfo other than the fixed
+  `git@` of the SCP form, as `ears-manager` accepts it.
 - **The limit of a local harness.** The agent runs as the user, on the
   user's machine. The adapter narrows what the Drafting Table role can
   reach; it does not isolate a token from the user's own shell or from
@@ -781,9 +799,9 @@ any harness.
   ([Environmental Constraints][env-constraints]). A laptop in a
   multi-player project is therefore a recorded deviation from that
   constraint: the model never sees the token, because Git's credential
-  helper and `gh`'s store supply it to those programs and the role
-  cannot read or print it, but no Bridge or Gate stands between the
-  harness process and the token. #34's
+  helper and `gh`'s store supply it to those programs, which only the
+  SCM runs, and the role cannot read or print it, but no Bridge or Gate
+  stands between the harness process and the token. #34's
   [ceremony table](../git-integration.md#ceremony-in-each-mode) records
   both cases.
 - **The `wms` server.** In single-player mode it is a local process
@@ -819,11 +837,11 @@ project, and nothing in the adapter depends on IdeaBot input
 
 ## Deployment modes
 
-| Mode | Harness bindings | `wms` server | Git host credential | Who merges |
-| --- | --- | --- | --- | --- |
-| Single-player | Used, in any bound harness | Local, MCP over stdio | The user's own token, held by Git and `gh` | The author, on the Git host; the role then registers |
-| Multi-player | Used by each contributor, each in the harness they choose | Remote, OAuth 2.1 (H13) | The user's own token, held by Git and `gh`, as for every local harness | A reviewer, on the Git host |
-| Web | Not used. A hosted runtime loads the same Toolkit | Hosted | Bridge/Gate | As #34 states |
+| Mode | Harness bindings | `wms` server | `scm` server | Git host credential | Who merges |
+| --- | --- | --- | --- | --- | --- |
+| Single-player | Used, in any bound harness | Local, MCP over stdio | Local, MCP over stdio | The user's own token, held by Git and `gh`, used by the SCM | The author, on the Git host; the role then registers |
+| Multi-player | Used by each contributor, each in the harness they choose | Remote, OAuth 2.1 (H13) | Local, MCP over stdio, because the working tree is local | The user's own token, held by Git and `gh`, used by the SCM, as for every local harness | A reviewer, on the Git host |
+| Web | Not used. A hosted runtime loads the same Toolkit | Hosted | Hosted, behind the Gate ([SCM deployment topology][scm-deploy]) | Bridge/Gate | As #34 states |
 
 Contributors to one project may use different harnesses at the same
 time. The Toolkit, the manifest, the guard, and the Git rules are the
@@ -845,8 +863,8 @@ may open and never supplies the project identity
 | Artifact | Produced by | Where | Status |
 | --- | --- | --- | --- |
 | Registered specification artifacts and the change-set manifest | `ears-manager`, through the shell operations | Working tree on the change-set branch | Proposed; approved on merge |
-| Commits, the pushed branch, the pull request | Git and `gh`, through the shell operations | Project repository and Git host | #34 |
-| Registration call | `register-approved-change-set` | Job Site intake | #34 |
+| Commits, the pushed branch, the pull request | The SCM, through the `scm` tools | Project repository and Git host | #34 |
+| Registration call | `register-approved-change-set`, with the merge commit from the SCM | Job Site intake | #34 |
 | Resolutions of blocked work | `wms` tools | WMS backend | WMS Adapter |
 | Elicitation packages | `eliciting-requirements` | The conversation only | Draft; never a file |
 | Session record | The harness | The harness's own store on the user's machine | Non-authoritative trace source |
@@ -880,8 +898,8 @@ The adapter places three more facts in it:
   resolved native rules, next to the export.
 - The adapter cannot redact a harness's record, so it keeps
   credentials out of the role's own turns: every credential-file read,
-  every read outside the project, every read under `.git/`, and
-  `git remote -v` on a URL with userinfo are refused; the fixture
+  every read outside the project, and every read under `.git/` are
+  refused, and no `scm` result holds a remote URL; the fixture
   plants a token-shaped string in the in-project places among those
   and asserts that no export holds it, and vectors cover the rest
   ([harness checks](#guard-vectors)). A turn outside
@@ -910,7 +928,7 @@ whether a Web implementation transfers it stays open
 | State | Where it lives | Survives the end of a session | Read on resume through |
 | --- | --- | --- | --- |
 | Registered artifacts written by `ears-manager`, not yet committed | Working tree on the change-set branch | Yes | `ears-manager` reads |
-| Commits on the change-set branch | Git | Yes | Git and `ears-manager` reads |
+| Commits on the change-set branch | Git | Yes | `repo_state` and `ears-manager` reads |
 | Work-item and request state | WMS backend | Yes | `wms` tools |
 | Proposals, open questions, elicitation packages | The conversation | Only as part of the session record | Not read; asked again |
 | The harness conversation | The harness's session store | Yes, in that harness only | Only when the user continues that session, and never as authority |
@@ -940,11 +958,11 @@ written records.
 | --- | --- | --- | --- |
 | The user ends the session | The session closes | Nothing runs on exit: no commit, no push, no registration. The exit warning of #28 is the session skill's: it names uncommitted changes at every checkpoint and in the start summary, so a hard exit without a turn gets no warning | Uncommitted output stays in the working tree for the next session |
 | A tool call is refused | A tool error with the guard's or the native rule's text | The role reports the refusal and stops that step | Unchanged |
-| `ears-manager` is not on `PATH`, or the `wms` server is not running | A failed shell command, or missing tools | Without `ears-manager`, no governed write is possible and drafting stops. Without `wms`, blocked work is marked unavailable and drafting continues ([unavailable WMS][ux-wms]). | Unchanged |
+| `ears-manager` is not on `PATH`, or the `wms` or `scm` server is not running | A failed shell command, or missing tools | Without `ears-manager`, no governed write is possible and drafting stops. Without `wms`, blocked work is marked unavailable and drafting continues ([unavailable WMS][ux-wms]). Without `scm`, drafting continues on the current branch; the start summary says that Git state is unavailable, and commit, publish, refresh, and resume to another branch wait until it runs. | Unchanged |
 | The model or provider fails, or the context overflows | A session error | Handled as a failed governed call ([failure behavior][ux-failure]). No governed write is replayed automatically. | As the last diagnostic says |
 | The user interrupts a governed call | The call is aborted | Its result is unknown | Read again before the next write |
 | A permission prompt appears in a headless run | The harness rejects or stops | A defect in the binding, which has no prompt rules | Unchanged |
-| The work is complete | The [approval handoff][ux-approval] is reached | Commit, push, and the pull request run on explicit request (#34). The user merges on the Git host and, in single-player mode, asks the role to register. | A committed branch and a pull request. Another change set starts another session. |
+| The work is complete | The [approval handoff][ux-approval] is reached | Commit, push, and the pull request run on explicit request (#34), through the `scm` tools. Before `publish`, the role compares the `parent` and the `paths` that `commit` returned with the branch tip and the change-set paths that the final review showed, from `repo_state`, or, after a `refresh` in the same handoff, with the merge commit that `refresh` returned and the paths that the reviewed refresh sequence wrote; when they differ, it stops and asks for review again ([stale state][ux-stale], [SCM security posture](../source-control-manager.md#security-posture)). The user merges on the Git host and, in single-player mode, asks the role to register. | A committed branch and a pull request. Another change set starts another session. |
 
 ---
 
@@ -958,7 +976,7 @@ meet one records the gap, and the later layers still hold.
 | # | Obligation | Kind | Shared by the core | Added by the binding | Fixture |
 | --- | --- | --- | --- | --- | --- |
 | H1 | Discover Toolkit skills from `.agents/skills/` without changing them | Required | Skill location | Native discovery, or a link — never a copy | 1, 3 |
-| H2 | Give the role the `ears-manager` CLI through its shell tool and the `wms` MCP tools | Required | `governed_commands`, `governed_mcp_servers` | Shell rules and MCP registration | 2, 5 |
+| H2 | Give the role the `ears-manager` CLI through its shell tool, and the `wms` and `scm` MCP tools | Required | `governed_commands`, `governed_mcp_servers` | Shell rules and MCP registration | 2, 5, 14 |
 | H3 | Provide the `drafting-table` entry point, which gives the role and loads the session skill | Required | `entry_point`, `session_skill` | Command, agent, profile, or launcher | 2 |
 | H4 | Run the resume steps on every entry, continued session, and compaction | Required | The session skill | The entry point's prompt | 2, 11, 12 |
 | H5 | Do nothing when a session is idle or ends | Required | The guard has no exit action | No exit hook | 10 |
@@ -977,7 +995,7 @@ meet one records the gap, and the later layers still hold.
 | --- | --- | --- |
 | OpenCode | [OpenCode Harness Binding](opencode.md) | Designed against OpenCode 1.18.30, with skill discovery and visibility, tool hiding, rule order, pattern matching, the plugin hook, export, and the replay provider observed against a stub model; the fixture runs in #77, so no H1 to H11 obligation is marked met; H12 is met; H13 not checked |
 | Claude Code | [Claude Code Harness Binding](claude-code.md) | Designed against Claude Code 2.1.273; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met |
-| Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met. The Codex sandbox stays on, so Git writes, `gh`, and registration are the user's there |
+| Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met. The Codex sandbox stays on, so `change-set create` and registration are the user's there; Git and the Git host go through the `scm` server, which runs outside it |
 
 ---
 
@@ -1023,7 +1041,8 @@ yet known. Each binding verifies its column against the version it pins.
 | The `wms` MCP server (H2) | `mcp` in `opencode.json`; tools named `<server>_<tool>` | `--mcp-config` with `--strict-mcp-config` at launch; tools named `mcp__<server>__<tool>` | `[mcp_servers.wms]` in the role profile; tools named `mcp__<server>__<tool>` |
 | Drafting Table role (H3) | A primary agent file | An agent file, run as the main session with `--agent` | A profile, `$CODEX_HOME/<name>.config.toml`, started by the `drafting-table` launcher with `--profile`; agent roles are for subagents only |
 | Enter the role from a running session (H3) | The `/drafting-table` command runs the turn on the agent | Not in-session; relaunch with `--continue --agent drafting-table`, which keeps the conversation | Not in-session; the launcher with `resume` continues the session |
-| Git and `gh` shell operations | The `bash` tool | The `Bash` tool | Reads only: the sandbox keeps `.git/` read-only and the shell has no network, so Git writes, `gh`, and registration are the user's |
+| The `scm` MCP server, for Git and the Git host (H2) | `mcp` in `opencode.json`; tools named `scm_<tool>` | `--mcp-config` with `--strict-mcp-config` at launch; tools named `mcp__scm__<tool>` | `[mcp_servers.scm]` in the role profile; tools named `mcp__scm__<tool>`; the server runs as its own process, outside the tool sandbox, as Codex documents; the fixture has not confirmed it yet ([Codex open point 8](codex.md#open-points)). If it holds, Git writes and the host reach the role through it |
+| Shell operations the sandbox refuses | None | None | `ears-manager change-set create`, which cuts a branch, and registration, which needs the network; the user runs them |
 | Remote `wms` server with OAuth 2.1 (H13) | Open | An HTTP MCP server with OAuth through `/mcp`; candidate | A streamable HTTP MCP server with `codex mcp login`; candidate |
 | Hide tools from the role (H9) | `"*": deny` in the agent | The agent's `tools` list and deny rules | `web_search = "disabled"` and `multi_agent = false`, observed; no setting hides `apply_patch` |
 | Restrict skills (H10) | `permission.skill` with `"*": deny` first hides every other skill from the model's list and refuses it; observed | `skillOverrides` with `off` hides and refuses a named skill; `Skill(<name>)` rules never change the list; a skill in another user's scope cannot be named in advance; observed | `include_instructions = false` removes the skill catalog, and the profile names the Toolkit skills; `[[skills.config]]` hides a named skill; observed. No skill tool: the guard refuses a read of another `SKILL.md` |
@@ -1086,7 +1105,9 @@ Two sibling fixtures cover what this one does not. The UX contract's
 deterministic driver and asserts interaction semantics; this fixture
 keeps the real harness and asserts the binding and the guard. Merge and
 registration are covered by step 8 of #34's
-[repository fixture](../git-integration.md#repository-fixture).
+[repository fixture](../git-integration.md#repository-fixture), and the
+SCM's operations and refusals by the same fixture run against the SCM
+([Repository fixture against the SCM][scm-fixture]).
 
 ### Setup
 
@@ -1099,8 +1120,8 @@ registration are covered by step 8 of #34's
   the default-branch head as `base_commit`, as step 2 of that fixture
   did for `CS-00002`. `repository.canonical_remote`
   is a GitHub-shaped URL that an `insteadOf` rule in the clone's Git
-  config rewrites to the bare repository, so `<repo>` has an owner and
-  a name.
+  config rewrites to the bare repository, so the repository has an
+  owner and a name.
 - The manifest, the Toolkit skills at a pinned commit in
   `.agents/skills/`, one maintenance skill `review-pr`, the guard, and
   the binding under test.
@@ -1108,19 +1129,21 @@ registration are covered by step 8 of #34's
   recording stub with #30's command grammar answers with the envelopes
   of #30's [golden fixture](../ears-manager-cli.md#golden-fixture) and
   writes the files the real CLI would write.
+- `source-control-manager` on `PATH`, which the binding starts as the
+  `scm` server.
 - A recording `wms` stub that reports one blocked work item. The
   fixture's manifest lists the tool names the stub serves.
-- A recording `gh` stub on `PATH`, because a bare repository has no
-  pull-request API. #34's fixture stands in for the host in the same
-  way.
+- A recording `gh` stub on `PATH`, which the SCM's host adapter calls,
+  because a bare repository has no pull-request API. #34's fixture
+  stands in for the host in the same way.
 - A token-shaped string, `PROTOBOT-FIXTURE-TOKEN`, planted where a
   credential could sit: in `.git/config` under `http.extraHeader`, in
   a `.netrc` at the project root, and in `docs/.env`, below a
   registered directory. No step reads it, and the harness checks
-  assert that no export holds it. The userinfo case is a vector run
-  only: the vector adds a second remote with userinfo, runs
-  `git remote -v`, and removes the remote again, so the resume reads
-  of steps 2, 11, and 12 complete.
+  assert that no export holds it. A remote URL with userinfo is a
+  negative check of the SCM's own fixture
+  ([Repository fixture against the SCM][scm-fixture]), because no
+  shell operation and no `scm` result prints a remote URL.
 - The binding's replay mechanism, which serves recorded model turns in
   order. The harness then runs its real skill loader, rules, hooks, MCP
   clients, and shell, so the fixture tests the binding and the guard,
@@ -1136,19 +1159,19 @@ repository state.
 | # | Action | Expected result |
 | --- | --- | --- |
 | 1 | List the skills the harness discovers, from a subdirectory of the clone | `drafting-specifications`, `eliciting-requirements`, and `review-pr` are listed from `.agents/skills/`. Discovery is not permission. |
-| 2 | Start a session outside the role with any prompt, then continue it through the `drafting-table` entry point with an intent | The second turn runs in the role. It loads `drafting-specifications`, and its resume reads — `git rev-parse --show-toplevel`, `git remote -v`, the change-set reads, and the blocked-work query — all complete before any governed write. The start summary names the blocked item and carries the recording notice. |
+| 2 | Start a session outside the role with any prompt, then continue it through the `drafting-table` entry point with an intent | The second turn runs in the role. It loads `drafting-specifications`, and its resume reads — `repo_state`, the change-set reads, and the blocked-work query — all complete before any governed write. The start summary names the blocked item and carries the recording notice. |
 | 3 | A replayed turn loads `eliciting-requirements` and reads `references/ears-and-review.md` | Both calls complete. The skill text in the session record equals the pinned files. |
 | 4 | A replayed turn loads `review-pr`, and another reads `.agents/skills/review-pr/SKILL.md` with the file tool or a read form | Both refused. The refusal text is in the record. The skill list that the harness sent to the model in the role names only the Toolkit skills; the replay endpoint or the binding's event stream shows it. |
-| 5 | The user accepts a `ready for review` candidate, and a replayed turn runs `ears-manager --output json requirement add` with #30's options | The stub records one call whose options follow the [host mapping](#host-mapping) and #30's record-mutation grammar. The record file exists. `git status` lists only registered paths and the manifest. No commit exists. |
-| 6 | In the role, replayed turns write a record under `.protobot/requirements/` with a file tool, run `sed -i` on `docs/vision.md`, and run `git rev-parse --verify HEAD > docs/vision.md` | All three are refused, by the guard or earlier by native rules. Every file is byte-identical. |
+| 5 | The user accepts a `ready for review` candidate, and a replayed turn runs `ears-manager --output json requirement add` with #30's options; another replayed turn writes a revised Vision through `ears-manager --output json artifact put` with the content on standard input, so `docs/vision.md` is a path of `CS-00003` | The stub records both calls. The options of the first follow the [host mapping](#host-mapping) and #30's record-mutation grammar. The record file exists, and `docs/vision.md` holds the revised content. `git status` lists only registered paths and the manifest. No commit exists. |
+| 6 | In the role, replayed turns write a record under `.protobot/requirements/` with a file tool, run `sed -i` on `docs/vision.md`, and run `ears-manager --output json check > docs/vision.md` | All three are refused, by the guard or earlier by native rules. Every file is byte-identical. |
 | 7 | Outside the role, replayed turns write `docs/vision.md` and edit `.protobot/change-sets/cs-00002.yaml` with file tools | Both are refused. Both files are unchanged. |
 | 8 | The `ears-manager` stub fails the next `requirement add` with #30's failure envelope and status 4 | The shell result carries the envelope unchanged. No second write follows. The working tree is as it was after step 5. |
-| 9 | Outside the role, a replayed turn runs `cd docs && echo x >> vision.md`; then the user asks the role for a commit | The shell write succeeds, because the redirection target is not written from the project root. The pre-stage verification stages nothing. Its diagnostic names `docs/vision.md`, both digests, and `git checkout -- docs/vision.md` as the discard route, which the role does not run. Outside the role, a replayed turn runs it, and the file is restored. |
-| 10 | The session ends | No commit and no push since setup. The step-5 record is still in the working tree. No harness or MCP stub process remains. |
-| 11 | Start a new session, without continuing, through the entry point | A new session ID. The resume reads present `CS-00003`, its branch, and the step-5 requirement as an uncommitted draft. No call reads an earlier session. |
-| 12 | Push a commit to the default branch of `origin` from outside the session, then continue the session through the entry point | The resume reads run again and present `CS-00003`, its branch, and `base_commit` from governed reads and Git, not from the conversation. The summary makes no claim about the default branch; step 14 detects the move. |
+| 9 | Outside the role, a replayed turn runs `cd docs && echo x >> vision.md`; then the user asks the role for a commit | The shell write succeeds, because the redirection target is not written from the project root. The SCM's `commit` stages nothing and fails with `SPEC_DIGEST_MISMATCH`, #34's pre-stage digest comparison, or with `SPEC_CHECK_FAILED` when the `ears-manager` stub reports no `artifact.digest_mismatch` code. Its diagnostic names `docs/vision.md` with `ears-manager`'s diagnostics, and `git checkout -- docs/vision.md` as the discard route, which the role does not run. Outside the role, a replayed turn runs it, and the file is back at its committed content, so the step-5 Vision write is gone too and the digest still differs ([`commit`][scm-commit]). In the role, a replayed turn repeats the step-5 `artifact put`, and `check --change-set CS-00003` no longer reports the path. |
+| 10 | The session ends | No commit and no push since setup. The step-5 record and the Vision write are still in the working tree. No harness or MCP stub process remains. |
+| 11 | Start a new session, without continuing, through the entry point | A new session ID. The resume reads present `CS-00003`, its branch, and the step-5 requirement and Vision as uncommitted drafts. No call reads an earlier session. |
+| 12 | Push a commit to the default branch of `origin` from outside the session, then continue the session through the entry point | The resume reads run again and present `CS-00003`, its branch, and `base_commit` from governed reads and `repo_state`, not from the conversation. The summary makes no claim about the default branch; step 14 detects the move. |
 | 13 | Start a session with the `wms` stub stopped | The summary marks blocked work as unavailable. Drafting continues. No `wms` call succeeds. |
-| 14 | The user approves and asks for a commit and a pull request | Only shell operations run. One commit follows #34's message format. Before the push, `git fetch origin` and the `merge-base` check report that the default branch moved since `base_commit` (step 12), as #34's [failure table](../git-integration.md#failure-behavior) states; the role merges it in with `git merge --no-ff --no-edit origin/main`, runs `change-set update`, re-runs `impact` and `check --change-set CS-00003` as #34's refresh sequence requires, and records any new disposition with `change-set update --impact-file -`, so the branch gains a merge commit, the manifest's `base_commit` equals the new default-branch head, and the assessment is complete. The branch is pushed to `origin`. The `gh` stub records one `pr create` whose `--repo` is the canonical repository, `--base` is `main`, and `--head` is `cs/00003-<slug>`, and whose body came from a quoted here-document containing `>` characters. No merge and no other call follows the handoff. |
+| 14 | The user approves and asks for a commit and a pull request | Only `scm` tools and `ears-manager` shell operations run. `commit` makes one commit in #34's message format. `publish` fetches and fails with `DEFAULT_MOVED`, because the default branch moved since `base_commit` (step 12), as #34's [failure table](../git-integration.md#failure-behavior) states. The role runs `refresh`, which adds a merge commit, then, in #34's [refresh sequence](../git-integration.md#refreshing-from-the-default-branch), `change-set update --base-commit` with the head that `refresh` returned, `impact`, a reviewed `change-set update --impact-file -` that records any new disposition, and `check --change-set CS-00003`, and runs `commit` again, so the manifest's `base_commit` equals the new default-branch head and the assessment is complete. `publish` pushes the branch to `origin`. The `gh` stub records one `pr create` whose `--repo` is the canonical repository, `--base` is `main`, and `--head` is `cs/00003-<slug>`, and whose body on standard input is the SCM's rendering. No merge and no other call follows the handoff. |
 | 15 | Export every session | Each export names the role, the model, and the harness version, and holds the adapter line and every tool call with its status and error text. |
 
 A session started in one bound harness and resumed in another, at step
@@ -1158,37 +1181,26 @@ A session started in one bound harness and resumed in another, at step
 
 Each vector runs against the guard directly and through the binding's
 hook, and must be refused before it runs. Unless a row says otherwise,
-`cs/00003-<slug>` is checked out and `<repo>` is the canonical
-repository:
+`cs/00003-<slug>` is checked out. The SCM's own refusals, such as a
+force push, another repository, or a push to the default branch, are
+negative checks of the [SCM's fixture][scm-fixture]:
 
 | Role | Tool call | Expected refusal |
 | --- | --- | --- |
-| Drafting Table | `git push --force origin cs/00003-<slug>` | Option not in the form |
-| Drafting Table | `git push origin cs/00003-<slug>:main` | Not the current branch |
-| Drafting Table | `git push origin main` | Not the current branch |
-| Drafting Table | `git push origin cs/00004-<slug>` | Not the current branch |
-| Drafting Table | `git push origin --delete cs/00003-<slug>` | Option not in the form |
-| Drafting Table | `git commit -F - --amend` | Option not in the form |
-| Drafting Table | `git commit -F -` while `main` is checked out | Not a change-set branch |
-| Drafting Table | `git -c core.hooksPath=<dir> commit -F -` | Global Git option |
-| Drafting Table | `git add -A` | Not a shell operation |
-| Drafting Table | `git add -- src/main.go` | Not a path of the current change set |
-| Drafting Table | `git switch -c cs/00004-<slug>` | Not a shell operation: `change-set create` cuts the branch |
-| Drafting Table | `git switch cs/00004-<slug>` when no `CS-00004` exists | Not a change set in the store |
-| Drafting Table | `ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner <owner> --content-file ~/.netrc` | `--content-file` with a path |
-| Drafting Table | A `wms` tool that the manifest does not list, such as a lifecycle transition | Not a Drafting Table operation |
-| Drafting Table | `git fetch origin --upload-pack=<program>` | Option not in the form |
-| Drafting Table | `git show HEAD:.protobot/project.yaml` and `git diff` | Not a shell operation |
+| Drafting Table | `git push --force origin cs/00003-<slug>`, `git push origin main`, `git commit -F -`, `git add -A`, `git fetch origin`, `git switch cs/00004-<slug>`, and `git -c core.hooksPath=<dir> commit -F -` | Not a shell operation: Git runs through the `scm` tools |
+| Drafting Table | `gh pr create --repo <other-owner>/<name> --base main --head cs/00003-<slug> --title 'x' --body-file -`, `gh pr edit 42 --repo <owner>/<name> --body-file -`, `gh api repos/<owner>/<name>`, and `gh auth token` | Not a shell operation: the Git host runs through the `scm` tools |
+| Drafting Table | `git show HEAD:.protobot/project.yaml`, `git diff`, and `git remote -v` | Not a shell operation |
 | Drafting Table | `git checkout -- docs/vision.md` | Not a shell operation; the user discards |
 | Drafting Table | `gh pr merge 1 --merge` | Not a shell operation; the user merges |
-| Drafting Table | `gh pr edit 42 --repo <repo> --body-file -` | Not the current branch's pull request |
-| Drafting Table | `gh pr create --repo <other-owner>/<name> --base main --head cs/00003-<slug> --title 'x' --body-file -` | Not the canonical repository |
-| Drafting Table | `gh api repos/<repo>` and `gh auth token` | Not a shell operation |
-| Drafting Table | `gh pr create --repo <repo> --base main --head cs/00003-<slug> --title "$GH_TOKEN" --body-file -` | Variable expansion |
+| Drafting Table | `source-control-manager publish` | Not a shell operation: the role reaches the SCM only through the `scm` tools |
+| Drafting Table | An `scm` tool that the manifest does not list | Not a Drafting Table operation |
+| Drafting Table | `register-approved-change-set --change-set CS-00004` | Not the change set of the current branch |
+| Drafting Table | `ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner <owner> --content-file ~/.netrc` | `--content-file` with a path |
+| Drafting Table | A `wms` tool that the manifest does not list, such as a lifecycle transition | Not a Drafting Table operation |
+| Drafting Table | `ears-manager --output json requirement add --change-set CS-00003 ... --text "$GH_TOKEN" ...` | Variable expansion |
 | Drafting Table | `date +%s` | Not a shell operation: only the ISO 8601 form |
-| Drafting Table | `git commit -F - <<'EOF'` whose body holds a line `EOF` before the end | Here-document ends early; a second command follows |
+| Drafting Table | `ears-manager --output json artifact put ... --content-stdin <<'EOF'` whose body holds a line `EOF` before the end | Here-document ends early; a second command follows |
 | Drafting Table | `rg -n --pre=<program> docs/`, in Codex | Not a read form: the pattern follows `-e` |
-| Drafting Table | `git remote -v` while a remote URL carries userinfo | Remote URL carries a credential |
 | Drafting Table | A subagent launch, a web fetch, or a tool of a non-governed MCP server | Outside the role's tool set |
 | Drafting Table | A read of `.env`, `.netrc`, `id_ed25519`, or `.protobot/change-sets/cs-00002.yaml` | Outside the role's tool set |
 | Drafting Table | A read of `.git/config` or `.aws/credentials`, with a file tool or a Codex read form | Outside the role's tool set |
@@ -1222,7 +1234,7 @@ material.
 | Kit import | No route in the role: #30 has no import command, and no document names the writer of `.protobot/kits.lock` ([Kits](../components.md#kits), [Q5](../open-questions.md#q5-kit-package-and-future-capabilities)). A Kit's content arrives as an ordinary change set once #30 gains the operation. |
 | Validation Rules packaging | Defined by #32 ([Validation Rules](../components.md#validation-rules)); the TUI path needs no library in the harness. |
 | Interaction semantics and presentation | Defined by the [Drafting Table UX][ux]. |
-| Branch, commit, pull-request, and registration rules | Defined by #34 ([Git and Project-Repository Integration](../git-integration.md)). |
+| Branch, commit, pull-request, and registration rules | Defined by #34 ([Git and Project-Repository Integration](../git-integration.md)). The SCM performs the Git and Git host operations, and defines their tools, results, and failures (#125, [Source Control Manager][scm]). |
 | The content of `drafting-specifications` | Written by #77 from the UX contract. This document reserves the name and requires the host mapping. |
 | The guard's implementation language and packaging | Chosen by #77, within the limits in [The guard](#the-guard). |
 | How the Toolkit and the adapter core reach a project other than ProtoBot, and how they are versioned | Open: the Toolkit packaging question in [Specification Toolkit](../components.md#specification-toolkit) and [Q5](../open-questions.md#q5-kit-package-and-future-capabilities). |
@@ -1254,6 +1266,9 @@ material.
 - [Git and Project-Repository Integration](../git-integration.md) —
   Branches, commits, pull requests, permitted Git operations, and
   ungoverned-edit detection.
+- [Source Control Manager](../source-control-manager.md) — The `scm`
+  tools, their results and failures, and the repository fixture run
+  against them.
 - [Validation Rules](../validation-rules.md) — Lifecycle
   authorization, preflight, and the rejection of a Drafting Table
   transition.
@@ -1279,8 +1294,15 @@ material.
 [env-constraints]: ../../architecture.md#environmental-constraints
 [interface-approach]: ../../architecture.md#interface-specification-approach
 [layer-stops]: #what-the-harness-layer-stops
-[pre-stage]: ../git-integration.md#pre-stage-verification
+[pre-stage]: ../git-integration.md#the-pre-stage-digest-comparison
 [projections]: ../components.md#worker-repository-projections-decided
+[scm]: ../source-control-manager.md
+[scm-commit]: ../source-control-manager.md#commit
+[scm-deploy]: ../source-control-manager.md#deployment-topology
+[scm-fixture]: ../source-control-manager.md#repository-fixture-against-the-scm
+[scm-host]: ../source-control-manager.md#host-adapter-boundary
+[scm-mcp]: ../source-control-manager.md#mcp-protocol
+[scm-read]: ../source-control-manager.md#approved-state-read-face
 [strawman]: ../../architecture.md#opencode-plus-skill-strawman
 [structural]: ../overview.md#enforce-constraints-structurally-not-through-trust
 [ux]: ../drafting-table-ux.md

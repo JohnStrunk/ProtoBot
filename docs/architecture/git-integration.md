@@ -85,6 +85,12 @@ Git history_. Adjacent contracts define the surfaces around it:
   skill discovery and harness tool permissions, including the optional
   early enforcement layer that denies direct writes to registered
   paths.
+- **#125** ([Source Control Manager](source-control-manager.md))
+  defines the component that performs this contract's Git and Git host
+  operations for the Drafting Table. The Drafting Table asks for an
+  operation, and the SCM derives the branch, the files, the message,
+  and the pull request from the change set and enforces the rules
+  below.
 - **#75** implements this contract and executes the
   [repository fixture](#repository-fixture) as its test plan.
 
@@ -110,7 +116,13 @@ current directory to the first directory that contains
 directory is the root of a Git working tree. If the file is
 missing, if it sits below the working-tree root, or if the
 directory is not a Git working tree at all, resolution fails and
-no Git or `ears-manager` operation runs.
+no Git or `ears-manager` operation runs. The one exception is a
+working tree with no `.protobot/` directory at its root: there the
+steps of [Project initialization](#project-initialization) run,
+because they create the file. The SCM's `repo_state` reports such a
+tree as not initialized, and its `branch_init` cuts the
+initialization branch in it
+([`repo_state`](source-control-manager.md#repo_state)).
 
 **Caller-supplied project claims are not trusted.** A project
 name, branch, or remote supplied in a prompt, a command-line flag,
@@ -144,6 +156,7 @@ This document adds a `repository` block for the Git-facing fields:
 | `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager project init` and `check` reject it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
 | `schema_versions` | One version per store, as decided by [ADR-0002][adr2-versioning]. |
 | `stores` | Relative paths for the requirement, interface, and change-set stores, as decided by [ADR-0003](../decisions/0003-ears-manager-storage-layout.md). |
+| `store_digests` | Canonical integrity digest for each configured structured store. The digest covers its sorted visible YAML file set. |
 | `artifacts` | The artifact registry: `id`, `kind`, `path`, `digest`, `owner`, and optional `validator` per entry ([ADR-0002][adr2-registry]). |
 
 `ears-manager` owns this file and is the only writer
@@ -385,6 +398,9 @@ That head is read from the local ref for
 `repository.canonical_remote`. A branch is never cut from a stale
 ref, and the recorded `base_commit` is never the remote-tracking
 ref, so the branch and the manifest always name the same commit.
+A fetch alone moves only the remote-tracking ref, so the SCM's
+`repo_state` fetches and then fast-forwards the local ref
+([`repo_state`](source-control-manager.md#repo_state)).
 
 The initial Sketch is a change set like any other. Its Vision and
 Architecture artifacts are written through
@@ -417,7 +433,10 @@ naming and lifecycle"_ in the
 
 The Drafting Table never creates, checks out, writes to, or
 deletes a `wi/` branch, an integration branch, or any branch it
-did not cut for a change set. Those belong to the Job Site, which
+did not cut for a change set. The one exception is the
+fast-forward of the local default branch in the
+[Allowed](#allowed) table, which moves no remote ref. The other
+branches belong to the Job Site, which
 creates them from the source commit recorded in the work-item
 contract.
 
@@ -431,9 +450,13 @@ A specification commit contains only:
 
 - registered `artifacts` entries whose `owner` is `ears-manager` or
   `user`, and only those the active change set actually touched;
-- files resolving under the configured `stores` directories that the
-  active change set touched;
-- `.protobot/project.yaml`, when the registry or a digest changed;
+- structured requirement and interface records touched by the active
+  change set;
+- the active change-set manifest file itself, always (under the
+  configured `stores.change_sets` directory, `.protobot/change-sets/`
+  by default);
+- `.protobot/project.yaml`, when the registry, a store digest, or an
+  artifact digest changed;
   and
 - `.protobot/projection.yaml`, when the change set registers a new
   specification path and `ears-manager` classifies it.
@@ -441,7 +464,9 @@ A specification commit contains only:
 Everything else is excluded. Paths are staged by explicit list.
 `git add -A`, `git add .`, and `git commit -a` are forbidden,
 because each of them can sweep in an unrelated file that no
-component owns.
+component owns. The SCM's `commit` derives the list from the change
+set and writes the message below
+([`commit`](source-control-manager.md#commit)).
 
 ### When a commit happens
 
@@ -485,7 +510,11 @@ subject and the same trailer. There is no special case.
 - Before the first push, amending the most recent commit is
   allowed only on explicit user request.
 - Every commit is authored with the user's configured Git
-  identity. Requirement-level origin is recorded in the
+  identity. Hosted, where no user has a Git configuration, the
+  author is the authenticated user's name and email from the Gate's
+  signed context, and the committer is the service actor
+  ([SCM identity](source-control-manager.md#identity)).
+  Requirement-level origin is recorded in the
   `provenance` field of each record, not in the commit author, so
   the Job Site's bot-account question stays a Job Site question.
 
@@ -496,10 +525,19 @@ brought up to date:
 
 1. Fetch and merge `repository.default_branch` into the
    change-set branch, producing a merge commit.
-2. Run `ears-manager change-set update` to record the new
-   `base_commit`.
+2. Run `ears-manager change-set update --base-commit <default head>`
+   to record the new `base_commit`.
 3. Re-run `ears-manager impact`, because the candidate set may
-   have changed, and review any new candidate before continuing.
+   have changed, review any new candidate, and record the
+   dispositions with a reviewed `change-set update --impact-file -`.
+   A changed base makes the prior assessment stale
+   ([Impact review protocol](ears-manager-cli.md#impact-review-protocol)).
+4. Run `ears-manager check`.
+5. Commit the manifest.
+
+The Source Control Manager's `refresh` performs step 1, and its
+`commit` performs step 5
+([`refresh`](source-control-manager.md#refresh)).
 
 Never rebase, and never reset the branch onto the new head. The
 `base_commit` field names an immutable object rather than a
@@ -539,6 +577,8 @@ whether it is posted by CI or on demand. This document decides it:
 the pull request is created or updated.** CI is not required to
 post it. A reviewer therefore sees the summary and the file diffs
 in one place, and the summary exists even when CI is unavailable.
+The SCM's `publish` renders it with code, so no model writes the
+body ([Title and body](source-control-manager.md#title-and-body)).
 The same pull request records the answer in ADR-0001, so a reader
 who starts from the decision record finds it.
 
@@ -607,8 +647,11 @@ materialization key
   the change set.
 - **Single-player.** The author merges their own pull request, and
   then the Drafting Table runs `register-approved-change-set`
-  locally. The merge alone is not sufficient
-  ([Single-player mode](components.md#single-player-mode)).
+  locally, with the change-set ID only. The command reads the merge
+  commit through the SCM's
+  [`approved_merge`](source-control-manager.md#approved-state-read-face),
+  so no commit hash passes through the agent. The merge alone is not
+  sufficient ([Single-player mode](components.md#single-player-mode)).
 
 Registration is idempotent by materialization key and by a distinct
 per-command idempotency key. The registration command deterministically
@@ -619,12 +662,13 @@ change_set_id + NUL + merge_commit)`; the same registration retry therefore
 reuses both keys and the same request fingerprint. Repeating it with the
 same merge commit
 returns the prior result. If the merge succeeds and the registration write
-fails, the retry is the same registration call - never a second merge. A
+fails, the retry is the same registration call — never a second merge. A
 registration that arrives with a different merge commit for the same change
 set is rejected for reconciliation.
 
-The Drafting Table never transitions a work item itself. It hands
-the materializer a merge commit; the WMS Adapter applies
+The Drafting Table never transitions a work item itself. Its
+registration command hands the materializer a merge commit that the
+SCM derived; the WMS Adapter applies
 Validation Rules at its own write boundary
 ([Validation Rules](components.md#validation-rules)).
 
@@ -661,7 +705,8 @@ ceremony and the credential path differ.
 | How a change reaches the default branch | Pull request | Pull request |
 | Who approves | The author merges their own pull request. No reviewer is required. | A reviewer merges; CODEOWNERS and required reviews apply |
 | Registration trigger | Local `register-approved-change-set` | Merge hook on the default branch |
-| Git host credential | The user's own Git host token | On a local harness, the user's own token through Git's credential helper and `gh`, never readable by the role ([#33 Credentials](agent-harness/adapter-contract.md#credentials)); hosted and Web, OAuth 2.1 through the Bridge/Gate pattern, and the agent runtime never sees the credential |
+| Where the [Source Control Manager](source-control-manager.md#deployment-topology) runs | On the user's machine, started by the harness binding | On each contributor's machine for a local harness; hosted behind the Gate for the Web Drafting Table |
+| Git host credential | The user's own Git host token, used by the SCM | On a local harness, the user's own token through Git's credential helper and `gh`, used by the SCM and never readable by the role ([#33 Credentials](agent-harness/adapter-contract.md#credentials)); hosted and Web, OAuth 2.1 through the Bridge/Gate pattern, and the agent runtime never sees the credential |
 | Merge strategy | Merge commit | Merge commit |
 | Where code lands | Job Site merges `wi/` branches | Identical |
 
@@ -669,10 +714,13 @@ The credential rows follow the deployment topology in the
 [WMS Adapter API](../architecture.md#wms-adapter-api) and the
 credential isolation rules in
 [Authentication and Credential Isolation][credential-isolation].
-In hosted modes, the Gate enforces the branch restrictions that
-the token format cannot express, so the allowlist in
-[Permitted Git operations](#permitted-git-operations) is enforced
-at the network boundary as well as in the Drafting Table.
+In hosted modes, the Gate authenticates the caller and scopes the
+credential to the project and the action. The branch restrictions
+that the token format cannot express, the allowlist in
+[Permitted Git operations](#permitted-git-operations), are enforced
+by the SCM behind the Gate, which checks every ref it writes against
+the Gate's context, and by the host's branch protection
+([SCM ref policy](source-control-manager.md#ref-policy)).
 
 The Web Drafting Table adds per-user session state and
 authorization at the application boundary
@@ -693,51 +741,45 @@ fire.
 | Layer | Where | Catches |
 | --- | --- | --- |
 | Harness tool permission rules (optional, [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
-| Pre-stage verification | The Drafting Table, before staging | A registered artifact whose content no longer matches its registry digest, or store records that fail `ears-manager check` (complete-store well-formedness or impact-assessment matching) |
-| `ears-manager check` | Branch push and merge gate in CI | Malformed records, digest mismatches, dangling references, symmetry and cycle violations |
+| Pre-stage digest comparison | The Drafting Table, in the SCM's `commit`, before staging | A registered artifact or structured store whose content no longer matches its governed digest |
+| `ears-manager check` | Branch push and merge gate in CI | Malformed records, artifact or store digest mismatches, dangling references, symmetry and cycle violations |
 | Path ownership in CI | Merge gate | A change that edits files outside the owning component's paths |
 
-### Pre-stage verification
+### The pre-stage digest comparison
 
-Before staging anything, the Drafting Table verifies each category of
-touched file:
+Before staging anything, the Drafting Table recomputes the content
+digest of every registered artifact the change set touches using the
+canonical text rules in [ADR-0002][adr2-digest], then compares it with the
+`digest` recorded in the registry. It also recomputes the canonical file-set
+digest for every structured store and compares it with `store_digests`.
+`ears-manager` updates the affected digest on every governed write
+([ADR-0002][adr2-registry]), so a mismatch means the file or record set
+changed by some other route beyond an allowed line-ending representation.
 
-- **Registered `artifacts` entries:** The Drafting Table recomputes the
-  content digest of every registered artifact the change set touches and
-  compares it with the `digest` recorded in the `artifacts` list of
-  `project.yaml`. `ears-manager` updates that digest on every governed write
-  ([ADR-0002][adr2-registry]), so a mismatch means the file changed
-  by some other route.
-- **Configured `stores` records:** Files resolving under the configured
-  `stores` directories
-  ([ADR-0003](../decisions/0003-ears-manager-storage-layout.md))
-  are not artifact-registry entries and carry no `owner` or `digest` field in
-  `project.yaml`. The Drafting Table verifies them by running
-  `ears-manager check` with `--change-set CS-ID` for the active change set to
-  ensure complete-store well-formedness (syntax, schema, referential,
-  relationship, and EARS rules) and impact-assessment matching narrowed
-  to the active change set's manifest. Staging only touched records is
-  enforced by the staging allowlist, not by `check`.
-- **Control files:** `.protobot/project.yaml` and `.protobot/projection.yaml`
-  are verified during project resolution and `ears-manager check`, and are
-  staged when registry entries, digests, or classification entries change.
+Artifact registry entries name regular opaque files. The structured
+requirement, interface, and change-set directories are configured through
+the `stores` block, remain distinct from opaque artifact entries, and are
+protected by their own canonical store digests.
 
-On a mismatch or store validation failure the Drafting Table:
+On a mismatch the Drafting Table:
 
 1. stages nothing and commits nothing;
-2. names each path that failed verification (with recorded and recomputed
-   digests for artifact mismatches, or `check`'s diagnostics for store
-   records); and
+2. names each path whose digest does not match; and
 3. offers the two routes forward — discard the direct edit
    (`git checkout -- <path>`), or bring the content in through
    `ears-manager artifact put` or the matching `requirement` or
-   `interface` command, which validates it and updates the registry or
-   store.
+   `interface` subcommand, which validates it and recomputes the
+   digest.
+
+The discard restores the last committed content. When the path also
+holds a governed write that is not committed yet, that write goes
+with it, and it is repeated through `ears-manager`; the digest
+matches again only then.
 
 Unregistered files in the working tree are not an error. They are
 simply never staged by the Drafting Table.
 
-CI repeats the same verification inside `ears-manager check`, so a
+CI repeats the same comparison inside `ears-manager check`, so a
 contributor who bypasses the Drafting Table entirely is still
 caught before merge. Path ownership in CI is the last layer.
 
@@ -750,16 +792,18 @@ not listed is forbidden. This is the concrete form of the
 principle that _Git operations are explicit_
 ([Governed tool integrations][governed-tools]).
 
-The Specification Toolkit supplies tool definitions for the WMS
-Adapter, but `ears-manager` and Git run through the harness's own
-shell tool
-([Drafting Table Boundary](../architecture.md#drafting-table-boundary)).
-There is no Git tool schema to constrain, so this allowlist is
-what bounds the agent. In every bound harness, #33 also enforces a
-stricter subset of it before each shell command runs, as the optional
-early layer
-([Shell operations](agent-harness/adapter-contract.md#shell-operations));
-the later layers hold when that layer is off.
+The Drafting Table performs these operations through the
+[Source Control Manager](source-control-manager.md). Its Drafting
+Table face offers a stricter subset of this list as tools. It takes
+no ref, path, remote, or message from the agent, except the checked
+prefix and default branch at initialization and an optional commit
+body, and derives every target from the change set ([Mapping to #34's
+permitted operations][scm-mapping]).
+The agent runs no Git or Git host command itself: the guard refuses
+them in the role's shell, where only `ears-manager`, the clock, and
+registration remain
+([Shell operations](agent-harness/adapter-contract.md#shell-operations)).
+The later layers hold when the harness layer is off.
 
 ### Allowed
 
@@ -767,10 +811,11 @@ the later layers hold when that layer is off.
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init` writes `.protobot/project.yaml` and `.protobot/projection.yaml` without committing; Git commits them with the initial manifest on the change-set branch |
 | Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base`, and `remote` for listing only |
-| Fetch | From `repository.canonical_remote` only |
+| Fetch | From `repository.canonical_remote` only. Before `project.yaml` exists, from the upstream remote of the local default branch only, to cut the initialization branch from a fresh head |
+| Fast-forward the local default branch | Only to the head of `repository.default_branch` on the canonical remote, or, before `project.yaml` exists, on the upstream remote of the local default branch; only by fast-forward; and, when it is checked out, only with no uncommitted change to a tracked file; a fetch alone leaves the local ref stale, and a change-set branch is cut from it |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
-| Stage | Registered `artifacts` entries owned by `ears-manager` or `user` and touched by the active change set, files under the configured `stores` directories touched by the active change set, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path |
+| Stage | Registered `artifacts` entries owned by `ears-manager` or `user` and touched by the active change set, structured requirement and interface records touched by the active change set, the active change-set manifest file itself (always), `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path, each a file, never a directory. A failed commit leaves the user's index as it was, content that was already staged included; after a successful commit, the index entries of exactly those paths are set to the new commit |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
 | Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |
@@ -790,17 +835,20 @@ the later layers hold when that layer is off.
 | Any write under `.protobot/attestations/` or to `.protobot/test-catalog.jsonl` | The Job Site owns them |
 | Push to the default branch, in any mode | Approval is the merge of a pull request |
 | Creating tags, adding or changing remotes, submodule operations | Outside the contract; no ProtoBot behavior depends on them |
-| Fetching or pushing any repository other than the canonical remote | Project identity comes from the working tree, not from a caller-supplied remote |
+| Fetching or pushing any repository other than the canonical remote, apart from the fetch before initialization in the Allowed table | Project identity comes from the working tree, not from a caller-supplied remote |
 
-Refusal is not advisory. In hosted modes, the same restrictions
-are enforced by the Gate, and in every mode branch protection and
-CI path ownership catch what reaches the host.
+Refusal is not advisory. The SCM refuses what this list forbids in
+every mode, in hosted modes behind a Gate that authenticates the
+caller and scopes the credential, and in every mode branch
+protection and CI path ownership catch what reaches the host.
 
 The Drafting Table's Git role is scoped to change-set branches and
-nothing else. Workers and implementation-aware test agents receive
-no Git mutation role at all, and only the Materializer, the
-Integration/Merge service, and the WMS control plane receive the
-narrow actions their current contract requires
+nothing else, and it exercises that role only through the SCM.
+Workers and implementation-aware test agents receive no Git
+mutation role at all, and only the Materializer, the
+Integration/Merge service, the WMS control plane, and the SCM
+acting for the Drafting Table receive the narrow actions their
+current contract requires
 ([Authentication and Credential Isolation][credential-isolation]).
 
 ---
@@ -835,24 +883,25 @@ For this contract, that means three things:
 Every failure leaves the working tree and the repository
 unchanged: no partial commit, no half-created branch, no pushed
 branch without its commit. Each row states the deterministic
-diagnostic and the safe retry.
+diagnostic and the safe retry. The SCM reports each row that it
+detects with a stable code
+([Failure behavior](source-control-manager.md#failure-behavior)).
 
 | Condition | Detection | Diagnostic | Safe retry |
 | --- | --- | --- | --- |
 | No `.protobot/project.yaml` found | Project resolution walks to the filesystem root | Names the directory searched and the expected path | Run project initialization, or start the session inside the project |
 | `project.yaml` is not at the working-tree root | Project resolution | Names both the file location and the working-tree root | Move the session to the correct checkout; the Drafting Table never relocates the file |
-| Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Upgrade `ears-manager`; migration is a reviewed change set, never automatic |
-| Registered artifact digest mismatch | Pre-stage comparison | Names each path and both digests | Discard the direct edit, or re-apply it through `ears-manager` |
-| Store record validation failure before staging | Pre-stage store check (`ears-manager check --change-set CS-ID`) | The check's own diagnostics, by record | Discard the direct edit, or edit the record through `ears-manager` and revalidate |
+| Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Use the supported version; after v1 adoption, perform any upgrade through a reviewed migration change set |
+| Registered artifact or structured-store digest mismatch | Pre-stage comparison | Names the safe configuration field and mismatch class | Discard the direct edit, or re-apply it through `ears-manager` |
 | Registered path missing from the projection manifest | `ears-manager check` | Names the path and the required class `shared` | Re-run the registration; `ears-manager` writes the classification entry and the Drafting Table stages `projection.yaml` with it |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
 | Default branch has moved since `base_commit` | `merge-base` check before push or merge | Names the recorded base and the current head | Refresh: merge the default branch in, then `change-set update` |
-| Push rejected, non-fast-forward | Push exit status | Names the branch and the remote head | Refresh and push again; never force |
+| Push rejected, non-fast-forward | Push exit status | Names the branch and the remote head | The remote change-set branch has commits that this checkout lacks. The user reviews and integrates them, then pushes again; never force, and never merge them unreviewed |
 | Push rejected by branch protection | Push exit status | Names the protected branch | Push the change-set branch instead and open a pull request. A push to the default branch is a bug in the caller, not a state to retry |
 | Merge refused by branch protection | Host API response | Names the protected branch, the failing requirement, and the declared `review_mode` | Satisfy the requirement, such as a green check or a review. If `review_mode` says `single-player` and the host still demands a reviewer, the declaration and the host disagree and the project configuration must be corrected |
 | Push rejected, missing or expired credential | Push exit status | Names the remote and the credential source for the mode | Refresh the credential outside the agent; the agent never receives one directly |
 | Pull-request creation failed | Host API response | Names the host status and whether the branch was pushed | Retry creation; the branch and its commits are already correct |
-| `ears-manager check` failed in CI | Non-zero exit in the merge gate | The check's own diagnostics, by record | Fix through `ears-manager`, commit, push to the same branch |
+| `ears-manager check` failed in CI | Non-zero exit in the merge gate | The check's complete deterministic diagnostic set | Fix through `ears-manager`, commit, push to the same branch |
 | Merge conflict in a change-set manifest or index file | Merge of the default branch | Names the conflicting file | Resolve mechanically; sorted lists and fixed key order keep the resolution deterministic ([ADR-0001][adr1-diff]) |
 | Merge conflict in a requirement record | Merge of the default branch | Names the record | Rare by design, since records are one file each; resolve through `ears-manager` and revalidate |
 | Merge succeeded, registration failed | Registration call | Names the change set, merge commit, materialization key, and registration idempotency key | Repeat the same registration call with both derived keys; it is idempotent and never merges again |
@@ -864,7 +913,9 @@ diagnostic and the safe retry.
 
 The fixture is a local **bare repository** plus one working clone.
 It needs no Git host, no network, and no WMS backend. Issue #75
-executes it as its test plan.
+executes it as its test plan. The same steps and negative checks
+also run against the SCM, with no shell in the caller
+([Repository fixture against the SCM][scm-fixture]).
 
 **Setup.** Create a bare repository as `origin` with one commit on
 the default branch, clone it, and configure a Git identity. Where
@@ -885,11 +936,11 @@ protection rule.
 
 | # | Action | Expected result |
 | --- | --- | --- |
-| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, schema versions, two `artifacts` entries and three `stores` entries (five managed paths total). `.protobot/projection.yaml` carries a `shared` class for each of those five paths. One commit of three files, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
+| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, version-1 schema keys, the three configured store paths and store digests, and two opaque artifact entries. `.protobot/projection.yaml` carries a `shared` class for each governed specification path. One commit of the control files and initial manifest, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
 | 2 | Merge `CS-00001`, register, then create change set `CS-00002` for the initial Sketch | The default branch head is a merge commit. Branch `cs/00002-<slug>` exists and is checked out. Its tip equals the new default-branch head, and the manifest records that head's full 40-character hash as `base_commit`. No other branch was created. |
-| 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content. `ears-manager` has added a `shared` class for each new path. `git status` lists only the two artifacts, the manifest, `project.yaml`, and `projection.yaml`. |
-| 4 | Edit a registered artifact directly with a text editor, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |
-| 5 | Discard the direct edit and request a commit | Exactly one commit. It contains only the two artifacts, the manifest, `project.yaml`, and `projection.yaml`. Subject is `spec(CS-00002): <intent>`; the body carries the `Change-Set: CS-00002` trailer. |
+| 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content and the structured-store digests still match their record sets. `projection.yaml` is unchanged, because step 1 already classified both paths and `artifact put` classifies only a new path ([Artifacts](ears-manager-cli.md#artifacts)). `git status` lists only the two artifacts, the manifest, and `project.yaml`. |
+| 4 | Make a substantive direct edit to a registered artifact, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |
+| 5 | Discard the direct edit, which also drops the uncommitted step-3 write of that artifact; write it again through `ears-manager artifact put`; request a commit | Exactly one commit. It contains only the two artifacts, the manifest, and `project.yaml`. Subject is `spec(CS-00002): <intent>`; the body carries the `Change-Set: CS-00002` trailer. |
 | 6 | Push the branch and prepare the pull request | `origin` has `cs/00002-<slug>` at the same commit; the default branch is unchanged. The rendered body contains the intent, the `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. It matches the output of `change-set compare` and `impact`. |
 | 7 | Commit an unrelated change on the default branch, then refresh the change set | The change-set branch gains a merge commit with two parents. The manifest's `base_commit` equals the new default-branch head. `git log --walk-reflogs` shows no rebase and the branch's first commit is unchanged. |
 | 8 | Merge the branch into the default branch with a merge commit, then register | The default branch head is a merge commit with two parents. The registration stub recorded one call with the change-set ID, that merge commit, the materialization key, and the derived registration idempotency key. Running registration again records no new call and returns the first result. A write to the merged manifest is refused. |
@@ -901,6 +952,7 @@ protection rule.
 | Force push the change-set branch | Refused by the Drafting Table; the remote branch is unchanged |
 | Amend a pushed commit | Refused; the pushed commit is unchanged |
 | Stage an unregistered file | Refused; the file stays untracked or unstaged |
+| Edit, add, delete, or rename a structured record outside `ears-manager` | Refused by the store digest comparison; no commit is created |
 | Create or write a `wi/` branch | Refused; no such ref exists in the fixture |
 | Write under `.protobot/attestations/` | Refused; the path stays absent |
 | Push to the default branch, in either `review_mode` | Refused before the push runs |
@@ -917,7 +969,7 @@ resurface.
 | Decision | Rationale |
 | --- | --- |
 | `wi/` branch naming and lifecycle | The Job Site owns those branches. The open question in the [Content Storage Model](components.md#content-storage-model) stays open for that half. |
-| Git host API binding for pull requests | This document names the operations. The concrete host client, its authentication, and its error mapping belong to the harness adapter and the deployment. For every harness on GitHub, [#33](agent-harness/adapter-contract.md#shell-operations) binds them to `gh`. |
+| Git host API binding for pull requests | This document names the operations. The concrete host client and its error mapping belong to the [SCM's host adapter](source-control-manager.md#host-adapter-boundary), and its authentication to the deployment. The first adapter drives `gh` on GitHub, for every harness. |
 | Bot account model for the Job Site | The Drafting Table commits with the user's identity, so the open question in [Multi-player Workflow](components.md#multi-player-workflow) is unchanged by this contract. |
 | Merge queue or batching | Concurrent change sets follow the standard refresh-before-merge model. A Bors-style queue is [related work](related-work.md#gas-town--beads-steve-yegge), not a decision here. |
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
@@ -944,6 +996,8 @@ resurface.
   cross-cutting concerns.
 - [`ears-manager` CLI Integration Contract](ears-manager-cli.md) —
   Command grammar, results, diagnostics, and impact review.
+- [Source Control Manager](source-control-manager.md) — The component
+  that performs this contract's Git and Git host operations.
 - [User Interaction Flow](user-interaction-flow.md) — Phase
   details, sequence diagrams, and change types.
 - [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
@@ -970,6 +1024,7 @@ resurface.
 [adr1-history]: ../decisions/0001-requirements-storage-format.md#change-set-history-representation
 [adr1-pr]: ../decisions/0001-requirements-storage-format.md#4-pr-reviewability-plan
 [adr2-changeset]: ../decisions/0002-ears-specification-record-schema.md#change-set-manifests
+[adr2-digest]: ../decisions/0002-ears-specification-record-schema.md#digest-calculation
 [adr2-registry]: ../decisions/0002-ears-specification-record-schema.md#artifact-registry-entries
 [adr2-versioning]: ../decisions/0002-ears-specification-record-schema.md#schema-versioning
 [change-types]: user-interaction-flow.md#incremental-development-and-change-types
@@ -978,3 +1033,5 @@ resurface.
 [governed-tools]: ../architecture.md#governed-tool-integrations
 [pr-merge-build]: components.md#the-pr--merge--build-model
 [projections]: components.md#worker-repository-projections-decided
+[scm-fixture]: source-control-manager.md#repository-fixture-against-the-scm
+[scm-mapping]: source-control-manager.md#mapping-to-34s-permitted-operations

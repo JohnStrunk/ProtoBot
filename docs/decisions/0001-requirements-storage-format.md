@@ -184,8 +184,8 @@ editors and tooling:
 - No trailing whitespace; single newline at end of file
 - UTF-8 encoding without BOM
 - Relationship lists sorted by target ID
-- No anchors, aliases, merge keys (`<<`), custom tags, or
-  duplicate keys; `ears-manager` rejects them and parses
+- No anchors, aliases, merge keys (`<<`), custom tags, explicit null
+  values, or duplicate keys; `ears-manager` rejects them and parses
   canonical files with a safe loader only
 
 These rules ensure that two writes of the same logical content

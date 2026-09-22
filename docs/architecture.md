@@ -14,6 +14,7 @@
 - [Specification Toolkit](#specification-toolkit)
 - [`ears-manager` CLI](#ears-manager-cli)
 - [WMS Adapter API](#wms-adapter-api)
+- [Source Control Manager](#source-control-manager)
 - [Validation Rules](#validation-rules)
 - [Project Repository](#project-repository)
 - [Job Site Handoff Boundary](#job-site-handoff-boundary)
@@ -56,15 +57,16 @@ Environmental constraints are listed in a
 | 1 | Drafting Table ↔ User (TUI) | REPL | Drafting Table | — |
 | 2 | Drafting Table ↔ User (Web) | Web GUI | Drafting Table | — |
 | 3 | Specification Toolkit ↔ Agent Harness | Agent skill package | Specification Toolkit | Drafting Table (TUI), Drafting Table (Web) |
-| 4 | `ears-manager` CLI | CLI | `ears-manager` | Specification Toolkit, CI, Job Site |
+| 4 | `ears-manager` CLI | CLI | `ears-manager` | Specification Toolkit, CI, Job Site, Source Control Manager |
 | 5 | WMS Adapter API | Network service | WMS Adapter | Drafting Table, Job Site |
 | 6 | Validation Rules | Versioned declarative state-machine ruleset with deterministic evaluator | Validation Rules | Drafting Table, Job Site, WMS Adapter |
-| 7 | Project repository (Git) | Persistent state | Project | Drafting Table, Job Site, `ears-manager`, CI |
+| 7 | Project repository (Git) | Persistent state | Project | Source Control Manager (for the Drafting Table), Job Site, `ears-manager`, CI |
 | 8 | Job Site intake (change-set registration, true-bug intake) | CLI + webhook | Job Site | CI hooks, Git hooks, maintainers |
 | 9 | Claim coordinator | Persistent state | WMS Adapter | Job Site |
 | 10 | Kit source | Package source | Kits | Drafting Table |
 | 11 | IdeaBot handoff _(manual, Q4)_ | Pipeline input | IdeaBot | Drafting Table |
 | 12 | Prototype and demo artifacts | Pipeline output | Job Site | TransferBot, stakeholders |
+| 13 | Source Control Manager | MCP tool surface + CLI | Source Control Manager | Drafting Table (TUI and Web), Job Site (registration, Materializer) |
 
 Most interfaces are described in dedicated sections below.
 The Job Site intake interface and the claim coordinator are
@@ -85,9 +87,9 @@ specification approach is a versioned import manifest
 
 ProtoBot has two user-facing interface implementations, both
 serving the Drafting Table's Sketching and Dimensioning phases.
-They share the same Specification Toolkit, Validation Rules, and
-WMS Adapter API — the difference is the frontend and hosting
-model, not the domain logic.
+They share the same Specification Toolkit, Validation Rules, WMS
+Adapter API, and Source Control Manager — the difference is the
+frontend and hosting model, not the domain logic.
 
 ### TUI Drafting Table (REPL)
 
@@ -104,9 +106,9 @@ artifacts.
 **Interaction surface:**
 
 - Conversational input/output between human and agent
-- Agent-initiated calls to the WMS Adapter through the
-  Specification Toolkit's tool definitions, and to `ears-manager`
-  through the harness's shell tool
+- Agent-initiated calls to the WMS Adapter and the Source Control
+  Manager through the Specification Toolkit's tool definitions, and
+  to `ears-manager` through the harness's shell tool
 - Display of work-item status from the WMS Adapter
 - Blocked-work-item notifications via a pull model: on session
   start, the harness checks the WMS for blocked items and
@@ -117,7 +119,7 @@ established IDL. The contract is defined by the Specification
 Toolkit's skills and prompts (which govern what the agent can
 do, and describe the `ears-manager` commands) and the tool
 definitions (which govern how the agent interacts with the WMS
-Adapter). The user's
+Adapter and the Source Control Manager). The user's
 interaction surface is the conversational protocol — what
 questions the agent asks, how it presents suggestions, and how
 approval flows.
@@ -155,7 +157,9 @@ may access and which WMS operations they may perform
 (e.g., only authorized maintainers update business priority).
 The credential isolation pattern (Bridge/Gate) applies: the
 Web Drafting Table's agent runtime never sees user
-credentials directly.
+credentials directly. Its Git and Git host operations go
+through the [Source Control Manager](#source-control-manager)
+behind the Gate.
 
 **Scope for specification:** The Web GUI interface type has no
 established IDL for ProtoBot's use case. The web interface
@@ -187,7 +191,9 @@ the contract is Markdown skills, JSON tool schemas, and prompts.
   approval, or lifecycle.
 - **Tool definitions:** MCP tool schemas for WMS Adapter
   operations (create/read/update work items, query blocked
-  items). `ears-manager` is a CLI; the skills describe its
+  items) and for the Drafting Table face of the
+  [Source Control Manager](#source-control-manager).
+  `ears-manager` is a CLI; the skills describe its
   commands (see the [`ears-manager` CLI table](#ears-manager-cli)).
 - **Prompts:** System prompts, templates, and reference material
   including EARS pattern definitions, the interface-type
@@ -198,6 +204,8 @@ the contract is Markdown skills, JSON tool schemas, and prompts.
   enabling component-level evaluability. The trace format is
   an open design question.
 
+### Toolkit harness and runtime dependencies
+
 **Harness contract:** The Toolkit must work in any compatible
 agent harness — OpenCode, Claude Code, a hosted web runtime, or
 future harnesses. It depends on standard tool execution and
@@ -205,7 +213,9 @@ prompt loading; no harness-specific APIs beyond those.
 
 **Runtime dependencies:** The WMS Adapter API (for work-item
 lifecycle state), the `ears-manager` binary (for all
-specification reads and writes), and a Git working tree.
+specification reads and writes, and change-set branches), the Source
+Control Manager (for commits, pushes, PRs, refresh merges, and the
+initialization branch), and a Git working tree.
 
 See [System Components — Specification
 Toolkit](architecture/components.md#specification-toolkit) for design details.
@@ -255,18 +265,19 @@ project-initialization boundary.
 
 **Callers:** The Specification Toolkit (via agent tool calls),
 CI pipelines (`ears-manager check` as a merge gate), the Job
-Site (resolving requirements at a specification commit), and
-humans directly.
+Site (resolving requirements at a specification commit), the
+Source Control Manager (reads only), and humans directly.
 
 **File system interface:** `ears-manager` reads and writes
 specification data on disk (under paths registered in
 `.protobot/project.yaml`). The on-disk format is an external
-interface because requirements data must be forward
-upgradeable as `ears-manager` evolves. Each store carries a
-schema version; `ears-manager` refuses to operate on data
-at a version newer than its own, and forward migration
-happens through a reviewed change set (see
-[Persistent State — Specification store](#specification-store-git)).
+interface because requirements data must be versioned as
+`ears-manager` evolves. The initial project and specification
+contracts are both version 1, including per-store integrity digests;
+the version-1 definition is finalized before first adoption. The
+tool refuses data at a newer version, while later adopted versions
+require an explicit reviewed migration (see [Persistent State —
+Specification store](#specification-store-git)).
 Callers must not parse or write these files directly — the
 CLI is the stable contract; the storage format may change
 between versions.
@@ -354,6 +365,49 @@ in the
 
 ---
 
+## Source Control Manager
+
+The Source Control Manager (SCM) is the governed boundary between
+ProtoBot and Git and the Git host. It turns the user's decision about a
+proposed change set into commits, pushes, PRs, and refresh merges, cuts
+the initialization branch, and reports that state back. `ears-manager
+change-set create` cuts every other change-set branch. The agent
+decides _when_; the SCM decides _how_.
+
+**Interface type:** MCP tool surface + CLI — one executable,
+`source-control-manager`, with one narrow face per role. The MCP face
+speaks the stateless MCP revision 2026-07-28, and still serves clients
+of the legacy revision 2025-11-25 on stdio.
+
+The complete caller contract, with the operation matrix,
+authorization, result envelope, error codes, audit record, and
+repository fixture, is defined in the
+[Source Control Manager](architecture/source-control-manager.md)
+document.
+
+### SCM faces and topology
+
+| Face | Callers | Operations |
+| --- | --- | --- |
+| Drafting Table | Drafting Table, TUI and Web | `repo_state`, `branch_init`, `branch_resume`, `commit`, `publish`, `refresh` |
+| Approved-state read | `register-approved-change-set`, Materializer, and its recovery | `approved_merge` |
+| Job Site | Integration/Merge service | Future ([Q21](architecture/open-questions.md#q21-source-control-manager-job-site-face)) |
+
+No operation takes a ref, a path, a remote, or a message, except the
+checked branch prefix and default branch at initialization and an
+optional commit body. The SCM
+derives them from the change set and the working tree, renders the
+commit message and the PR body from `ears-manager` output, and runs Git
+with argument lists, never through a shell.
+
+**Deployment topology:** In single-player and multi-player mode the
+Drafting Table face runs on the user's machine, over MCP stdio, with
+the user's own credentials. In Web mode it runs hosted, behind the
+Gate, with a broker-issued credential. The SCM keeps no persistent
+state.
+
+---
+
 ## Validation Rules
 
 Validation Rules are the domain logic that enforces
@@ -419,12 +473,17 @@ components.
   the test catalog and attestation paths. CI rejects edits
   by a component or Worker outside its owned/allowlisted
   paths.
+- **Integrity:** `store_digests` in `.protobot/project.yaml` protect
+  each structured store's canonical file set. Pre-stage comparison and
+  CI reject direct edits, additions, deletions, renames, and symlinks
+  that do not match the digest.
 - **Merge strategy:** Merge commits (not squash or rebase) to
   preserve the iteration DAG for evaluability.
 
-**Callers:** The Drafting Table (branches, commits, PRs), the
-Job Site (integration branches, merges), `ears-manager`
-(specification working tree), and CI (validation gates).
+**Callers:** The Drafting Table through the Source Control Manager
+(commits, pushes, PRs, and the initialization branch), the Job Site
+(integration branches, merges), `ears-manager` (specification working
+tree and change-set branches), and CI (validation gates).
 
 See [System Components — Content Storage
 Model](architecture/components.md#content-storage-model) for the full
@@ -509,6 +568,8 @@ out of scope for this Sketch.
   the specification commit
 - Project repository — source checkout, integration branches,
   merge to main
+- Source Control Manager — the merge commit of an approved change
+  set, for registration and the Materializer
 - Validation Rules — pre-write transition checks
 
 ---
@@ -570,39 +631,41 @@ Specification Toolkit as OpenCode skills. This strawman
 defines the initial integration model:
 
 ```text
-┌─────────────────────────────────────┐
-│  OpenCode (agent harness)           │
-│                                     │
-│  ┌───────────────────────────────┐  │
-│  │  Specification Toolkit        │  │
-│  │  (skills + prompts + tools)   │  │
-│  └───────┬──────────┬────────────┘  │
-│          │          │               │
-│    ┌─────┴───┐ ┌────┴────────┐     │
-│    │ears-mgr │ │ WMS Adapter │     │
-│    │  (CLI)  │ │  (API/MCP)  │     │
-│    └─────────┘ └─────────────┘     │
-│                                     │
-│  ┌───────────────────────────────┐  │
-│  │  Git (project repository)     │  │
-│  └───────────────────────────────┘  │
-└─────────────────────────────────────┘
+┌───────────────────────────────────────────────┐
+│  OpenCode (agent harness)                     │
+│                                               │
+│  ┌─────────────────────────────────────────┐  │
+│  │  Specification Toolkit                  │  │
+│  │  (skills + prompts + tools)             │  │
+│  └───────┬──────────────┬─────────────┬────┘  │
+│          │              │             │       │
+│    ┌─────┴───┐   ┌──────┴──────┐ ┌────┴────┐  │
+│    │ears-mgr │   │ WMS Adapter │ │   SCM   │  │
+│    │  (CLI)  │   │  (API/MCP)  │ │  (MCP)  │  │
+│    └─────────┘   └─────────────┘ └────┬────┘  │
+│                                       │       │
+│  ┌────────────────────────────────────┴────┐  │
+│  │  Git (project repository) + Git host    │  │
+│  └─────────────────────────────────────────┘  │
+└───────────────────────────────────────────────┘
 ```
 
 - **Skills** provide structured instructions for each phase:
   how to conduct Sketching, how to conduct Dimensioning, how
   to handle each EARS pattern type, and how to surface gaps.
 - **Tool definitions** (MCP tool schemas) provide the agent
-  with governed access to the WMS Adapter. `ears-manager` is a
-  CLI that the agent runs through the harness's shell tool. The
-  agent invokes tools through the harness's standard tool
-  execution mechanism.
+  with governed access to the WMS Adapter and the Source
+  Control Manager. `ears-manager` is a CLI that the agent runs
+  through the harness's shell tool. The agent invokes tools
+  through the harness's standard tool execution mechanism.
 - **Prompts** provide system context: EARS pattern definitions,
   the interface-type taxonomy, gap-closing heuristics, and
   the specification hierarchy.
-- **Git operations** use the harness's existing file and shell
-  tools to create branches, commit artifacts produced through
-  `ears-manager`, and open PRs.
+- **Git operations** use the tools of the
+  [Source Control Manager](#source-control-manager), which cut
+  the initialization branch, commit artifacts produced through
+  `ears-manager`, push, and open PRs. The agent runs no Git or
+  Git host command itself.
 
 The Web Drafting Table replaces OpenCode with a hosted agent
 runtime but loads the same Specification Toolkit.
@@ -652,9 +715,10 @@ stops](architecture/agent-harness/adapter-contract.md#what-the-harness-layer-sto
   The Drafting Table reads work-item state for display, queries
   blocked items, and submits reviewed resolutions. Validation
   Rules run at the API boundary before any mutation is applied.
-- **Git operations are explicit.** The Drafting Table creates
-  branches, commits `ears-manager` outputs, and opens PRs. It
-  never pushes directly to main, in any mode
+- **Git operations are explicit.** The Drafting Table commits
+  `ears-manager` outputs, pushes, and opens PRs through the
+  Source Control Manager. It never pushes directly to main, in
+  any mode
   ([Git and Project-Repository
   Integration](architecture/git-integration.md#every-change-arrives-by-pull-request)).
 
@@ -673,7 +737,8 @@ stops](architecture/agent-harness/adapter-contract.md#what-the-harness-layer-sto
 | WMS query operations | WMS Adapter | `request.get`, `request.query`, `work-item.get`, `work-item.query`, and `blocked-work.query` |
 | WMS lifecycle preflight | WMS Adapter | `lifecycle.preflight` with no mutation |
 | WMS blocked-work operations | WMS Adapter | `blocked-work.submit-resolution` and `blocked-work.acknowledge` |
-| Git branch/commit/PR | Project repository | Create branches, commit artifacts, open PRs |
+| SCM repository state | Project repository, Git host | `repo_state` |
+| SCM change-set Git operations | Project repository, Git host | `branch_init`, `branch_resume`, `commit`, `publish`, `refresh` |
 
 ### Data and control flow
 
@@ -688,7 +753,7 @@ Agent ──── ears-manager impact ───→ Spec Store (candidate list)
 Agent ──── WMS query ─────────────→ WMS Backend (blocked items)
 Agent ──── present change set ────→ User
 User ──── approve change set ─────→ Agent
-Agent ──── git commit / PR ───────→ Project Repository
+Agent ──── SCM commit / publish ──→ Project Repository
 Reviewer ── merge PR ─────────────→ main (approved Schematic)
 Materializer ── create work item ─→ WMS Backend
 ```
@@ -713,11 +778,12 @@ Materializer ── create work item ─→ WMS Backend
 
 Persistent state outlives any single run and requires its own
 interface contract. ProtoBot has seven categories of persistent
-state. Each store carries a schema version (in
-`.protobot/project.yaml`); when a tool encounters data at a
-version newer than its own, it refuses to operate rather than
-silently corrupting state. Forward migration happens through a
-reviewed change set, not automatically.
+state. The initial project and specification stores use schema
+version 1 (in `.protobot/project.yaml`) and include structured-store
+integrity digests. When a tool encounters data at a version newer
+than its own, it refuses to operate rather than silently corrupting
+state. After version 1 is adopted, forward migration happens through
+a reviewed change set, not automatically.
 
 ### Specification store (Git)
 
@@ -740,9 +806,10 @@ The WMS backend also stores request records and revisions, request-to-change-
 set/build-item links, priority audit events and snapshots, and durable
 blocked-work resolution-submission or acknowledgement records. A submission
 has its own revision and approval/digest binding; writing or replaying it
-does not change the work-item lifecycle state or contract version. The
-Materializer consumes an eligible submission through the authoritative
-Validation Rules boundary.
+does not change the work-item lifecycle state, contract version, or
+dependencies. The Materializer consumes the currently-active submission
+through authoritative `resolve-block`; a superseded submission's Gate
+approval is revoked and cannot be applied.
 
 **Where it lives:** The configured WMS backend, one per project.
 
@@ -847,7 +914,8 @@ incompatible decisions.
 
 | Constraint | Rationale |
 | --- | --- |
-| `ears-manager`: Go, static binary | Zero runtime dependencies across all deployment contexts — dev containers, CI runners, sandboxes, local machines. |
+| `ears-manager`: Go, static binary | Zero runtime dependencies for core storage and validation across dev containers, CI runners, sandboxes, and local machines. Optional code-controlled validator adapters may require approved tools such as `protoc` or `markdownlint`. |
+| Source Control Manager: one executable | Needs only `git`, `gh`, and `ears-manager` at run time. Its dual-era MCP SDK is bundled into the one executable and must not add a runtime to contributor machines or the Job Site environment. The language is chosen in #160 ([Packaging](architecture/source-control-manager.md#packaging)). |
 | First Drafting Table harness: OpenCode | OpenCode's model-provider flexibility and skill system provide the fastest path to a working TUI Drafting Table. |
 | First Job Site backend: Fullsend / OpenShell | Fullsend is the closest peer in the GE Agentic SDLC Working Group. OpenShell provides kernel-enforced sandboxing. Fallback: a portable rootless-OCI/microVM profile for platforms where OpenShell is unavailable (e.g., `restricted-v2` — no `CAP_SYS_ADMIN`). |
 | Prototype outputs: UBI + Hummingbird images | Lightweight, fast-turnaround demo builds on Red Hat certified base images. |
@@ -873,6 +941,7 @@ approach.
 | --- | --- | --- |
 | `ears-manager` CLI | CLI | Command grammar, typed result envelope, and exit-status contract defined in the [CLI Integration Contract](architecture/ears-manager-cli.md) |
 | WMS Adapter API | Network service | Smithy or OpenAPI |
+| Source Control Manager | MCP tool surface + CLI | MCP tool schemas (JSON Schema) on MCP revision 2026-07-28, dual-era with 2025-11-25 on stdio, and the result envelope and error codes defined in the [SCM contract](architecture/source-control-manager.md) |
 | Specification Toolkit | Agent skill package | Skill manifest + MCP tool schemas (JSON Schema) |
 | Validation Rules | Versioned declarative state-machine ruleset | Deterministic evaluator ([Validation Rules Contract](architecture/validation-rules.md)) |
 | Drafting Table (TUI) | REPL | Specification Toolkit skills and prompts define the interaction protocol |
@@ -904,6 +973,9 @@ that contract.
   Integration](architecture/git-integration.md) — Project
   identification, branches, commits, PR preparation, and approved
   specification state
+- [Source Control Manager](architecture/source-control-manager.md) —
+  The Git and Git host boundary: faces, operations, authorization,
+  and failures
 - [Agent Harness Adapter
   Contract](architecture/agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, governed tools, the guard, and harness

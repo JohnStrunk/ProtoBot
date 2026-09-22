@@ -136,6 +136,27 @@ func TestDiscoverRejectsNewerSchema(t *testing.T) {
 	}
 }
 
+func TestDiscoverRejectsNewerProjectSchemaBeforeStrictDecode(t *testing.T) {
+	root := t.TempDir()
+	configDirectory := filepath.Join(root, ".protobot")
+	if err := os.MkdirAll(configDirectory, 0o755); err != nil {
+		t.Fatalf("MkdirAll returned error: %v", err)
+	}
+	data := []byte("schema_versions:\n  project: 2\n  specification: 1\nfuture_project_field: value\n")
+	if err := os.WriteFile(filepath.Join(configDirectory, "project.yaml"), data, 0o644); err != nil {
+		t.Fatalf("WriteFile returned error: %v", err)
+	}
+
+	_, err := DiscoverWithGitRoot(root, func(string) (string, error) { return root, nil })
+	var versionError *schema.VersionError
+	if !errors.As(err, &versionError) {
+		t.Fatalf("DiscoverWithGitRoot error = %v, want VersionError", err)
+	}
+	if versionError.Store != "project" {
+		t.Fatalf("VersionError.Store = %q, want project", versionError.Store)
+	}
+}
+
 func TestProjectArtifactRegistryIsTypedAndCanonical(t *testing.T) {
 	root := t.TempDir()
 	configDirectory := filepath.Join(root, ".protobot")
@@ -159,7 +180,7 @@ func TestProjectArtifactRegistryIsTypedAndCanonical(t *testing.T) {
 		ID:     "vision",
 		Kind:   records.ArtifactVision,
 		Path:   "docs/vision.md",
-		Digest: "sha256:example",
+		Digest: "sha256:e06dbbb451a2eeaa837b763f4f15e991a056fdef2c4f3aae9ee65de002c2a39f",
 		Owner:  "user",
 	}
 	if err := project.SaveArtifact(artifact); err != nil {

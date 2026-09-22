@@ -63,6 +63,19 @@ func TestValidatePathWithinRejectsEscapesAndSymlinks(t *testing.T) {
 	}
 }
 
+func TestValidatePathWithinRejectsInternalSymlinkComponents(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "target"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(target) returned error: %v", err)
+	}
+	if err := os.Symlink("target", filepath.Join(root, "alias")); err != nil {
+		t.Skipf("Symlink is unavailable: %v", err)
+	}
+	if _, err := ValidatePathWithin(root, "alias/record.yaml"); err == nil {
+		t.Fatal("ValidatePathWithin accepted an internal symlink component")
+	}
+}
+
 func TestStoreListRejectsRecordSymlinkEscape(t *testing.T) {
 	root := t.TempDir()
 	store, err := New(root, "records", func(id string) (string, error) {

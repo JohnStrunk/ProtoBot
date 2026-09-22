@@ -174,8 +174,8 @@ and required reviews. No custom labels or permission schemes
 needed.
 
 Both modes use the same components (Drafting Table, Specification
-Toolkit, WMS Adapter, Job Site). The difference is ceremony, not
-architecture.
+Toolkit, WMS Adapter, Source Control Manager, Job Site). The
+difference is ceremony, not architecture.
 
 ---
 
@@ -327,6 +327,8 @@ ProtoBot's own components need (CLI tools, Go binaries, etc.).
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state.
+- [Source Control Manager](source-control-manager.md) — The Git and
+  Git host boundary: faces, operations, authorization, and failures.
 - [Agent Harness Adapter Contract](agent-harness/adapter-contract.md) —
   Harness-neutral adapter core, the guard, and harness obligations.
 - [OpenCode Harness Binding](agent-harness/opencode.md) — The first

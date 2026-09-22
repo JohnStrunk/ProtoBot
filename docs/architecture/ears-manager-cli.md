@@ -70,6 +70,7 @@ The same binary serves these callers:
 | Drafting Table through the Specification Toolkit | Proposed and approved specification state, comparison, impact candidates, validation results | Proposed specification records and change-set manifests on the active change-set branch |
 | CI | Registered records and artifacts at the checked-out revision | None |
 | Job Site Materializer | The approved manifest and requirements at an immutable specification commit | None; it passes lifecycle state to the WMS Adapter |
+| [Source Control Manager](source-control-manager.md) | A change set's paths, comparison, impact candidates, and validation result, and an approved change set's manifest path at a commit | None; it stages, commits, and publishes what `ears-manager` wrote |
 | Human maintainer | All data exposed by the read commands | The same proposed changes as the Toolkit, subject to the same validation |
 
 The CLI is a local process over the caller's working tree. A hosted Drafting
@@ -112,7 +113,10 @@ Only `ears-manager` writes these paths:
 The CLI never writes `.protobot/test-catalog.jsonl`,
 `.protobot/attestations/`, WMS state, credentials, or Worker projections. It
 does not commit, push, open, or merge a pull request. The Git integration
-contract owns those operations. `change-set create` is the governed seam at
+contract owns those operations. The
+[Source Control Manager](source-control-manager.md) performs the commit,
+the push, and the pull-request operations; a person merges.
+`change-set create` is the governed seam at
 which the Drafting Table requests a change-set branch; branch naming and
 branch lifecycle still follow [Git and Project-Repository
 Integration](git-integration.md#change-set-branches).
@@ -275,8 +279,9 @@ ears-manager project init \
 
 The defaults are `main`, `cs/`, `docs/vision.md`, and
 `docs/architecture.md`. Initialization creates the `.protobot/` control
-namespace, seeds schema versions and the default `stores` block, registers
-the opaque Vision and Architecture artifacts, and classifies registered
+namespace, seeds the version-1 schema keys, the default `stores` block, and
+the initial `store_digests` values, registers the opaque Vision and
+Architecture artifacts, and classifies registered
 specification paths as `shared` in
 `.protobot/projection.yaml`. It does not create content, commit, push, or
 merge anything. The caller follows the project-initialization sequence in
@@ -435,7 +440,8 @@ Failed result envelope:
 
 `data` is operation-specific. `diagnostics` on a successful response contains
 warnings that did not prevent the operation. A failure's `error.diagnostics`
-contains structured errors in stable path/code order. The process exit status
+contains structured errors sorted lexicographically by path, then code, then
+record ID, field, severity, message, and hint. The process exit status
 and `error.exit_code` are the same value.
 
 ### Diagnostic entries
@@ -493,7 +499,7 @@ operation. Fields inherited from ADR-0002 are not repeated in full.
 
 | Request | Success result | Diagnostic result |
 | --- | --- | --- |
-| Project ID, name, canonical remote, review mode, and optional path/branch defaults | Project identity, repository settings, schema versions, store paths, registered artifact IDs/paths, and changed paths | `project.already_initialized`, `project.not_git_root`, `project.invalid_path`, `project.remote_credentials`, or `project.invalid_configuration` |
+| Project ID, name, canonical remote, review mode, and optional path/branch defaults | Project identity, repository settings, version-1 schema keys, store paths and integrity digests, registered artifact IDs/paths, and changed paths | `project.already_initialized`, `project.not_git_root`, `project.invalid_path`, `project.remote_credentials`, or `project.invalid_configuration` |
 
 The operation is the only write that does not require an existing project
 configuration or `--change-set`. It is atomic across `project.yaml` and
@@ -504,7 +510,7 @@ sequence; initialization itself does not approve or commit the project.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.write_not_allowed`, or a validator diagnostic |
+| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.validator_unavailable`, `artifact.write_not_allowed`, or a validator diagnostic |
 | `artifact get` | Exactly one of artifact ID or kind, where kind must match one opaque artifact entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
@@ -512,8 +518,9 @@ sequence; initialization itself does not approve or commit the project.
 and external interface-IDL content. It updates the registry digest, records
 the artifact operation in the change-set manifest, and, for a new registered
 path, adds the `shared` projection classification in the same transaction. It
-never executes a validator name supplied by the caller; validators are
-selected from the built-in allowlist.
+accepts only a stable validator registry name; the selected code-controlled
+adapter may invoke an approved external tool with fixed arguments, but a
+caller-supplied executable or command line is never executed.
 
 ### Interfaces
 
@@ -549,7 +556,7 @@ explicit.
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
-| `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths | `change_set.not_found` |
+| `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: a directory registry entry is listed as its canonical file set | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
@@ -580,8 +587,11 @@ ears-manager check [--at FULL-SHA] [--change-set CS-ID]
 
 `check` is read-only. Without `--change-set`, it validates the complete
 project store, registry, projection classification, all records, and all
-referential, relationship, EARS, digest, and change-set rules, and verifies
-the impact assessment for every proposed change set found in the working tree.
+referential, relationship, EARS, artifact-digest, structured-store-integrity,
+and change-set rules. It verifies impact completeness for every proposed
+change set found in the working tree, while preserving approved manifests'
+stored historical assessments. Independent load failures are aggregated with
+semantic diagnostics from records that could still be read.
 With `--change-set`, it narrows that impact check to the named proposed
 manifest. "Matches"
 means that every current mechanical candidate has exactly one final recorded
@@ -608,8 +618,9 @@ Success data contains:
 An invalid specification returns the failure envelope with one or more stable
 diagnostics and status `4`; project discovery or schema-version failures use
 status `3`. When `--change-set` finds an incomplete, stale, or mismatched
-impact assessment, `check` returns status `5` so the caller refreshes and
-re-reviews state rather than revising record content. `check` never repairs
+proposed impact assessment, `check` returns status `5` so the caller refreshes
+and re-reviews state rather than revising record content. Approved manifests
+are checked against their stored historical assessment. `check` never repairs
 files.
 
 ### `change-set compare`
@@ -657,6 +668,12 @@ Changed and retired requirements are not returned as unchanged candidates.
 Every current mechanical candidate is returned, including its recorded
 disposition and rationale when an assessment already contains it. Candidates
 are sorted by requirement ID.
+
+Impact candidate completeness applies only to proposed change sets. `check`
+receives proposed-change-set context from its caller and recomputes the
+candidate set for those manifests. Approved manifests are immutable historical
+records: validation checks their stored assessment shape and references but
+does not mark them stale or invalid because later requirements changed.
 The result shape is:
 
 ```json
@@ -727,10 +744,14 @@ stale status.
 
 Every mutating command follows this sequence:
 
-1. Resolve the project and verify schema versions.
-2. Load the complete affected store using safe parsing.
+1. Resolve the project and read schema-version metadata before strict field
+   decoding, so a newer schema produces `schema.unsupported_version` rather
+   than an unknown-field decode failure.
+2. Load the complete affected store using safe parsing, retaining all valid
+   records and aggregating independent load failures.
 3. Validate the request and all affected records, references, relationships,
-   registered paths, and projection classifications.
+   registered paths, projection classifications, and structured-store
+   integrity digests.
 4. For an existing-change-set write, verify that the change set is proposed
    and its base/revision is current. `project init` instead verifies that the
    control namespace is absent; `change-set create` verifies project
@@ -794,13 +815,18 @@ demonstrates:
   and exit-status assertion;
 - human diagnostics go to stderr and JSON results contain no progress output;
 - every failed mutation leaves the governed store unchanged;
-- direct edits or unregistered paths are rejected by `check` and by the
-  Drafting Table's pre-stage verification;
+- direct edits, additions, deletions, renames, symlinked entries, or
+  unregistered paths are rejected by `check` and by the Drafting Table's
+  pre-stage digest check;
+- independent load failures are aggregated with diagnostics from valid
+  records that remain readable, in path/code order;
+- validator names select code-controlled adapters and never caller-supplied
+  commands;
 - `change-set compare` and `impact` are deterministic for the same base and
   working tree;
 - semantic impact additions are visible, carry rationale, and cannot bypass
   user disposition;
-- an incomplete or stale impact assessment prevents approval; and
+- an incomplete or stale proposed impact assessment prevents approval; and
 - an approved change set is immutable while an unapproved change set remains
   revisable.
 
@@ -840,6 +866,8 @@ new design track.
   approval behavior
 - [Git and Project-Repository Integration](git-integration.md) — Branches,
   commits, pull requests, and approved state
+- [Source Control Manager](source-control-manager.md) — The caller that
+  stages, commits, and publishes what `ears-manager` writes
 - [Open Design Questions](open-questions.md) — Remaining unresolved design
   questions
 - [ADR-0001](../decisions/0001-requirements-storage-format.md) — Physical
