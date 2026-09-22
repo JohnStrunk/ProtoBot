@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"unicode"
 	"unicode/utf8"
 
@@ -124,7 +125,7 @@ func runCheck(args []string) (any, Mutation, *commandFailure) {
 			Artifacts:    len(state.snapshot.Config.Artifacts),
 		},
 	}
-	return data, Mutation{}, nil
+	return data, Mutation{diagnostics: append([]specvalidation.Diagnostic(nil), state.diagnostics...)}, nil
 }
 
 type checkData struct {
@@ -175,7 +176,7 @@ func runRequirementAdd(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	if err := records.ValidateRequirementID(id); err != nil {
-		return nil, Mutation{}, validationFailure("requirement.invalid_id", err.Error(), nil)
+		return nil, Mutation{}, invalidIDFailure("requirement.invalid_id", "Requirement", id)
 	}
 	requirementType, failure := requireOption(parsed, "type")
 	if failure != nil {
@@ -238,6 +239,10 @@ func runRequirementAdd(args []string) (any, Mutation, *commandFailure) {
 	if err != nil {
 		return nil, Mutation{}, internalFailure("the requirement path could not be determined")
 	}
+	targetIndexes, failure := synchronizeSymmetricRelationships(&staged, &changeSet, id, records.Requirement{}, requirement)
+	if failure != nil {
+		return nil, Mutation{}, failure
+	}
 	staged.ChangeSets[changeSetIndex].Value = changeSet
 	changeSetPath := staged.ChangeSets[changeSetIndex].Path
 	if changeSetPath == "" {
@@ -250,25 +255,31 @@ func runRequirementAdd(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	writes := []fileWrite{}
-	if err := addWrite(&writes, requirementPath, requirement); err != nil {
+	if err := addRequirementWrites(&writes, &staged, requirementPath, requirement, targetIndexes); err != nil {
 		return nil, Mutation{}, internalFailure("the requirement could not be serialized")
 	}
 	if err := addWrite(&writes, changeSetPath, changeSet); err != nil {
 		return nil, Mutation{}, internalFailure("the change set could not be serialized")
 	}
-	if err := addConfigWrite(state.root, &staged, &writes); err != nil {
-		return nil, Mutation{}, internalFailure("the project configuration could not be serialized")
+	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
+		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
 	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
-	return requirementMutationData{Requirement: toRequirementJSON(requirement), Operation: toRequirementOperationJSON(operation)}, mutation, nil
+	return requirementMutationData{Requirement: requirementJSONPointer(toRequirementJSON(requirement)), Operation: toRequirementOperationJSON(operation)}, mutation, nil
 }
 
 type requirementMutationData struct {
-	Requirement requirementJSON          `json:"requirement"`
+	Requirement *requirementJSON         `json:"requirement,omitempty"`
+	Before      *requirementJSON         `json:"before,omitempty"`
+	After       *requirementJSON         `json:"after,omitempty"`
 	Operation   requirementOperationJSON `json:"operation"`
+}
+
+func requirementJSONPointer(value requirementJSON) *requirementJSON {
+	return &value
 }
 
 func runRequirementList(args []string) (any, Mutation, *commandFailure) {
@@ -278,7 +289,7 @@ func runRequirementList(args []string) (any, Mutation, *commandFailure) {
 	}
 	if parsed.has("interface") {
 		if err := records.ValidateInterfaceID(parsed.one("interface")); err != nil {
-			return nil, Mutation{}, validationFailure("interface.invalid_id", err.Error(), nil)
+			return nil, Mutation{}, invalidIDFailure("interface.invalid_id", "Interface", parsed.one("interface"))
 		}
 	}
 	if parsed.has("type") && !validEARSStyle(parsed.one("type")) {
@@ -330,7 +341,7 @@ func runRequirementShow(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	if err := records.ValidateRequirementID(id); err != nil {
-		return nil, Mutation{}, validationFailure("requirement.invalid_id", err.Error(), nil)
+		return nil, Mutation{}, invalidIDFailure("requirement.invalid_id", "Requirement", id)
 	}
 	state, failure := loadReadState()
 	if failure != nil {
@@ -362,7 +373,7 @@ func runRequirementUpdate(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	if err := records.ValidateRequirementID(id); err != nil {
-		return nil, Mutation{}, validationFailure("requirement.invalid_id", err.Error(), nil)
+		return nil, Mutation{}, invalidIDFailure("requirement.invalid_id", "Requirement", id)
 	}
 	if !hasRecordUpdate(parsed) {
 		return nil, Mutation{}, usageFailure("requirement update requires at least one record field")
@@ -379,7 +390,8 @@ func runRequirementUpdate(args []string) (any, Mutation, *commandFailure) {
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
-	updated := cloneRequirement(current)
+	before := records.CanonicalRequirement(current)
+	updated := cloneRequirement(before)
 	if parsed.has("type") {
 		updated.Type = records.EARSStyle(parsed.one("type"))
 	}
@@ -426,6 +438,10 @@ func runRequirementUpdate(args []string) (any, Mutation, *commandFailure) {
 	}
 	staged := cloneSnapshot(state.snapshot)
 	staged.Requirements[requirementIndex].Value = updated
+	targetIndexes, failure := synchronizeSymmetricRelationships(&staged, &changeSet, id, before, updated)
+	if failure != nil {
+		return nil, Mutation{}, failure
+	}
 	staged.ChangeSets[changeSetIndex].Value = changeSet
 	if failure := validateCandidate(staged, true); failure != nil {
 		return nil, Mutation{}, failure
@@ -433,20 +449,20 @@ func runRequirementUpdate(args []string) (any, Mutation, *commandFailure) {
 	requirementPath := staged.Requirements[requirementIndex].Path
 	changeSetPath := staged.ChangeSets[changeSetIndex].Path
 	writes := []fileWrite{}
-	if err := addWrite(&writes, requirementPath, updated); err != nil {
+	if err := addRequirementWrites(&writes, &staged, requirementPath, updated, targetIndexes); err != nil {
 		return nil, Mutation{}, internalFailure("the requirement could not be serialized")
 	}
 	if err := addWrite(&writes, changeSetPath, changeSet); err != nil {
 		return nil, Mutation{}, internalFailure("the change set could not be serialized")
 	}
-	if err := addConfigWrite(state.root, &staged, &writes); err != nil {
-		return nil, Mutation{}, internalFailure("the project configuration could not be serialized")
+	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
+		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
 	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
-	return requirementMutationData{Requirement: toRequirementJSON(updated), Operation: toRequirementOperationJSON(operation)}, mutation, nil
+	return requirementMutationData{Before: requirementJSONPointer(toRequirementJSON(before)), After: requirementJSONPointer(toRequirementJSON(updated)), Operation: toRequirementOperationJSON(operation)}, mutation, nil
 }
 
 func runRequirementRetire(args []string) (any, Mutation, *commandFailure) {
@@ -463,7 +479,7 @@ func runRequirementRetire(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	if err := records.ValidateRequirementID(id); err != nil {
-		return nil, Mutation{}, validationFailure("requirement.invalid_id", err.Error(), nil)
+		return nil, Mutation{}, invalidIDFailure("requirement.invalid_id", "Requirement", id)
 	}
 	state, failure := loadState()
 	if failure != nil {
@@ -477,6 +493,7 @@ func runRequirementRetire(args []string) (any, Mutation, *commandFailure) {
 	if current.Status == records.StatusRetired {
 		return nil, Mutation{}, conflictFailure("requirement.already_retired", fmt.Sprintf("Requirement %s is already retired.", id), nil)
 	}
+	before := current
 	changeSetIndex, changeSet, failure := proposedChangeSet(state, changeSetID)
 	if failure != nil {
 		return nil, Mutation{}, failure
@@ -499,14 +516,14 @@ func runRequirementRetire(args []string) (any, Mutation, *commandFailure) {
 	if err := addWrite(&writes, staged.ChangeSets[changeSetIndex].Path, changeSet); err != nil {
 		return nil, Mutation{}, internalFailure("the change set could not be serialized")
 	}
-	if err := addConfigWrite(state.root, &staged, &writes); err != nil {
-		return nil, Mutation{}, internalFailure("the project configuration could not be serialized")
+	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
+		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
 	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
-	return requirementMutationData{Requirement: toRequirementJSON(current), Operation: toRequirementOperationJSON(operation)}, mutation, nil
+	return requirementMutationData{Before: requirementJSONPointer(toRequirementJSON(before)), After: requirementJSONPointer(toRequirementJSON(current)), Operation: toRequirementOperationJSON(operation)}, mutation, nil
 }
 
 func hasRecordUpdate(parsed options) bool {
@@ -533,6 +550,93 @@ func parseRelationships(values []string) ([]records.Relationship, *commandFailur
 	return result, nil
 }
 
+type symmetricRelationship struct {
+	typeName string
+	target   string
+}
+
+func synchronizeSymmetricRelationships(snapshot *specvalidation.Snapshot, changeSet *records.ChangeSet, sourceID string, before, after records.Requirement) ([]int, *commandFailure) {
+	beforeEdges := symmetricRelationships(before.Relationships)
+	afterEdges := symmetricRelationships(after.Relationships)
+	edges := make(map[symmetricRelationship]bool, len(beforeEdges)+len(afterEdges))
+	for edge := range beforeEdges {
+		edges[edge] = true
+	}
+	for edge := range afterEdges {
+		edges[edge] = true
+	}
+	edgeList := make([]symmetricRelationship, 0, len(edges))
+	for edge := range edges {
+		edgeList = append(edgeList, edge)
+	}
+	sort.Slice(edgeList, func(i, j int) bool {
+		if edgeList[i].typeName == edgeList[j].typeName {
+			return edgeList[i].target < edgeList[j].target
+		}
+		return edgeList[i].typeName < edgeList[j].typeName
+	})
+
+	changed := make([]int, 0, len(edges))
+	seen := make(map[int]bool)
+	for _, edge := range edgeList {
+		if edge.target == sourceID || records.ValidateRequirementID(edge.target) != nil {
+			continue
+		}
+		targetIndex, target, exists := findRequirement(*snapshot, edge.target)
+		if !exists {
+			continue
+		}
+		target = cloneRequirement(target)
+		wantInverse := afterEdges[edge]
+		relationships, modified := setSymmetricInverse(target.Relationships, edge.typeName, sourceID, wantInverse)
+		if !modified {
+			continue
+		}
+		target.Relationships = relationships
+		snapshot.Requirements[targetIndex].Value = target
+		if _, failure := requirementOperation(changeSet, "revise", target.ID); failure != nil {
+			return nil, failure
+		}
+		if !seen[targetIndex] {
+			changed = append(changed, targetIndex)
+			seen[targetIndex] = true
+		}
+	}
+	sort.Ints(changed)
+	return changed, nil
+}
+
+func symmetricRelationships(values []records.Relationship) map[symmetricRelationship]bool {
+	result := make(map[symmetricRelationship]bool)
+	for _, relationship := range values {
+		if relationship.Type == "conflicts-with" || relationship.Type == "related-to" {
+			result[symmetricRelationship{typeName: relationship.Type, target: relationship.Target}] = true
+		}
+	}
+	return result
+}
+
+func setSymmetricInverse(values []records.Relationship, typeName, target string, wanted bool) ([]records.Relationship, bool) {
+	result := make([]records.Relationship, 0, len(values)+1)
+	found := false
+	modified := false
+	for _, relationship := range values {
+		if relationship.Type == typeName && relationship.Target == target {
+			found = true
+			if !wanted {
+				modified = true
+				continue
+			}
+		}
+		result = append(result, relationship)
+	}
+	if wanted && !found {
+		result = append(result, records.Relationship{Type: typeName, Target: target})
+		modified = true
+	}
+	return result, modified
+}
+
 func hasRelationship(values []records.Relationship, relationshipType string) bool {
 	return slices.ContainsFunc(values, func(relationship records.Relationship) bool {
 		return relationship.Type == relationshipType
@@ -541,7 +645,7 @@ func hasRelationship(values []records.Relationship, relationshipType string) boo
 
 func proposedChangeSet(state projectState, id string) (int, records.ChangeSet, *commandFailure) {
 	if err := records.ValidateChangeSetID(id); err != nil {
-		return -1, records.ChangeSet{}, validationFailure("change_set.invalid_id", err.Error(), nil)
+		return -1, records.ChangeSet{}, invalidIDFailure("change_set.invalid_id", "Change-set", id)
 	}
 	index, value, exists := findChangeSet(state.snapshot, id)
 	if !exists {
@@ -576,6 +680,11 @@ func requirementOperation(changeSet *records.ChangeSet, action, id string) (reco
 			changeSet.Operations[index] = operation
 			return operation, nil
 		}
+		if operation.Action == "add" && action == "retire" {
+			operation.Action = action
+			changeSet.Operations[index] = operation
+			return operation, nil
+		}
 		return records.RequirementOperation{}, conflictFailure("change_set.duplicate_operation", fmt.Sprintf("Requirement %s is already present in the change set.", id), nil)
 	}
 	operation := records.RequirementOperation{Action: action, RequirementID: id}
@@ -597,7 +706,7 @@ func runInterfaceAdd(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	if err := records.ValidateInterfaceID(id); err != nil {
-		return nil, Mutation{}, validationFailure("interface.invalid_id", err.Error(), nil)
+		return nil, Mutation{}, invalidIDFailure("interface.invalid_id", "Interface", id)
 	}
 	name, failure := requireOption(parsed, "name")
 	if failure != nil {
@@ -651,8 +760,8 @@ func runInterfaceAdd(args []string) (any, Mutation, *commandFailure) {
 	if err := addWrite(&writes, staged.ChangeSets[changeSetIndex].Path, changeSet); err != nil {
 		return nil, Mutation{}, internalFailure("the change set could not be serialized")
 	}
-	if err := addConfigWrite(state.root, &staged, &writes); err != nil {
-		return nil, Mutation{}, internalFailure("the project configuration could not be serialized")
+	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
+		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
 	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
 	if failure != nil {
@@ -708,7 +817,7 @@ func runInterfaceShow(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	if err := records.ValidateInterfaceID(id); err != nil {
-		return nil, Mutation{}, validationFailure("interface.invalid_id", err.Error(), nil)
+		return nil, Mutation{}, invalidIDFailure("interface.invalid_id", "Interface", id)
 	}
 	state, failure := loadReadState()
 	if failure != nil {
@@ -745,7 +854,7 @@ func runArtifactGet(args []string) (any, Mutation, *commandFailure) {
 	}
 	if parsed.has("id") {
 		if err := records.ValidateArtifactID(parsed.one("id")); err != nil {
-			return nil, Mutation{}, validationFailure("artifact.invalid_id", err.Error(), nil)
+			return nil, Mutation{}, invalidIDFailure("artifact.invalid_id", "Artifact", parsed.one("id"))
 		}
 	}
 	if parsed.has("kind") && !validArtifactKind(parsed.one("kind")) {
@@ -808,7 +917,7 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 		return nil, Mutation{}, failure
 	}
 	if err := records.ValidateArtifactID(id); err != nil {
-		return nil, Mutation{}, validationFailure("artifact.invalid_id", err.Error(), nil)
+		return nil, Mutation{}, invalidIDFailure("artifact.invalid_id", "Artifact", id)
 	}
 	kind, failure := requireOption(parsed, "kind")
 	if failure != nil {
@@ -880,8 +989,8 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	if err := addWrite(&writes, staged.ChangeSets[changeSetIndex].Path, changeSet); err != nil {
 		return nil, Mutation{}, internalFailure("the change set could not be serialized")
 	}
-	if err := addConfigWrite(state.root, &staged, &writes); err != nil {
-		return nil, Mutation{}, internalFailure("the project configuration could not be serialized")
+	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
+		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
 	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
 	if failure != nil {
@@ -911,11 +1020,15 @@ func readContentSource(parsed options, stdin io.Reader) ([]byte, *commandFailure
 		}
 		return data, nil
 	}
-	info, err := os.Lstat(path)
-	if errors.Is(err, fs.ErrNotExist) || err != nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+	data, err := openAndReadRegularFile(func() (*os.File, error) {
+		return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	})
+	if errors.Is(err, fs.ErrNotExist) || err != nil {
 		return nil, validationFailure("input.invalid_source", "The artifact content source must be an existing regular file.", nil)
 	}
-	data, err := os.ReadFile(path)
+	if errors.Is(err, errNotRegularFile) {
+		return nil, validationFailure("input.invalid_source", "The artifact content source must be an existing regular file.", nil)
+	}
 	if err != nil {
 		return nil, validationFailure("input.invalid_source", "The artifact content source could not be read.", nil)
 	}
@@ -1003,8 +1116,8 @@ func runChangeSetCreate(args []string) (any, Mutation, *commandFailure) {
 	if err := addWrite(&writes, changeSetPath, changeSet); err != nil {
 		return nil, Mutation{}, internalFailure("the change set could not be serialized")
 	}
-	if err := addConfigWrite(state.root, &staged, &writes); err != nil {
-		return nil, Mutation{}, internalFailure("the project configuration could not be serialized")
+	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
+		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
 	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
 	if failure != nil {
@@ -1036,6 +1149,10 @@ func parseBoolOption(parsed options, name string) (bool, *commandFailure) {
 		return false, usageFailure(fmt.Sprintf("option --%s must be true or false", name))
 	}
 	return value == "true", nil
+}
+
+func invalidIDFailure(code, kind, id string) *commandFailure {
+	return validationFailure(code, fmt.Sprintf("%s ID %q is invalid.", kind, id), nil)
 }
 
 func currentCommit(root string) (string, *commandFailure) {

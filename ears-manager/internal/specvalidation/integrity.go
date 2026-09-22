@@ -3,6 +3,7 @@ package specvalidation
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,10 @@ import (
 	"github.com/redhat-et/protobot/ears-manager/internal/records"
 	"github.com/redhat-et/protobot/ears-manager/internal/storage"
 )
+
+// ErrUnobservedStoreEntry indicates that a governed transaction found a
+// record file that was not part of the snapshot it validated.
+var ErrUnobservedStoreEntry = errors.New("unobserved structured-store entry")
 
 func validateStoreIntegrity(result *Result, snapshot Snapshot, projectPath string, stores records.StorePaths, expected records.StoreDigests) {
 	if snapshot.ConfigFields == nil && emptyStoreDigests(expected) {
@@ -58,6 +63,16 @@ func canonicalStoreDigest(root, relativeDirectory string) (string, error) {
 // caller persist the updated store digest in the same transaction as its
 // record writes.
 func CanonicalStoreDigestWithOverrides(root, relativeDirectory string, overrides map[string][]byte) (string, error) {
+	return canonicalStoreDigestWithObserved(root, relativeDirectory, overrides, nil)
+}
+
+// CanonicalStoreDigestWithOverridesAndObserved computes a store digest while
+// rejecting files that appeared after the caller's validated snapshot.
+func CanonicalStoreDigestWithOverridesAndObserved(root, relativeDirectory string, overrides map[string][]byte, observed map[string]bool) (string, error) {
+	return canonicalStoreDigestWithObserved(root, relativeDirectory, overrides, observed)
+}
+
+func canonicalStoreDigestWithObserved(root, relativeDirectory string, overrides map[string][]byte, observed map[string]bool) (string, error) {
 	canonical, err := canonicalStorePath(relativeDirectory)
 	if err != nil {
 		return "", err
@@ -98,6 +113,11 @@ func CanonicalStoreDigestWithOverrides(root, relativeDirectory string, overrides
 				continue
 			}
 			relativePath := filepath.ToSlash(filepath.Join(canonical, entry.Name()))
+			if observed != nil && !observed[relativePath] {
+				if _, overridden := overrides[relativePath]; !overridden {
+					return "", fmt.Errorf("%w: %s", ErrUnobservedStoreEntry, relativePath)
+				}
+			}
 			entryInfo, err := rootHandle.Lstat(filepath.FromSlash(relativePath))
 			if err != nil {
 				return "", err

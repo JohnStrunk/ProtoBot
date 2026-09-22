@@ -254,10 +254,10 @@ func validateImpactOrigin(result *Result, path, changeSetID, field string, asses
 		return
 	}
 	if assessment.Origin == "mechanical" && !candidates[assessment.RequirementID] {
-		result.add(diagnostic("change_set.invalid_impact", path, changeSetID, field+".origin", fmt.Sprintf("Requirement %q is not a current mechanical impact candidate.", assessment.RequirementID), "Use semantic origin for an explicitly reviewed extra or remove the entry."))
+		result.add(diagnostic("change_set.stale_impact", path, changeSetID, field+".origin", fmt.Sprintf("Requirement %q is not a current mechanical impact candidate.", assessment.RequirementID), "Refresh impact candidates and record a new reviewed assessment."))
 	}
 	if assessment.Origin == "semantic" && candidates[assessment.RequirementID] {
-		result.add(diagnostic("change_set.invalid_impact", path, changeSetID, field+".origin", fmt.Sprintf("Requirement %q is a mechanical impact candidate.", assessment.RequirementID), "Record the deterministic candidate with mechanical origin."))
+		result.add(diagnostic("change_set.stale_impact", path, changeSetID, field+".origin", fmt.Sprintf("Requirement %q is a mechanical impact candidate.", assessment.RequirementID), "Refresh impact candidates and record a new reviewed assessment."))
 	}
 }
 

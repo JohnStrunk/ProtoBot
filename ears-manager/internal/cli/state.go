@@ -4,25 +4,28 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
+	"sync/atomic"
+	"syscall"
 
+	"github.com/redhat-et/protobot/ears-manager/internal/project"
 	"github.com/redhat-et/protobot/ears-manager/internal/records"
 	"github.com/redhat-et/protobot/ears-manager/internal/specvalidation"
 	"github.com/redhat-et/protobot/ears-manager/internal/storage"
 )
 
 type projectState struct {
-	root     string
-	snapshot specvalidation.Snapshot
-	observed map[string]fileExpectation
-	head     string
+	root        string
+	snapshot    specvalidation.Snapshot
+	observed    map[string]fileExpectation
+	head        string
+	diagnostics []specvalidation.Diagnostic
 }
 
 type fileWrite struct {
@@ -40,12 +43,10 @@ func resolveRoot() (string, *commandFailure) {
 	if err != nil {
 		return "", projectFailure("project.not_git_root", "Unable to determine the current working directory.")
 	}
-	command := exec.Command("git", "-C", cwd, "rev-parse", "--show-toplevel")
-	output, err := command.Output()
+	root, err := project.GitRoot(cwd)
 	if err != nil {
 		return "", projectFailure("project.not_git_root", "The current directory is not inside a Git working tree.")
 	}
-	root := strings.TrimSpace(string(output))
 	if root == "" {
 		return "", projectFailure("project.not_git_root", "Git did not return a working-tree root.")
 	}
@@ -68,11 +69,16 @@ func loadState() (projectState, *commandFailure) {
 		return projectState{}, ioFailure("project.configuration_unreadable", "The project configuration could not be inspected.")
 	}
 	snapshot, err := specvalidation.Load(root)
+	context := proposedChangeSetContext(snapshot)
 	if err == nil {
-		head, _ := currentCommit(root)
+		snapshot.Context = context
+		head, failure := currentCommit(root)
+		if failure != nil {
+			return projectState{}, failure
+		}
 		return projectState{root: root, snapshot: snapshot, observed: observeSnapshot(root, snapshot), head: head}, nil
 	}
-	result := specvalidation.ValidateProject(root)
+	result := specvalidation.ValidateProjectWithContext(root, context)
 	if !result.Valid || len(result.Diagnostics) > 0 {
 		return projectState{}, failureFromValidation(result, false)
 	}
@@ -80,16 +86,21 @@ func loadState() (projectState, *commandFailure) {
 }
 
 func applyStateTransaction(state projectState, writes []fileWrite, postValidate func() *commandFailure) (Mutation, *commandFailure) {
-	if state.head != "" {
-		current, failure := currentCommit(state.root)
-		if failure != nil {
-			return Mutation{}, failure
-		}
-		if !strings.EqualFold(current, state.head) {
-			return Mutation{}, conflictFailure("change_set.base_mismatch", "The repository advanced while the command was preparing its write.", nil)
+	current, failure := currentCommit(state.root)
+	if failure != nil {
+		return Mutation{}, failure
+	}
+	if !strings.EqualFold(current, state.head) {
+		return Mutation{}, conflictFailure("change_set.base_mismatch", "The repository advanced while the command was preparing its write.", nil)
+	}
+	expected := cloneExpectations(state.observed)
+	for _, write := range writes {
+		path := filepath.ToSlash(write.path)
+		if _, exists := expected[path]; !exists {
+			expected[path] = fileExpectation{}
 		}
 	}
-	return applyTransaction(state.root, writes, state.observed, postValidate)
+	return applyTransaction(state.root, writes, expected, postValidate)
 }
 
 func loadReadState() (projectState, *commandFailure) {
@@ -115,16 +126,42 @@ func checkState() (projectState, *commandFailure) {
 		}
 		return projectState{}, ioFailure("project.configuration_unreadable", "The project configuration could not be inspected.")
 	}
-	result := specvalidation.ValidateProject(root)
+	loaded, _ := specvalidation.Load(root)
+	context := proposedChangeSetContext(loaded)
+	result := specvalidation.ValidateProjectWithContext(root, context)
 	if !result.Valid {
 		return projectState{root: root}, failureFromValidation(result, false)
 	}
-	snapshot, err := specvalidation.Load(root)
+	snapshot, err := specvalidation.LoadWithContext(root, context)
 	if err != nil {
 		return projectState{root: root}, ioFailure("storage.read_failed", "The validated project could not be reloaded.")
 	}
-	head, _ := currentCommit(root)
-	return projectState{root: root, snapshot: snapshot, observed: observeSnapshot(root, snapshot), head: head}, nil
+	head, failure := currentCommit(root)
+	if failure != nil {
+		return projectState{root: root}, failure
+	}
+	return projectState{root: root, snapshot: snapshot, observed: observeSnapshot(root, snapshot), head: head, diagnostics: result.Diagnostics}, nil
+}
+
+func proposedChangeSetContext(snapshot specvalidation.Snapshot) specvalidation.ValidationContext {
+	proposed := make(map[string]bool, len(snapshot.ChangeSets))
+	for _, document := range snapshot.ChangeSets {
+		if document.Value.ID != "" {
+			proposed[document.Value.ID] = true
+		}
+	}
+	return specvalidation.ValidationContext{ProposedChangeSets: proposed}
+}
+
+func cloneExpectations(value map[string]fileExpectation) map[string]fileExpectation {
+	result := make(map[string]fileExpectation, len(value))
+	for path, expectation := range value {
+		result[filepath.ToSlash(path)] = fileExpectation{
+			present: expectation.present,
+			data:    append([]byte(nil), expectation.data...),
+		}
+	}
+	return result
 }
 
 func observeSnapshot(root string, snapshot specvalidation.Snapshot) map[string]fileExpectation {
@@ -193,7 +230,15 @@ func failureFromDiagnostics(diagnostics []specvalidation.Diagnostic) *commandFai
 			Retry:       "select-or-upgrade-project",
 		}
 	}
-	if slices.ContainsFunc(diagnostics, draftOnlyDiagnostic) {
+	hasDraftDiagnostic := false
+	for _, diagnostic := range diagnostics {
+		if draftOnlyDiagnostic(diagnostic) {
+			hasDraftDiagnostic = true
+			continue
+		}
+		return validationFailure("validation.failed", "The specification is not valid.", diagnostics)
+	}
+	if hasDraftDiagnostic {
 		return conflictFailure("change_set.assessment_incomplete", "The change-set impact assessment is incomplete or stale.", diagnostics)
 	}
 	return validationFailure("validation.failed", "The specification is not valid.", diagnostics)
@@ -201,6 +246,7 @@ func failureFromDiagnostics(diagnostics []specvalidation.Diagnostic) *commandFai
 
 func draftOnlyDiagnostic(diagnostic specvalidation.Diagnostic) bool {
 	return diagnostic.Code == "change_set.incomplete_impact" ||
+		diagnostic.Code == "change_set.stale_impact" ||
 		(diagnostic.Code == "change_set.missing_field" && diagnostic.Field == "impact_assessment")
 }
 
@@ -441,7 +487,19 @@ func addWrite(writes *[]fileWrite, path string, value any) error {
 	return nil
 }
 
-func addConfigWrite(root string, snapshot *specvalidation.Snapshot, writes *[]fileWrite) error {
+func addRequirementWrites(writes *[]fileWrite, snapshot *specvalidation.Snapshot, sourcePath string, source records.Requirement, targetIndexes []int) error {
+	if err := addWrite(writes, sourcePath, source); err != nil {
+		return err
+	}
+	for _, targetIndex := range targetIndexes {
+		if err := addWrite(writes, snapshot.Requirements[targetIndex].Path, snapshot.Requirements[targetIndex].Value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func addConfigWrite(root string, snapshot *specvalidation.Snapshot, writes *[]fileWrite, observed map[string]fileExpectation) error {
 	overrides := make(map[string][]byte, len(*writes))
 	for _, write := range *writes {
 		overrides[filepath.ToSlash(write.path)] = write.data
@@ -449,17 +507,28 @@ func addConfigWrite(root string, snapshot *specvalidation.Snapshot, writes *[]fi
 	stores := snapshot.Config.Stores.WithDefaults()
 	digests := records.StoreDigests{}
 	var err error
-	if digests.Requirements, err = specvalidation.CanonicalStoreDigestWithOverrides(root, stores.Requirements, overrides); err != nil {
+	observedPaths := make(map[string]bool, len(observed))
+	for path := range observed {
+		observedPaths[filepath.ToSlash(path)] = true
+	}
+	if digests.Requirements, err = specvalidation.CanonicalStoreDigestWithOverridesAndObserved(root, stores.Requirements, overrides, observedPaths); err != nil {
 		return err
 	}
-	if digests.Interfaces, err = specvalidation.CanonicalStoreDigestWithOverrides(root, stores.Interfaces, overrides); err != nil {
+	if digests.Interfaces, err = specvalidation.CanonicalStoreDigestWithOverridesAndObserved(root, stores.Interfaces, overrides, observedPaths); err != nil {
 		return err
 	}
-	if digests.ChangeSets, err = specvalidation.CanonicalStoreDigestWithOverrides(root, stores.ChangeSets, overrides); err != nil {
+	if digests.ChangeSets, err = specvalidation.CanonicalStoreDigestWithOverridesAndObserved(root, stores.ChangeSets, overrides, observedPaths); err != nil {
 		return err
 	}
 	snapshot.Config.StoreDigests = digests
 	return addWrite(writes, configPath(*snapshot), snapshot.Config)
+}
+
+func configWriteFailure(err error, fallback string) *commandFailure {
+	if errors.Is(err, specvalidation.ErrUnobservedStoreEntry) {
+		return conflictFailure("change_set.concurrent_update", "The project changed while the command was preparing its write.", nil)
+	}
+	return internalFailure(fallback)
 }
 
 func addRawWrite(writes *[]fileWrite, path string, data []byte) {
@@ -487,55 +556,56 @@ type originalFile struct {
 	parentCreated []string
 }
 
-func applyTransaction(root string, writes []fileWrite, expected map[string]fileExpectation, postValidate func() *commandFailure) (Mutation, *commandFailure) {
+var transactionSequence uint64
+
+func applyTransaction(rootPath string, writes []fileWrite, expected map[string]fileExpectation, postValidate func() *commandFailure) (Mutation, *commandFailure) {
 	paths := writePaths(writes)
 	writes = deduplicateWrites(writes)
-	if expected == nil {
-		expected = make(map[string]fileExpectation, len(writes))
-	} else {
-		copyExpected := make(map[string]fileExpectation, len(expected)+len(writes))
-		for path, value := range expected {
-			copyExpected[path] = value
-		}
-		expected = copyExpected
-	}
+	expected = cloneExpectations(expected)
 	for _, write := range writes {
-		if _, exists := expected[filepath.ToSlash(write.path)]; !exists {
-			expected[filepath.ToSlash(write.path)] = readExpectation(root, write.path)
+		path := filepath.ToSlash(write.path)
+		if _, exists := expected[path]; !exists {
+			expected[path] = fileExpectation{}
 		}
 	}
 	if len(writes) == 0 {
 		return Mutation{}, internalFailure("the mutation did not produce any files")
 	}
+	root, err := os.OpenRoot(rootPath)
+	if err != nil {
+		return Mutation{}, ioFailure("storage.write_failed", "The governed write root could not be opened.")
+	}
+	defer func() { _ = root.Close() }()
 	originals := make([]originalFile, 0, len(writes))
 	for _, write := range writes {
-		if expectation, exists := expected[filepath.ToSlash(write.path)]; exists {
-			current := readExpectation(root, write.path)
-			if current.present != expectation.present || (current.present && !bytes.Equal(current.data, expectation.data)) {
-				return Mutation{}, conflictFailure("change_set.concurrent_update", "The project changed while the command was preparing its write.", nil)
-			}
+		relative := filepath.ToSlash(write.path)
+		expectation := expected[relative]
+		if _, err := storage.ValidatePathWithinNoSymlinks(rootPath, filepath.FromSlash(relative)); err != nil {
+			return Mutation{}, validationFailure("storage.write_not_allowed", "A governed write path is not allowed.", []specvalidation.Diagnostic{{Code: "storage.write_not_allowed", Severity: "error", Path: relative, Message: "The write path is outside the project root or resolves through a symlink.", Hint: "Use a project-relative governed path."}})
 		}
-		absolute, err := storage.ValidatePathWithinNoSymlinks(root, filepath.FromSlash(write.path))
-		if err != nil {
-			return Mutation{}, validationFailure("storage.write_not_allowed", "A governed write path is not allowed.", []specvalidation.Diagnostic{{Code: "storage.write_not_allowed", Severity: "error", Path: write.path, Message: "The write path is outside the project root or resolves through a symlink.", Hint: "Use a project-relative governed path."}})
-		}
-		info, err := os.Lstat(absolute)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		info, lstatErr := root.Lstat(filepath.FromSlash(relative))
+		if lstatErr != nil && !errors.Is(lstatErr, fs.ErrNotExist) {
 			return Mutation{}, ioFailure("storage.write_failed", "The governed write target could not be inspected.")
 		}
-		original := originalFile{path: absolute}
-		if err == nil {
+		original := originalFile{path: relative}
+		if lstatErr == nil {
 			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-				return Mutation{}, validationFailure("storage.write_not_allowed", "A governed write target must be a regular file.", []specvalidation.Diagnostic{{Code: "storage.write_not_allowed", Severity: "error", Path: write.path, Message: "The governed write target is not a regular file.", Hint: "Replace the target with a regular file."}})
-			}
-			original.wasPresent = true
-			original.mode = info.Mode()
-			original.data, err = os.ReadFile(absolute)
-			if err != nil {
-				return Mutation{}, ioFailure("storage.write_failed", "The governed write target could not be read before replacement.")
+				return Mutation{}, validationFailure("storage.write_not_allowed", "A governed write target must be a regular file.", []specvalidation.Diagnostic{{Code: "storage.write_not_allowed", Severity: "error", Path: relative, Message: "The governed write target is not a regular file.", Hint: "Replace the target with a regular file."}})
 			}
 		}
-		parentCreated, err := ensureParent(filepath.Dir(absolute))
+		current, err := readRootExpectation(root, filepath.FromSlash(relative))
+		if err != nil {
+			return Mutation{}, ioFailure("storage.write_failed", "The governed write target could not be inspected.")
+		}
+		if current.present != expectation.present || (current.present && !bytes.Equal(current.data, expectation.data)) {
+			return Mutation{}, conflictFailure("change_set.concurrent_update", "The project changed while the command was preparing its write.", nil)
+		}
+		if lstatErr == nil {
+			original.wasPresent = true
+			original.mode = info.Mode()
+			original.data = current.data
+		}
+		parentCreated, err := ensureParent(root, filepath.Dir(filepath.FromSlash(relative)))
 		if err != nil {
 			return Mutation{}, ioFailure("storage.write_failed", "The governed write directory could not be created.")
 		}
@@ -544,16 +614,16 @@ func applyTransaction(root string, writes []fileWrite, expected map[string]fileE
 	}
 
 	for index, write := range writes {
-		absolute := originals[index].path
-		if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
-			if rollbackErr := rollbackFiles(originals); rollbackErr != nil {
-				return Mutation{}, ioFailure("storage.write_unknown", "A governed write directory failed and its final state could not be established.")
+		relative := filepath.FromSlash(originals[index].path)
+		if err := root.MkdirAll(filepath.Dir(relative), 0o755); err != nil {
+			if rollbackErr := rollbackFiles(root, originals); rollbackErr != nil {
+				return Mutation{}, unknownIOFailure("storage.write_unknown", "A governed write directory failed and its final state could not be established.")
 			}
 			return Mutation{}, ioFailure("storage.write_failed", "The governed write directory could not be created.")
 		}
-		if err := replaceFile(absolute, write.data); err != nil {
-			if rollbackErr := rollbackFiles(originals[:index+1]); rollbackErr != nil {
-				return Mutation{}, ioFailure("storage.write_unknown", "A governed write failed and its final state could not be established.")
+		if err := replaceFile(root, relative, write.data); err != nil {
+			if rollbackErr := rollbackFiles(root, originals[:index+1]); rollbackErr != nil {
+				return Mutation{}, unknownIOFailure("storage.write_unknown", "A governed write failed and its final state could not be established.")
 			}
 			return Mutation{}, ioFailure("storage.write_failed", "A governed write failed; no mutation was applied.")
 		}
@@ -561,8 +631,8 @@ func applyTransaction(root string, writes []fileWrite, expected map[string]fileE
 
 	if postValidate != nil {
 		if failure := postValidate(); failure != nil {
-			if rollbackErr := rollbackFiles(originals); rollbackErr != nil {
-				return Mutation{}, ioFailure("storage.write_unknown", "Post-write validation failed and rollback could not be established.")
+			if rollbackErr := rollbackFiles(root, originals); rollbackErr != nil {
+				return Mutation{}, unknownIOFailure("storage.write_unknown", "Post-write validation failed and rollback could not be established.")
 			}
 			return Mutation{}, failure
 		}
@@ -584,12 +654,57 @@ func writePaths(writes []fileWrite) []string {
 	return paths
 }
 
-func ensureParent(directory string) ([]string, error) {
+func readRootExpectation(root *os.Root, relative string) (fileExpectation, error) {
+	_, err := root.Lstat(relative)
+	if errors.Is(err, fs.ErrNotExist) {
+		return fileExpectation{}, nil
+	}
+	if err != nil {
+		return fileExpectation{}, err
+	}
+	file, err := root.OpenFile(relative, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return fileExpectation{}, err
+	}
+	defer func() { _ = file.Close() }()
+	data, err := readOpenRegularFile(file)
+	if err != nil {
+		return fileExpectation{}, err
+	}
+	return fileExpectation{present: true, data: data}, nil
+}
+
+var errNotRegularFile = errors.New("file is not regular")
+
+func readOpenRegularFile(file *os.File) ([]byte, error) {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, errNotRegularFile
+	}
+	return io.ReadAll(file)
+}
+
+func openAndReadRegularFile(open func() (*os.File, error)) ([]byte, error) {
+	file, err := open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = file.Close() }()
+	return readOpenRegularFile(file)
+}
+
+func ensureParent(root *os.Root, directory string) ([]string, error) {
 	missing := []string{}
-	current := directory
+	current := filepath.Clean(directory)
 	for {
-		_, err := os.Stat(current)
+		info, err := root.Lstat(current)
 		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+				return nil, fmt.Errorf("parent path is not a regular directory")
+			}
 			break
 		}
 		if !errors.Is(err, fs.ErrNotExist) {
@@ -605,13 +720,14 @@ func ensureParent(directory string) ([]string, error) {
 	return missing, nil
 }
 
-func replaceFile(path string, data []byte) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".ears-manager-txn-")
+func replaceFile(root *os.Root, path string, data []byte) error {
+	directory := filepath.Dir(path)
+	temporaryName := filepath.Join(directory, fmt.Sprintf(".ears-manager-txn-%d-%d", os.Getpid(), atomic.AddUint64(&transactionSequence, 1)))
+	temporary, err := root.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 	if err != nil {
 		return err
 	}
-	temporaryName := temporary.Name()
-	defer func() { _ = os.Remove(temporaryName) }()
+	defer func() { _ = root.Remove(temporaryName) }()
 	if err := temporary.Chmod(0o644); err != nil {
 		_ = temporary.Close()
 		return err
@@ -627,21 +743,21 @@ func replaceFile(path string, data []byte) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	return os.Rename(temporaryName, path)
+	return root.Rename(temporaryName, path)
 }
 
-func rollbackFiles(files []originalFile) error {
+func rollbackFiles(root *os.Root, files []originalFile) error {
 	var rollbackErr error
 	for index := len(files) - 1; index >= 0; index-- {
 		file := files[index]
 		var err error
 		if file.wasPresent {
-			err = replaceFile(file.path, file.data)
+			err = replaceFile(root, filepath.FromSlash(file.path), file.data)
 			if err == nil {
-				err = os.Chmod(file.path, file.mode.Perm())
+				err = root.Chmod(filepath.FromSlash(file.path), file.mode.Perm())
 			}
 		} else {
-			err = os.Remove(file.path)
+			err = root.Remove(filepath.FromSlash(file.path))
 			if errors.Is(err, fs.ErrNotExist) {
 				err = nil
 			}
@@ -649,8 +765,10 @@ func rollbackFiles(files []originalFile) error {
 		if rollbackErr == nil && err != nil {
 			rollbackErr = err
 		}
-		for _, directory := range file.parentCreated {
-			if err := os.Remove(directory); rollbackErr == nil && err != nil && !errors.Is(err, fs.ErrNotExist) {
+	}
+	for index := len(files) - 1; index >= 0; index-- {
+		for _, directory := range files[index].parentCreated {
+			if err := root.Remove(directory); rollbackErr == nil && err != nil && !errors.Is(err, fs.ErrNotExist) {
 				rollbackErr = err
 			}
 		}
@@ -659,7 +777,11 @@ func rollbackFiles(files []originalFile) error {
 }
 
 func persistedValidation(root string, allowDraft bool) *commandFailure {
-	snapshot, err := specvalidation.Load(root)
+	loaded, err := specvalidation.Load(root)
+	if err != nil {
+		return ioFailure("storage.post_write_failed", "The written project could not be reloaded for validation.")
+	}
+	snapshot, err := specvalidation.LoadWithContext(root, proposedChangeSetContext(loaded))
 	if err != nil {
 		return ioFailure("storage.post_write_failed", "The written project could not be reloaded for validation.")
 	}
@@ -675,21 +797,27 @@ func pathForArtifact(root, relative string) (string, *commandFailure) {
 }
 
 func readRegularFile(root, relative string) ([]byte, *commandFailure) {
-	absolute, failure := pathForArtifact(root, relative)
+	_, failure := pathForArtifact(root, relative)
 	if failure != nil {
 		return nil, failure
 	}
-	info, err := os.Lstat(absolute)
+	rootHandle, err := os.OpenRoot(root)
+	if err != nil {
+		return nil, ioFailure("artifact.read_failed", "The requested artifact could not be inspected.")
+	}
+	defer func() { _ = rootHandle.Close() }()
+	data, err := openAndReadRegularFile(func() (*os.File, error) {
+		return rootHandle.OpenFile(filepath.FromSlash(relative), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, validationFailure("artifact.read_failed", "The requested artifact was not found.", nil)
 	}
 	if err != nil {
-		return nil, ioFailure("artifact.read_failed", "The requested artifact could not be inspected.")
-	}
-	if info == nil || info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 		return nil, validationFailure("artifact.read_failed", "The requested artifact is not a readable regular file.", nil)
 	}
-	data, err := os.ReadFile(absolute)
+	if errors.Is(err, errNotRegularFile) {
+		return nil, validationFailure("artifact.read_failed", "The requested artifact is not a readable regular file.", nil)
+	}
 	if err != nil {
 		return nil, ioFailure("artifact.read_failed", "The requested artifact could not be read.")
 	}

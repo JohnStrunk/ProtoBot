@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -73,7 +74,7 @@ func TestCLICommandFlowAndDeterministicJSON(t *testing.T) {
 	retirementChangeSet := jsonString(t, stdout, "data", "change_set", "id")
 	code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "retire", "--change-set", retirementChangeSet, "--id", "REQ-CLI-00001")
 	assertSuccess(t, code, stdout, stderr)
-	if jsonString(t, stdout, "data", "requirement", "status") != "retired" {
+	if jsonString(t, stdout, "data", "after", "status") != "retired" {
 		t.Fatalf("retirement did not return retired status: %s", stdout)
 	}
 }
@@ -162,6 +163,118 @@ func TestCLIRejectsReservedPathSymlinkAlias(t *testing.T) {
 	code, stdout, stderr = runCLI([]byte("secret\n"), "--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "alias", "--kind", "interface-prose", "--path", "alias/policy.yaml", "--owner", "user", "--content-stdin")
 	if code != 4 || stderr != "" || !strings.Contains(stdout, "artifact.invalid_path") {
 		t.Fatalf("symlink alias result = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+}
+
+func TestCLIMaintainsSymmetricRelationships(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add related requirements", "--implementation-required", "true", "--created", "2026-09-18T16:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	addRequirement := func(id string) {
+		t.Helper()
+		code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "add", "--change-set", changeSetID, "--id", id, "--type", "ubiquitous", "--text", "The system shall preserve relationships.", "--scope", "cli", "--verification-mode", "isolated-interface", "--provenance", "user-authored", "--created", "2026-09-18T16:01:00Z")
+		assertSuccess(t, code, stdout, stderr)
+	}
+	addRequirement("REQ-REL-00001")
+	addRequirement("REQ-REL-00002")
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "update", "--change-set", changeSetID, "--id", "REQ-REL-00001", "--relationship", "conflicts-with=REQ-REL-00002")
+	assertSuccess(t, code, stdout, stderr)
+
+	var target records.Requirement
+	if err := storage.ReadFile(filepath.Join(root, ".protobot", "requirements", "REQ-REL-00002.yaml"), &target); err != nil {
+		t.Fatal(err)
+	}
+	if !hasRelationship(target.Relationships, "conflicts-with") {
+		t.Fatalf("target requirement did not receive inverse relationship: %#v", target.Relationships)
+	}
+}
+
+func TestCLIAllowsAddThenRetireInOneChangeSet(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add then retire", "--implementation-required", "false", "--implementation-rationale", "The proposed record is withdrawn.", "--created", "2026-09-18T17:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "add", "--change-set", changeSetID, "--id", "REQ-RET-00001", "--type", "ubiquitous", "--text", "The system shall preserve withdrawn records.", "--scope", "cli", "--verification-mode", "isolated-interface", "--provenance", "user-authored", "--created", "2026-09-18T17:01:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "retire", "--change-set", changeSetID, "--id", "REQ-RET-00001")
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "after", "status") != "retired" {
+		t.Fatalf("retirement did not return retired status: %s", stdout)
+	}
+
+	var changeSet records.ChangeSet
+	if err := storage.ReadFile(filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"), &changeSet); err != nil {
+		t.Fatal(err)
+	}
+	if len(changeSet.Operations) != 1 || changeSet.Operations[0].Action != "retire" {
+		t.Fatalf("same-change-set add/retire operations = %#v", changeSet.Operations)
+	}
+}
+
+func TestApplyTransactionRejectsConcurrentCreation(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "records"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := "records/new.yaml"
+	if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(path)), []byte("concurrent\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, failure := applyTransaction(root, []fileWrite{{path: path, data: []byte("replacement\n")}}, map[string]fileExpectation{path: {}}, nil)
+	if failure == nil || failure.Code != "change_set.concurrent_update" {
+		t.Fatalf("concurrent creation failure = %#v", failure)
+	}
+}
+
+func TestApplyTransactionRollsBackSharedNewDirectory(t *testing.T) {
+	root := t.TempDir()
+	_, failure := applyTransaction(root, []fileWrite{
+		{path: "records/one.yaml", data: []byte("one\n")},
+		{path: "records/two.yaml", data: []byte("two\n")},
+	}, map[string]fileExpectation{
+		"records/one.yaml": {},
+		"records/two.yaml": {},
+	}, func() *commandFailure {
+		return validationFailure("validation.failed", "forced rollback", nil)
+	})
+	if failure == nil || failure.Code != "validation.failed" || failure.Mutation != "none" {
+		t.Fatalf("rollback failure = %#v", failure)
+	}
+	if _, err := os.Stat(filepath.Join(root, "records")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rollback directory stat error = %v", err)
+	}
+}
+
+func TestApplyTransactionRejectsSymlinkTarget(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "records"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	outside := filepath.Join(t.TempDir(), "outside.yaml")
+	if err := os.WriteFile(outside, []byte("outside\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "records", "target.yaml")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, failure := applyTransaction(root, []fileWrite{{path: "records/target.yaml", data: []byte("replacement\n")}}, map[string]fileExpectation{"records/target.yaml": {present: true, data: []byte("outside\n")}}, nil)
+	if failure == nil || failure.Code != "storage.write_not_allowed" || failure.ExitCode != 4 || failure.Mutation != "none" {
+		t.Fatalf("symlink target failure = %#v", failure)
+	}
+}
+
+func TestIOFailureMutationClassification(t *testing.T) {
+	if failure := ioFailure("storage.read_failed", "read failed"); failure.Mutation != "none" {
+		t.Fatalf("read failure mutation = %q, want none", failure.Mutation)
+	}
+	if failure := unknownIOFailure("storage.write_unknown", "unknown"); failure.Mutation != "unknown" {
+		t.Fatalf("unknown write failure mutation = %q, want unknown", failure.Mutation)
 	}
 }
 

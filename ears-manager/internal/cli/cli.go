@@ -46,9 +46,11 @@ type globalOptions struct {
 	rest    []string
 }
 
+// Mutation describes the governed files changed by a successful command.
 type Mutation struct {
-	Applied bool     `json:"applied"`
-	Paths   []string `json:"paths"`
+	Applied     bool     `json:"applied"`
+	Paths       []string `json:"paths"`
+	diagnostics []specvalidation.Diagnostic
 }
 
 type successEnvelope struct {
@@ -139,9 +141,15 @@ func ioFailure(code, message string) *commandFailure {
 		Code:     code,
 		Message:  message,
 		ExitCode: 6,
-		Mutation: "unknown",
+		Mutation: "none",
 		Retry:    "reconcile-before-retry",
 	}
+}
+
+func unknownIOFailure(code, message string) *commandFailure {
+	failure := ioFailure(code, message)
+	failure.Mutation = "unknown"
+	return failure
 }
 
 func internalFailure(message string) *commandFailure {
@@ -154,6 +162,8 @@ func internalFailure(message string) *commandFailure {
 	}
 }
 
+// Run executes the ears-manager command line and writes its result to the
+// supplied output streams.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	global, err := parseGlobal(args)
 	if err != nil {
@@ -270,7 +280,7 @@ func writeSuccess(stdout io.Writer, output, command string, data any, mutation M
 			OK:            true,
 			Command:       command,
 			Data:          data,
-			Diagnostics:   []specvalidation.Diagnostic{},
+			Diagnostics:   normalizedDiagnostics(mutation.diagnostics),
 			Mutation:      normalizedMutation(mutation),
 		})
 	}
