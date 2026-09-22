@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -80,6 +81,47 @@ func TestCLICommandFlowAndDeterministicJSON(t *testing.T) {
 	if jsonString(t, stdout, "data", "after", "status") != "retired" {
 		t.Fatalf("retirement did not return retired status: %s", stdout)
 	}
+}
+
+func TestGoldenFixtureDeclaresFollowOnScope(t *testing.T) {
+	_, source, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	fixturePath := filepath.Join(filepath.Dir(source), "..", "..", "..", "docs", "architecture", "fixtures", "ears-manager-cli-golden.jsonl")
+	data, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	type scopeRecord struct {
+		Step                string   `json:"step"`
+		Release             string   `json:"release"`
+		ImplementedCommands []string `json:"implemented_commands"`
+		DeferredCommands    []string `json:"deferred_commands"`
+	}
+	var scope scopeRecord
+	for _, line := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+		var candidate scopeRecord
+		if err := json.Unmarshal([]byte(line), &candidate); err != nil {
+			t.Fatalf("decode fixture line: %v", err)
+		}
+		if candidate.Step == "fixture-scope" {
+			scope = candidate
+			break
+		}
+	}
+	if scope.Release != "follow-on" || !containsString(scope.ImplementedCommands, "check") || !containsString(scope.DeferredCommands, "impact") {
+		t.Fatalf("fixture scope = %#v", scope)
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 func TestCLIArtifactPutGetAndAtomicInvalidWrite(t *testing.T) {

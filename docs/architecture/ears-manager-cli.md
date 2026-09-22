@@ -528,7 +528,7 @@ sequence; initialization itself does not approve or commit the project.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.validator_incompatible`, `artifact.write_not_allowed`, or a validator diagnostic |
+| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_id`, `artifact.invalid_path`, `artifact.invalid_content`, `artifact.owner_immutable`, `artifact.validator_not_allowed`, `artifact.validator_incompatible`, `artifact.write_not_allowed`, or a validator diagnostic |
 | `artifact get` | Exactly one of artifact ID or kind, where kind must match one opaque artifact entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
@@ -606,12 +606,14 @@ ears-manager check [--at FULL-SHA] [--change-set CS-ID]
 `check` is read-only. Without `--change-set`, it validates the complete
 project store, registry, projection classification, all records, and all
 referential, relationship, EARS, artifact-digest, structured-store-integrity,
-and change-set rules. It verifies impact completeness for every proposed
-change set found in the working tree, while preserving approved manifests'
-stored historical assessments. Independent load failures are aggregated with
-semantic diagnostics from records that could still be read.
-With `--change-set`, it narrows that impact check to the named proposed
-manifest. "Matches"
+and change-set rules. The EM-04 first release defers impact-completeness
+validation until the `impact` and `change-set update` commands land; the
+complete impact rules below are the target contract for that follow-on scope.
+Approved manifests' stored historical assessments remain preserved.
+Independent load failures are aggregated with semantic diagnostics from records
+that could still be read.
+In the follow-on impact scope, `--change-set` narrows that impact check to the
+named proposed manifest. "Matches"
 means that every current mechanical candidate has exactly one final recorded
 disposition, every recorded `mechanical` entry is still a current mechanical
 candidate, and every `semantic` entry names an unchanged active requirement

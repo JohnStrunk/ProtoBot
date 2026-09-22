@@ -95,8 +95,9 @@ change-set creation. Writes are validated against a candidate specification
 before an atomic file transaction is applied; JSON output and exit statuses
 are deterministic.
 
-Project bootstrap, change-set comparison and impact analysis, and governed
-Git branch/commit/pull-request automation remain separate follow-on work.
+Project bootstrap, immutable historical `--at` reads, change-set comparison
+and impact analysis, and governed Git branch/commit/pull-request automation
+remain separate follow-on work.
 
 ## Documentation
 

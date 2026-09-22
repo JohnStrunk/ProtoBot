@@ -125,8 +125,7 @@ func checkState() (projectState, *commandFailure) {
 		}
 		return projectState{}, ioFailure("project.configuration_unreadable", "The project configuration could not be inspected.")
 	}
-	loaded, _ := specvalidation.Load(root)
-	context := proposedChangeSetContext(loaded)
+	context := specvalidation.ValidationContext{}
 	result := specvalidation.ValidateProjectWithContext(root, context)
 	if !result.Valid {
 		return projectState{root: root}, failureFromValidation(result, false)
@@ -140,16 +139,6 @@ func checkState() (projectState, *commandFailure) {
 		return projectState{root: root}, failure
 	}
 	return projectState{root: root, snapshot: snapshot, observed: observeSnapshot(root, snapshot), head: head, diagnostics: result.Diagnostics}, nil
-}
-
-func proposedChangeSetContext(snapshot specvalidation.Snapshot) specvalidation.ValidationContext {
-	proposed := make(map[string]bool, len(snapshot.ChangeSets))
-	for _, document := range snapshot.ChangeSets {
-		if document.Value.ID != "" {
-			proposed[document.Value.ID] = true
-		}
-	}
-	return specvalidation.ValidationContext{ProposedChangeSets: proposed}
 }
 
 func cloneExpectations(value map[string]fileExpectation) map[string]fileExpectation {
@@ -260,6 +249,7 @@ func draftOnlyDiagnostic(diagnostic specvalidation.Diagnostic) bool {
 
 func draftIncompleteDiagnostic(diagnostic specvalidation.Diagnostic) bool {
 	return diagnostic.Code == "change_set.incomplete_impact" ||
+		diagnostic.Code == "change_set.stale_impact" ||
 		(diagnostic.Code == "change_set.missing_field" && diagnostic.Field == "impact_assessment")
 }
 
@@ -283,8 +273,7 @@ func validateCandidateForChangeSet(snapshot specvalidation.Snapshot, changeSetID
 }
 
 func validateScopedCheck(snapshot specvalidation.Snapshot, targetIndex int) *commandFailure {
-	targetID := snapshot.ChangeSets[targetIndex].Value.ID
-	scopedContext := specvalidation.ValidationContext{ProposedChangeSets: map[string]bool{targetID: true}}
+	scopedContext := specvalidation.ValidationContext{}
 	fullSnapshot := cloneSnapshot(snapshot)
 	fullSnapshot.Context = scopedContext
 	full := specvalidation.Validate(fullSnapshot)
@@ -307,8 +296,9 @@ func validateScopedCheck(snapshot specvalidation.Snapshot, targetIndex int) *com
 	sort.SliceStable(diagnostics, func(i, j int) bool {
 		left, right := diagnostics[i], diagnostics[j]
 		for _, pair := range [][2]string{
-			{left.Path, right.Path}, {left.RecordID, right.RecordID}, {left.Field, right.Field},
-			{left.Code, right.Code}, {left.Message, right.Message}, {left.Hint, right.Hint},
+			{left.Path, right.Path}, {left.Code, right.Code}, {left.RecordID, right.RecordID},
+			{left.Field, right.Field}, {left.Severity, right.Severity},
+			{left.Message, right.Message}, {left.Hint, right.Hint},
 		} {
 			if pair[0] != pair[1] {
 				return pair[0] < pair[1]
