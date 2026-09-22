@@ -447,7 +447,7 @@ Failed result envelope:
   "command": "requirement add",
   "error": {
     "code": "validation.failed",
-    "message": "The requirement is not valid.",
+    "message": "The specification is not valid.",
     "exit_code": 4,
     "diagnostics": [],
     "mutation": "none",
@@ -769,9 +769,9 @@ Every mutating command follows this sequence:
    integrity digests.
 4. For an existing-change-set write, verify that the change set is proposed
    and its base/revision is current. `project init` instead verifies that the
-   control namespace is absent; `change-set create` verifies project
-   configuration, base availability, branch state, and the initialization
-   branch-reuse rule.
+   control namespace is absent. In the EM-04 first release, `change-set create`
+   verifies project configuration and base availability only; branch state and
+   initialization branch reuse are deferred to the follow-on Git integration.
 5. Write a complete replacement set through a temporary file or directory.
 6. Re-read and validate the replacement set.
 7. Atomically replace the governed paths and return the result.
