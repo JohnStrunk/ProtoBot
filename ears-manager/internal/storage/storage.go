@@ -117,10 +117,9 @@ func ValidatePathWithin(root, relativePath string) (string, error) {
 	return candidate, nil
 }
 
-// ValidatePathWithinNoSymlinks applies project containment rules and rejects
-// symlink components, including a symlinked final target. Governed writes use
-// this stricter form so lexical reserved-path checks cannot be bypassed by an
-// alias that resolves into the control namespace.
+// ValidatePathWithinNoSymlinks is the named write-side alias for
+// ValidatePathWithin, which already rejects existing symlink components,
+// including a symlinked final target.
 func ValidatePathWithinNoSymlinks(root, relativePath string) (string, error) {
 	return ValidatePathWithin(root, relativePath)
 }

@@ -224,6 +224,24 @@ ears-manager check
 ears-manager impact
 ```
 
+### EM-04 first-release scope
+
+The command surface above is the target caller contract. The EM-04 first
+release implements only `check`, requirement add/list/show/update/retire,
+interface add/list/show, artifact get/put, and minimal proposed change-set
+creation. Project initialization, artifact listing, interface updates,
+change-set listing/show/update/compare, impact analysis, immutable `--at`
+reads, and governed branch/commit/pull-request automation remain follow-on
+work. The first-release dispatcher must not claim those operations are
+available.
+
+In the first release, `change-set create` allocates the ID, records the base
+commit, and writes the manifest. It does not create or check out the change-set
+branch, so its success data contains `id`, `base_commit`, and
+`manifest_path`. The branch behavior in [Git and Project-Repository
+Integration](git-integration.md#change-set-branches) remains the target
+integration contract for the follow-on Git workflow.
+
 Every command accepts `--help`. Help is a read-only successful operation and
 exits with status `0`. `--version` is accepted at the top level and prints
 the binary version without reading the project.
@@ -510,7 +528,7 @@ sequence; initialization itself does not approve or commit the project.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.validator_unavailable`, `artifact.write_not_allowed`, or a validator diagnostic |
+| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.validator_incompatible`, `artifact.write_not_allowed`, or a validator diagnostic |
 | `artifact get` | Exactly one of artifact ID or kind, where kind must match one opaque artifact entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
@@ -554,7 +572,7 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, manifest path, and empty proposed manifest | `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
@@ -783,7 +801,11 @@ path as a workaround. Safe retries are:
 ## Golden fixture
 
 [`fixtures/ears-manager-cli-golden.jsonl`](fixtures/ears-manager-cli-golden.jsonl)
-is the harness-neutral fixture for the implementation issues. It covers:
+is the harness-neutral follow-on fixture for the complete target contract. Its
+`fixture-scope` record identifies the subset implemented by EM-04 and
+the commands deferred to later increments. The EM-04 implementation tests
+exercise the implemented subset directly; the deferred fixture steps remain
+acceptance data for their owning follow-on issues. The fixture covers:
 
 - project initialization;
 - change-set creation;

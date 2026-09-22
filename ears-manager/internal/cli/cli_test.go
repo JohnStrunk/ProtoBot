@@ -21,6 +21,9 @@ func TestCLICommandFlowAndDeterministicJSON(t *testing.T) {
 
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add CLI records", "--implementation-required", "true", "--created", "2026-09-18T12:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
+	if strings.Contains(stdout, `"branch"`) {
+		t.Fatalf("change-set create reported an uncreated branch: %s", stdout)
+	}
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
 	if changeSetID != "CS-00001" {
 		t.Fatalf("change set ID = %q, want CS-00001", changeSetID)

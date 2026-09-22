@@ -12,8 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
-	"unicode"
-	"unicode/utf8"
 
 	"github.com/redhat-et/protobot/ears-manager/internal/records"
 	"github.com/redhat-et/protobot/ears-manager/internal/specvalidation"
@@ -251,7 +249,7 @@ func runRequirementAdd(args []string) (any, Mutation, *commandFailure) {
 			return nil, Mutation{}, internalFailure("the change-set path could not be determined")
 		}
 	}
-	if failure := validateCandidate(staged, true); failure != nil {
+	if failure := validateCandidateForChangeSet(staged, changeSetID, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
 	writes := []fileWrite{}
@@ -264,7 +262,7 @@ func runRequirementAdd(args []string) (any, Mutation, *commandFailure) {
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
-	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
+	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, changeSetID) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -443,7 +441,7 @@ func runRequirementUpdate(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	staged.ChangeSets[changeSetIndex].Value = changeSet
-	if failure := validateCandidate(staged, true); failure != nil {
+	if failure := validateCandidateForChangeSet(staged, changeSetID, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
 	requirementPath := staged.Requirements[requirementIndex].Path
@@ -458,7 +456,7 @@ func runRequirementUpdate(args []string) (any, Mutation, *commandFailure) {
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
-	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
+	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, changeSetID) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -506,7 +504,7 @@ func runRequirementRetire(args []string) (any, Mutation, *commandFailure) {
 	staged := cloneSnapshot(state.snapshot)
 	staged.Requirements[requirementIndex].Value = current
 	staged.ChangeSets[changeSetIndex].Value = changeSet
-	if failure := validateCandidate(staged, true); failure != nil {
+	if failure := validateCandidateForChangeSet(staged, changeSetID, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
 	writes := []fileWrite{}
@@ -519,7 +517,7 @@ func runRequirementRetire(args []string) (any, Mutation, *commandFailure) {
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
-	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
+	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, changeSetID) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -750,7 +748,7 @@ func runInterfaceAdd(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, internalFailure("the interface path could not be determined")
 	}
 	staged.ChangeSets[changeSetIndex].Value = changeSet
-	if failure := validateCandidate(staged, true); failure != nil {
+	if failure := validateCandidateForChangeSet(staged, changeSetID, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
 	writes := []fileWrite{}
@@ -763,7 +761,7 @@ func runInterfaceAdd(args []string) (any, Mutation, *commandFailure) {
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
-	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
+	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, changeSetID) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -944,11 +942,11 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	}
 	canonicalContent, err := specvalidation.CanonicalText(content)
 	if err != nil {
-		return nil, Mutation{}, validationFailure("artifact.invalid_content", err.Error(), nil)
+		return nil, Mutation{}, artifactContentFailure(err)
 	}
 	digest, err := specvalidation.CanonicalTextDigest(canonicalContent)
 	if err != nil {
-		return nil, Mutation{}, validationFailure("artifact.invalid_content", err.Error(), nil)
+		return nil, Mutation{}, artifactContentFailure(err)
 	}
 	state, failure := loadState()
 	if failure != nil {
@@ -981,7 +979,7 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	}
 	staged.ArtifactContents[canonicalPath] = append([]byte(nil), canonicalContent...)
 	staged.ChangeSets[changeSetIndex].Value = changeSet
-	if failure := validateCandidate(staged, true); failure != nil {
+	if failure := validateCandidateForChangeSet(staged, changeSetID, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
 	writes := []fileWrite{}
@@ -992,7 +990,7 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
-	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
+	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, changeSetID) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -1023,7 +1021,7 @@ func readContentSource(parsed options, stdin io.Reader) ([]byte, *commandFailure
 	data, err := openAndReadRegularFile(func() (*os.File, error) {
 		return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	})
-	if errors.Is(err, fs.ErrNotExist) || err != nil {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, validationFailure("input.invalid_source", "The artifact content source must be an existing regular file.", nil)
 	}
 	if errors.Is(err, errNotRegularFile) {
@@ -1109,7 +1107,7 @@ func runChangeSetCreate(args []string) (any, Mutation, *commandFailure) {
 	if err != nil {
 		return nil, Mutation{}, internalFailure("the change-set path could not be determined")
 	}
-	if failure := validateCandidate(staged, true); failure != nil {
+	if failure := validateCandidateForChangeSet(staged, id, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
 	writes := []fileWrite{}
@@ -1119,13 +1117,12 @@ func runChangeSetCreate(args []string) (any, Mutation, *commandFailure) {
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
-	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true) })
+	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, id) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
-	branch := branchName(state.snapshot.Config, id, intent)
 	return changeSetCreateData{ChangeSet: changeSetCreateRecord{
-		ID: id, BaseCommit: baseCommit, Branch: branch, ManifestPath: changeSetPath,
+		ID: id, BaseCommit: baseCommit, ManifestPath: changeSetPath,
 	}}, mutation, nil
 }
 
@@ -1136,7 +1133,6 @@ type changeSetCreateData struct {
 type changeSetCreateRecord struct {
 	ID           string `json:"id"`
 	BaseCommit   string `json:"base_commit"`
-	Branch       string `json:"branch"`
 	ManifestPath string `json:"manifest_path"`
 }
 
@@ -1153,6 +1149,11 @@ func parseBoolOption(parsed options, name string) (bool, *commandFailure) {
 
 func invalidIDFailure(code, kind, id string) *commandFailure {
 	return validationFailure(code, fmt.Sprintf("%s ID %q is invalid.", kind, id), nil)
+}
+
+func artifactContentFailure(err error) *commandFailure {
+	detail := strings.TrimRight(err.Error(), ".")
+	return validationFailure("artifact.invalid_content", fmt.Sprintf("Artifact content is invalid: %s.", detail), nil)
 }
 
 func currentCommit(root string) (string, *commandFailure) {
@@ -1190,54 +1191,6 @@ func nextChangeSetID(snapshot specvalidation.Snapshot) (string, *commandFailure)
 		}
 	}
 	return "", conflictFailure("change_set.sequence_exhausted", "No change-set sequence number is available.", nil)
-}
-
-func branchName(config records.ProjectConfig, id, intent string) string {
-	prefix := config.Repository.BranchPrefix
-	if prefix == "" {
-		prefix = "cs/"
-	}
-	number := strings.TrimPrefix(id, "CS-")
-	slug := slug(intent)
-	return prefix + number + "-" + slug
-}
-
-func slug(value string) string {
-	var builder strings.Builder
-	separator := false
-	for _, character := range strings.ToLower(value) {
-		if unicode.IsLetter(character) || unicode.IsNumber(character) {
-			builder.WriteRune(character)
-			separator = false
-			continue
-		}
-		if builder.Len() > 0 {
-			separator = true
-		}
-		if separator && !strings.HasSuffix(builder.String(), "-") {
-			builder.WriteByte('-')
-		}
-	}
-	result := strings.Trim(builder.String(), "-")
-	if result == "" {
-		result = "change-set"
-	}
-	if len(result) > 40 {
-		boundary := 0
-		for boundary < len(result) {
-			_, size := utf8.DecodeRuneInString(result[boundary:])
-			if boundary+size > 40 {
-				break
-			}
-			boundary += size
-		}
-		candidate := result[:boundary]
-		if hyphen := strings.LastIndex(candidate, "-"); hyphen > 0 {
-			candidate = candidate[:hyphen]
-		}
-		result = strings.TrimRight(candidate, "-")
-	}
-	return result
 }
 
 func validEARSStyle(value string) bool {

@@ -69,16 +69,15 @@ func loadState() (projectState, *commandFailure) {
 		return projectState{}, ioFailure("project.configuration_unreadable", "The project configuration could not be inspected.")
 	}
 	snapshot, err := specvalidation.Load(root)
-	context := proposedChangeSetContext(snapshot)
 	if err == nil {
-		snapshot.Context = context
+		snapshot.Context = specvalidation.ValidationContext{}
 		head, failure := currentCommit(root)
 		if failure != nil {
 			return projectState{}, failure
 		}
 		return projectState{root: root, snapshot: snapshot, observed: observeSnapshot(root, snapshot), head: head}, nil
 	}
-	result := specvalidation.ValidateProjectWithContext(root, context)
+	result := specvalidation.ValidateProjectWithContext(root, specvalidation.ValidationContext{})
 	if !result.Valid || len(result.Diagnostics) > 0 {
 		return projectState{}, failureFromValidation(result, false)
 	}
@@ -189,11 +188,20 @@ func observeSnapshot(root string, snapshot specvalidation.Snapshot) map[string]f
 }
 
 func readExpectation(root, relative string) fileExpectation {
-	absolute, err := storage.ValidatePathWithinNoSymlinks(root, filepath.FromSlash(relative))
+	if _, err := storage.ValidatePathWithinNoSymlinks(root, filepath.FromSlash(relative)); err != nil {
+		return fileExpectation{}
+	}
+	rootHandle, err := os.OpenRoot(root)
 	if err != nil {
 		return fileExpectation{}
 	}
-	data, err := os.ReadFile(absolute)
+	defer func() { _ = rootHandle.Close() }()
+	file, err := rootHandle.OpenFile(filepath.FromSlash(relative), os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return fileExpectation{}
+	}
+	defer func() { _ = file.Close() }()
+	data, err := readOpenRegularFile(file)
 	if err != nil {
 		return fileExpectation{}
 	}
@@ -203,7 +211,7 @@ func readExpectation(root, relative string) fileExpectation {
 func failureFromValidation(result specvalidation.Result, allowDraft bool) *commandFailure {
 	diagnostics := make([]specvalidation.Diagnostic, 0, len(result.Diagnostics))
 	for _, diagnostic := range result.Diagnostics {
-		if allowDraft && draftOnlyDiagnostic(diagnostic) {
+		if allowDraft && draftIncompleteDiagnostic(diagnostic) {
 			continue
 		}
 		diagnostics = append(diagnostics, diagnostic)
@@ -250,6 +258,11 @@ func draftOnlyDiagnostic(diagnostic specvalidation.Diagnostic) bool {
 		(diagnostic.Code == "change_set.missing_field" && diagnostic.Field == "impact_assessment")
 }
 
+func draftIncompleteDiagnostic(diagnostic specvalidation.Diagnostic) bool {
+	return diagnostic.Code == "change_set.incomplete_impact" ||
+		(diagnostic.Code == "change_set.missing_field" && diagnostic.Field == "impact_assessment")
+}
+
 func hasDiagnosticPrefix(diagnostics []specvalidation.Diagnostic, prefix string) bool {
 	for _, diagnostic := range diagnostics {
 		if strings.HasPrefix(diagnostic.Code, prefix) {
@@ -264,11 +277,21 @@ func validateCandidate(snapshot specvalidation.Snapshot, allowDraft bool) *comma
 	return failureFromValidation(result, allowDraft)
 }
 
+func validateCandidateForChangeSet(snapshot specvalidation.Snapshot, changeSetID string, allowDraft bool) *commandFailure {
+	snapshot.Context = specvalidation.ValidationContext{ProposedChangeSets: map[string]bool{changeSetID: true}}
+	return validateCandidate(snapshot, allowDraft)
+}
+
 func validateScopedCheck(snapshot specvalidation.Snapshot, targetIndex int) *commandFailure {
-	full := specvalidation.Validate(snapshot)
+	targetID := snapshot.ChangeSets[targetIndex].Value.ID
+	scopedContext := specvalidation.ValidationContext{ProposedChangeSets: map[string]bool{targetID: true}}
+	fullSnapshot := cloneSnapshot(snapshot)
+	fullSnapshot.Context = scopedContext
+	full := specvalidation.Validate(fullSnapshot)
 	staged := cloneSnapshot(snapshot)
 	target := staged.ChangeSets[targetIndex]
 	staged.ChangeSets = []specvalidation.Document[records.ChangeSet]{target}
+	staged.Context = scopedContext
 	targetResult := specvalidation.Validate(staged)
 	diagnostics := make([]specvalidation.Diagnostic, 0, len(full.Diagnostics)+len(targetResult.Diagnostics))
 	for _, diagnostic := range full.Diagnostics {
@@ -776,12 +799,12 @@ func rollbackFiles(root *os.Root, files []originalFile) error {
 	return rollbackErr
 }
 
-func persistedValidation(root string, allowDraft bool) *commandFailure {
-	loaded, err := specvalidation.Load(root)
+func persistedValidation(root string, allowDraft bool, changeSetID string) *commandFailure {
+	_, err := specvalidation.Load(root)
 	if err != nil {
 		return ioFailure("storage.post_write_failed", "The written project could not be reloaded for validation.")
 	}
-	snapshot, err := specvalidation.LoadWithContext(root, proposedChangeSetContext(loaded))
+	snapshot, err := specvalidation.LoadWithContext(root, specvalidation.ValidationContext{ProposedChangeSets: map[string]bool{changeSetID: true}})
 	if err != nil {
 		return ioFailure("storage.post_write_failed", "The written project could not be reloaded for validation.")
 	}
@@ -811,9 +834,6 @@ func readRegularFile(root, relative string) ([]byte, *commandFailure) {
 	})
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, validationFailure("artifact.read_failed", "The requested artifact was not found.", nil)
-	}
-	if err != nil {
-		return nil, validationFailure("artifact.read_failed", "The requested artifact is not a readable regular file.", nil)
 	}
 	if errors.Is(err, errNotRegularFile) {
 		return nil, validationFailure("artifact.read_failed", "The requested artifact is not a readable regular file.", nil)
