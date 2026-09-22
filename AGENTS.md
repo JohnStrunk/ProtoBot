@@ -97,6 +97,14 @@ must follow these rules:
    ProtoBot keywords and relationship terms; an undeclared
    alias for a defined keyword is a defect.
 
+5. **Review agents must also check for staleness introduced
+   elsewhere.** When a PR changes a contract, lifecycle, or
+   behavior description in a specification document, search
+   all other governed Markdown documents under `docs/` — not
+   only the ones the diff touches — for existing prose
+   describing the same behavior, and flag any that were not
+   updated to match.
+
 ## Agent skills
 
 ### Rules for creating or modifying skill files
