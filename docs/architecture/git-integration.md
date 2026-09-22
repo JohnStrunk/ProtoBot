@@ -811,7 +811,7 @@ The later layers hold when the harness layer is off.
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init` writes `.protobot/project.yaml` and `.protobot/projection.yaml` without committing; Git commits them with the initial manifest on the change-set branch |
 | Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base`, and `remote` for listing only |
-| Fetch | From `repository.canonical_remote` only. Before `project.yaml` exists, from the upstream remote of the local default branch only, to cut the initialization branch from a fresh head |
+| Fetch | From `repository.canonical_remote` only. Before `project.yaml` exists, from the upstream remote of the local default branch only, to cut the initialization branch from a fresh head, and `git ls-remote` of that remote, to see whether the initialization branch exists there |
 | Fast-forward the local default branch | Only to the head of `repository.default_branch` on the canonical remote, or, before `project.yaml` exists, on the upstream remote of the local default branch; only by fast-forward; and, when it is checked out, only with no uncommitted change to a tracked file; a fetch alone leaves the local ref stale, and a change-set branch is cut from it |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |

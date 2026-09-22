@@ -91,7 +91,13 @@ func (c *call) branchInit() (*outcome, *result.Failure) {
 	if err != nil {
 		return nil, c.gitFailure(err)
 	}
-	if !ok || remoteHead != tracking {
+	if !ok {
+		// A clone made with git init and git remote add has no remote HEAD.
+		f := notFound("the upstream remote has no HEAD")
+		f.Details = append(f.Details, jsonx.F("next", []string{"git", "remote", "set-head", upRemote, "--auto"}))
+		return nil, f
+	}
+	if remoteHead != tracking {
 		return nil, notFound("the local default branch is not the branch that its upstream remote's HEAD names")
 	}
 
@@ -141,9 +147,17 @@ func (c *call) branchInit() (*outcome, *result.Failure) {
 	if failure != nil {
 		return nil, failure
 	}
+	// The upstream remote is asked directly, so a stale tracking ref of a
+	// deleted branch does not count. Before project.yaml exists, #34 lets
+	// the SCM reach no other remote, so for those the local tracking ref is
+	// what it may read.
 	for name := range remotes {
-		exists, err := c.git.RefExists("refs/remotes/" + name + "/" + initBranch)
-		if err != nil {
+		var exists bool
+		if name == upRemote {
+			if exists, failure = c.remoteHasRef(upRemote, initRef); failure != nil {
+				return nil, failure
+			}
+		} else if exists, err = c.git.RefExists("refs/remotes/" + name + "/" + initBranch); err != nil {
 			return nil, c.gitFailure(err)
 		}
 		remoteExists = remoteExists || exists

@@ -59,7 +59,7 @@ commit-scoped conformance evidence are recorded separately.
 ## Repository Layout
 
 ProtoBot is a language-agnostic monorepo. Each independently buildable
-component owns its native module and toolchain. The current Go component is
+component owns its native module and toolchain. The current Go components are
 organized as:
 
 ```text
@@ -67,6 +67,12 @@ ears-manager/
   go.mod
   cmd/ears-manager/
   internal/{project,records,schema,specvalidation,storage}/
+source-control-manager/
+  go.mod
+  cmd/source-control-manager/
+  internal/{cli,mcpserver,scm,gitx,host,ears,render,...}/
+  internal/golden/          # the golden repository fixture, replayed
+  internal/testing/         # the gh and ears-manager stubs of the fixture
 ```
 
 Other implementations can use their native layout under the same monorepo,
@@ -74,10 +80,11 @@ for example `wms/github/`, `wms/jira/`, or `drafting-table/web/`. The root
 `go.work` makes local Go component development convenient without coupling
 other languages to Go.
 
-The `ears-manager` install target is:
+The install targets are:
 
 ```text
 go install github.com/redhat-et/protobot/ears-manager/cmd/ears-manager@latest
+go install github.com/redhat-et/protobot/source-control-manager/cmd/source-control-manager@latest
 ```
 
 ## Documentation
@@ -87,6 +94,7 @@ go install github.com/redhat-et/protobot/ears-manager/cmd/ears-manager@latest
 - [Architecture overview](docs/architecture/overview.md)
 - [Architecture interfaces and constraints](docs/architecture.md)
 - [`ears-manager` CLI integration contract](docs/architecture/ears-manager-cli.md)
+- [Source Control Manager](docs/architecture/source-control-manager.md)
 - [System components](docs/architecture/components.md)
 - [User interaction flow](docs/architecture/user-interaction-flow.md)
 - [Related work](docs/architecture/related-work.md)

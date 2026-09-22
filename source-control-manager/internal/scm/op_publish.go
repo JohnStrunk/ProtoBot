@@ -1,8 +1,10 @@
 package scm
 
 import (
+	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/redhat-et/protobot/source-control-manager/internal/gitx"
 	"github.com/redhat-et/protobot/source-control-manager/internal/host"
@@ -138,13 +140,27 @@ func (c *call) publish() (*outcome, *result.Failure) {
 
 	// Step 6: render the title and the body.
 	intent := c.show.ChangeSet.Intent
-	if render.ActsOnGitHub(intent) {
+	title := render.Title(intent)
+	if render.ActsOnGitHub(intent) || render.ActsOnGitHub(title) {
 		return nil, result.Fail(result.UnsafeText, "The intent holds text that GitHub acts on.", jsonx.F("field", "intent"))
 	}
-	title := render.Title(intent)
+	// GitHub refuses an empty or a longer title, and a longer body, which
+	// would fail only after the push; the same intent would fail again.
+	if title == "" {
+		return nil, result.Fail(result.UnsafeText, "The intent is empty, and a pull request needs a title.",
+			jsonx.F("field", "intent"), jsonx.F("reason", "the title is empty"))
+	}
+	if utf8.RuneCountInString(title) > render.MaxTitleLength {
+		return nil, result.Fail(result.UnsafeText, "The intent is longer than a pull-request title may be.",
+			jsonx.F("field", "intent"), jsonx.F("reason", fmt.Sprintf("the title is longer than %d characters", render.MaxTitleLength)))
+	}
 	body, failure := c.renderBody(defaultHead, head)
 	if failure != nil {
 		return nil, failure
+	}
+	if utf8.RuneCountInString(body) > render.MaxBodyLength {
+		return nil, result.Fail(result.UnsafeText, "The rendered pull-request body is longer than the host takes.",
+			jsonx.F("field", "body"), jsonx.F("reason", fmt.Sprintf("the body is longer than %d characters", render.MaxBodyLength)))
 	}
 
 	// Step 7: push, without force and without tags.
@@ -331,7 +347,10 @@ func (c *call) refresh() (*outcome, *result.Failure) {
 	}
 	message := render.RefreshMessage(from, c.branch, c.csID)
 	if render.ActsOnGitHub(message) {
-		return nil, result.Fail(result.UnsafeText, "The merge message holds text that GitHub acts on.", jsonx.F("field", "branch"))
+		// Only a remote or branch name that the role does not set can put
+		// such text in the message, so the user renames it.
+		return nil, result.Fail(result.UnsafeText, "The merge message holds text that GitHub acts on.",
+			jsonx.F("field", "branch"), jsonx.F("remote", remote), jsonx.F("branch", c.branch)).WithRetry(result.RetryUser)
 	}
 	// A tag or a local branch named <remote>/<default> would win git's
 	// lookup of the short name and merge a commit no one reviewed.

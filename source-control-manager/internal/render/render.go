@@ -84,9 +84,31 @@ var (
 
 // ActsOnGitHub reports text that GitHub acts on outside code: a closing
 // keyword with an issue reference, an @ mention, or a token that skips
-// the CI of a commit.
+// the CI of a commit. It matches the folded text, so a Unicode space
+// cannot hide a keyword that OneLine or GitHub turns back into one.
 func ActsOnGitHub(text string) bool {
+	text = fold(text)
 	return closingKeyword.MatchString(text) || mention.MatchString(text) || skipCI.MatchString(text)
+}
+
+// fold prepares text for matching: every Unicode space but a line break
+// becomes an ASCII space, every line ending becomes LF, and invisible
+// format characters, such as a zero-width space, are dropped. Folding only
+// makes a match more likely, never less.
+func fold(text string) string {
+	var b strings.Builder
+	for _, r := range lineBreaks(text) {
+		switch {
+		case r == '\n':
+			b.WriteRune(r)
+		case unicode.IsSpace(r):
+			b.WriteByte(' ')
+		case unicode.Is(unicode.Cf, r):
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }
 
 // lineBreaks replaces every line ending that CommonMark knows, CR LF, CR,
@@ -96,7 +118,14 @@ func lineBreaks(text string) string {
 }
 
 // HasTrailerLine reports a line that starts with Change-Set:.
-func HasTrailerLine(text string) bool { return trailerLine.MatchString(text) }
+func HasTrailerLine(text string) bool { return trailerLine.MatchString(fold(text)) }
+
+// The longest pull-request title and body that GitHub accepts, in
+// characters.
+const (
+	MaxTitleLength = 256
+	MaxBodyLength  = 65536
+)
 
 func longestRun(value string, char byte) int {
 	longest, current := 0, 0

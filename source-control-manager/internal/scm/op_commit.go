@@ -94,10 +94,12 @@ func (c *call) commit() (*outcome, *result.Failure) {
 
 	// Step 4: render the message.
 	intent := c.show.ChangeSet.Intent
-	if render.ActsOnGitHub(intent) {
+	message := render.CommitMessage(c.csID, intent, c.req.body)
+	// The check runs on the intent and on the message as rendered, so no
+	// text can turn into a keyword on the way.
+	if render.ActsOnGitHub(intent) || render.ActsOnGitHub(message) {
 		return nil, result.Fail(result.UnsafeText, "The intent holds text that GitHub acts on.", jsonx.F("field", "intent"))
 	}
-	message := render.CommitMessage(c.csID, intent, c.req.body)
 
 	// Step 5: stage and commit exactly those paths, in a private index.
 	return c.writeCommit(parent, paths, recorded, message)

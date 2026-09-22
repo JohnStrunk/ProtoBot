@@ -29,6 +29,8 @@ func TestValidate(t *testing.T) {
 		{"body trailer", OpCommit, map[string]any{"body": "Change-Set: CS-00009"}, "body", "Change-Set:"},
 		{"body keyword", OpCommit, map[string]any{"body": "Fixes #1"}, "body", "GitHub acts on"},
 		{"body mention", OpCommit, map[string]any{"body": "Thanks @alice"}, "body", "GitHub acts on"},
+		{"body keyword with a Unicode space", OpCommit, map[string]any{"body": "Fixes\u00a0#1"}, "body", "GitHub acts on"},
+		{"body CI skip with a Unicode space", OpCommit, map[string]any{"body": "[skip\u3000ci]"}, "body", "GitHub acts on"},
 		{"body too long", OpCommit, map[string]any{"body": strings.Repeat("x", MaxBodyLength+1)}, "body", "rule"},
 		{"body control", OpCommit, map[string]any{"body": "a\x00b"}, "body", "rule"},
 	}

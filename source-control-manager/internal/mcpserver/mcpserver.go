@@ -36,7 +36,7 @@ var descriptions = map[string]string{
 	scm.OpBranchResume: "Switch to the one local branch of a change set, on resume.",
 	scm.OpCommit: "Commit the change set of the current branch, on the user's explicit request. " +
 		"The SCM derives the file set, runs the pre-stage digest check, and writes the subject and the Change-Set trailer. " +
-		"The optional body is prose; it holds no Change-Set: line, no closing keyword with an issue reference, and no @ mention.",
+		"The optional body is prose; it holds no Change-Set: line, no closing keyword with an issue reference, no @ mention, and no CI-skip token such as [skip ci].",
 	scm.OpPublish: "Push the change-set branch to the canonical remote, without force and without tags, " +
 		"and create or update its pull request with a body rendered from ears-manager output. Only on the user's explicit request.",
 	scm.OpRefresh: "Merge the default branch into the change-set branch with a merge commit, and abort on a conflict. " +

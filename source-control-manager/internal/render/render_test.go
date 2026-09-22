@@ -14,6 +14,11 @@ func TestActsOnGitHub(t *testing.T) {
 		"close #7", "closed #8", "fix #9", "resolves #10", "fixes#11", "Fixes  :  #12",
 		"@alice", "ping @org/team please", "(@bob)", "-@octocat", ".@octocat", "+@octocat",
 		"Draft [skip ci]", "[CI SKIP] later", "[no ci]", "[skip actions]", "body\nskip-checks: true",
+		// Unicode spaces and invisible format characters, which OneLine or
+		// GitHub turn into plain text.
+		"Fixes\u00a0#12", "fixes\u2009#3", "Closes\u3000GH-4", "Fix\u200bes #1", "[skip\u00a0ci]",
+		"Fixes\v#12", "Resolves\u2003#5", "Adds a tag [skip\u2003ci]",
+		"cc\u00a0@octocat", "body\nskip-checks:\u00a0true",
 	}
 	for _, text := range acts {
 		if !ActsOnGitHub(text) {
@@ -32,7 +37,7 @@ func TestActsOnGitHub(t *testing.T) {
 }
 
 func TestHasTrailerLine(t *testing.T) {
-	for _, text := range []string{"Change-Set: CS-00009", "prose\nchange-set: CS-1", "  Change-Set : x"} {
+	for _, text := range []string{"Change-Set: CS-00009", "prose\nchange-set: CS-1", "  Change-Set : x", "Change-Set\u00a0: x", "\u00a0Change-Set: x"} {
 		if !HasTrailerLine(text) {
 			t.Errorf("HasTrailerLine(%q) = false", text)
 		}
@@ -53,6 +58,12 @@ func TestCommitMessage(t *testing.T) {
 	}
 	if got := RefreshMessage("origin/main", "cs/00002-x", "CS-00002"); got != "Merge origin/main into cs/00002-x\n\nChange-Set: CS-00002" {
 		t.Fatalf("RefreshMessage = %q", got)
+	}
+	// A Unicode space in the intent becomes an ASCII space in the subject,
+	// so the check must see the same keyword in both.
+	intent := "Fixes\u00a0#12"
+	if subject := Subject("CS-00002", intent); subject != "spec(CS-00002): Fixes #12" || !ActsOnGitHub(intent) || !ActsOnGitHub(subject) {
+		t.Fatalf("Subject(%q) = %q, and the check does not refuse both", intent, subject)
 	}
 }
 

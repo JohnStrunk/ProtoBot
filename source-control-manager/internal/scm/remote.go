@@ -175,6 +175,25 @@ func (c *call) tryFetch(remote string) (*result.Failure, bool) {
 	return c.transportFailure(remote, args, res), true
 }
 
+// remoteHasRef asks a checked remote whether it has a branch now. It is a
+// read, so the result does not list it.
+func (c *call) remoteHasRef(remote, ref string) (bool, *result.Failure) {
+	args := []string{"ls-remote", "--heads", remote, ref}
+	res, err := c.git.Run(gitx.Opts{}, args...)
+	if err != nil {
+		return false, c.gitFailure(err)
+	}
+	if !res.OK() {
+		return false, c.transportFailure(remote, args, res)
+	}
+	for _, line := range lines(res.Text()) {
+		if _, name, ok := strings.Cut(line, "\t"); ok && name == ref {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // unambiguous reports whether git resolves a short name, such as
 // origin/main, to the full ref the SCM checked. A local branch or a tag
 // of the same name would otherwise win git's lookup.

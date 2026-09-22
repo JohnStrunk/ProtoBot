@@ -149,12 +149,13 @@ reaches the SCM only through the face that its binding started.
 
 The core is a library inside the executable. The executable, the core,
 and the result schema share one version until a second deployable
-exists. The implementation language is the choice of #160, the
+exists. The implementation language was the choice of #160, the
 implementation issue, as the guard's is #77's
-([Out-of-scope decisions][adapter-oos]).
-It needs an MCP SDK that serves both eras below on stdio, such as
-`mcp` 2.0 for Python, within the executable's constraints in
-[Environmental Constraints][env-constraints].
+([Out-of-scope decisions][adapter-oos]). #160 chose Go: one static
+binary, as `ears-manager` is, within the executable's constraints in
+[Environmental Constraints][env-constraints]. It bundles the official
+MCP Go SDK, `github.com/modelcontextprotocol/go-sdk` v1.8.0, which
+serves both eras below on stdio.
 
 ### MCP protocol
 
@@ -172,7 +173,10 @@ The MCP face is a dual-era server, as the specification defines it
   revision therefore still loads the `scm` server. The official Python
   SDK, `mcp` 2.0.0, serves both eras on stdio without extra code: an
   `mcp` 1.30.0 client negotiated 2025-11-25 against an `mcp` 2.0.0
-  server and called its tools (observed on 2026-09-21).
+  server and called its tools (observed on 2026-09-21). The official Go
+  SDK, which the SCM bundles, does the same: in the repository
+  fixture, a Go client that opens with `initialize` negotiates
+  2025-11-25 and gets the same result as a modern client.
 
 The SCM's own rules are the same in both eras, and they fit the
 stateless protocol:
@@ -488,7 +492,7 @@ that reads `ears-manager` with `SPEC_TOOL_FAILED`.
 | `branch_resume` | The change set named in the request | Switches `HEAD` to the one local branch `<prefix><nnnnn>-<slug>` of that change set | The change set's manifest exists at the branch tip | The branch and its tip | `CHANGE_SET_NOT_FOUND`, `AMBIGUOUS_BRANCH`, `UNCOMMITTED_CHANGES` |
 | `commit` | The change set of the current branch | Writes one commit on `refs/heads/<branch>` | The current branch is a change-set branch; every staged path is a path of the change set that #34 lets the Drafting Table stage | The commit, its parent, its subject and trailer, and its paths | `NOT_A_CHANGE_SET_BRANCH`, `INIT_REMOTE_MISMATCH`, `UNCOMMITTED_CHANGES`, `SPEC_DIGEST_MISMATCH`, `SPEC_CHECK_FAILED`, `PATH_NOT_STAGEABLE`, `STAGED_CONTENT_CHANGED`, `UNSAFE_TEXT`, `NOTHING_TO_COMMIT` |
 | `publish` | The change set of the current branch and its pull request | Pushes `refs/heads/<branch>` to the same name on `<remote>`, without force and without tags. Creates or updates the pull request of `<branch>` | The same branch rule; the pull request is the one of `<branch>`, as the [host adapter](#host-adapter-boundary) finds it | The pushed commit, and the pull request's number, URL, and whether it was created, updated, or unchanged | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `NOTHING_TO_PUBLISH`, `BASE_NOT_ON_DEFAULT`, `DEFAULT_MOVED`, `BASE_COMMIT_STALE`, `UNSAFE_TEXT`, `PR_MERGED`, `PR_CLOSED`, `AMBIGUOUS_PULL_REQUEST`, `PUSH_REJECTED_NON_FAST_FORWARD`, `PUSH_REJECTED_PROTECTED`, `HOST_UNAVAILABLE`, `HOST_REQUEST_FAILED`, and the remote codes |
-| `refresh` | The change set of the current branch | Merges `<remote>/<default>` into `refs/heads/<branch>` | The same branch rule | The merge commit, and the new default head that `change-set update --base-commit` must record | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `MERGE_CONFLICT`, and the remote codes |
+| `refresh` | The change set of the current branch | Merges `<remote>/<default>` into `refs/heads/<branch>` | The same branch rule | The merge commit, and the new default head that `change-set update --base-commit` must record | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `UNSAFE_TEXT`, `MERGE_CONFLICT`, and the remote codes |
 
 The SCM fills every placeholder from the working tree and
 `.protobot/project.yaml`, never from a request:
@@ -641,6 +645,8 @@ and the pull request. Its `data` fields are:
    exist, has no commit, has no upstream branch, or is not the branch
    that its upstream remote's `HEAD` names. This ties the default
    branch to the host's default branch before any project records it.
+   When that remote has no `HEAD`, as after `git init` and `git remote
+   add`, the details name `git remote set-head <remote> --auto`.
 5. Check that upstream remote as the placeholders above state, and
    fetch it, without tags. A fetch moves only remote-tracking refs.
 6. Refuse with `DEFAULT_DIVERGED` when the local `<default>` has commits
@@ -648,7 +654,10 @@ and the pull request. Its `data` fields are:
    unpublished commits, or when it is behind and checked out in another
    worktree, where no fast-forward from here can move it. Refuse with
    `BRANCH_EXISTS` when `<prefix>00001-project-init` exists locally or
-   on any remote.
+   on any remote. The SCM asks the upstream remote itself, with `git
+   ls-remote`, so a stale tracking ref of a deleted branch does not
+   count. It may reach no other remote before a project exists, so for
+   those it reads their remote-tracking refs.
 7. Fast-forward `<default>` to its upstream when it is behind, as
    `repo_state` step 9 does: `update-ref` when it is checked out in no
    worktree, `git merge --ff-only` when it is checked out here. When
@@ -878,7 +887,9 @@ but #33 refused it, and the SCM keeps that refusal
      merged in, and `change-set update --base-commit` did not run.
 6. Render the title and the body ([Title and body](#title-and-body)).
    Refuse with `UNSAFE_TEXT` when the intent holds text that GitHub acts
-   on.
+   on, when the title is empty or longer than the 256 characters that
+   GitHub takes, or when the body is longer than its 65,536 characters.
+   Each would fail only after the push, and again on every retry.
 7. Push `refs/heads/<branch>` to the same name on `<remote>`, without
    force and without tags, even when the user's Git configuration
    follows tags. A rejection because `<remote>/<branch>` has commits
@@ -934,18 +945,30 @@ reference, such as `Fixes #12`, closes that issue when the commit or
 the pull request reaches the default branch, and `@name` notifies
 people. With GitHub Issues as the WMS backend, an issue is a build work
 item, so a closed issue would be a lifecycle change that the Drafting
-Table must never make. The SCM therefore keeps such text out of every
-line it writes outside a code span: the commit subject and body, and
-the pull-request title. A request body that holds a closing keyword
-with a reference, or an `@` mention, is `INVALID_REQUEST`. An intent
-that holds one is `UNSAFE_TEXT`.
+Table must never make. A token that skips CI does harm too: GitHub runs
+no workflow for a commit whose message holds one, so CI would not run
+the project's own checks on that push
+([Design principles](#design-principles)). The SCM therefore keeps
+such text out of every line it writes outside a code span: the commit
+subject and body, the `refresh` merge message, and the pull-request
+title. A request body that holds any of it is `INVALID_REQUEST`. An
+intent that holds any of it is `UNSAFE_TEXT`, and so is a merge message
+whose branch or remote name holds any of it.
 
 The match is wide on purpose. A closing keyword is any of GitHub's
 nine, `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`,
 `resolve`, `resolves`, and `resolved`, in any letter case, with or
 without a colon, followed by a reference: `#12`, `GH-12`,
-`owner/repo#12`, or an issue URL. A mention is `@` followed by a user
-or a team name, such as `@name` or `@org/team`.
+`owner/repo#12`, or an issue URL. A mention is `@` after the start of
+the text or any character that is not a letter, a digit, or `_`,
+followed by a user or a team name, such as `@name` or `@org/team`. A
+CI-skip token is `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`,
+or `[actions skip]` in any letter case, or a `skip-checks: true` line.
+Before the match, every Unicode space other than a line break becomes
+an ASCII space, every line ending becomes a line feed, and every
+invisible format character, such as a zero-width space, is dropped,
+because the SCM writes the intent on one line with ASCII spaces. The
+match runs on the intent and again on the text as rendered.
 
 ### `refresh`
 
@@ -958,10 +981,14 @@ or a team name, such as `@name` or `@org/team`.
    with a merge commit. The message is `Merge <remote>/<default> into
    <branch>`, then a blank line and the trailer `Change-Set:
    CS-<nnnnn>`. The merge runs with `--cleanup=verbatim`, so no cleanup
-   mode or comment character strips the trailer. `refresh` merges
-   nothing else: commits on
+   mode or comment character strips the trailer. Refuse with
+   `UNSAFE_TEXT` when the message holds
+   [text that GitHub acts on](#text-that-github-acts-on). `refresh`
+   merges nothing else: commits on
    `<remote>/<branch>` that `HEAD` lacks are the user's to review, as
-   [`publish`](#publish) states.
+   [`publish`](#publish) states. When a tag or a local branch named
+   `<remote>/<default>` would win Git's lookup of that short name, the
+   call fails with `GIT_FAILED` and merges nothing.
 5. On a conflict, abort the merge. The working tree, the index, and
    `HEAD` are as they were before the call. Fail with `MERGE_CONFLICT`
    and classify each conflicting file as #34's failure table does: a
@@ -985,7 +1012,7 @@ it: the fast-forward of the local default branch.
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init`, after `branch_init` |
 | Read repository state | `repo_state` |
-| Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch |
+| Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch, which it also asks with `git ls-remote` |
 | Fast-forward the local default branch | `repo_state` and `branch_init`, only by fast-forward |
 | Create a change-set branch | `ears-manager change-set create`; the initialization branch is `branch_init` |
 | Switch to an existing change-set branch | `branch_resume`, to a local branch only |
@@ -1465,7 +1492,7 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `SPEC_CHECK_FAILED` | `commit` | `check` failed with status `4`, and without a digest-mismatch diagnostic that makes it `SPEC_DIGEST_MISMATCH` | `ears-manager check` failed; registered path missing from the projection manifest | `revise` |
 | `PATH_NOT_STAGEABLE` | `commit` | A path of the change set is a directory, breaks #34's path rules, is one that the guard keeps from `artifact put`, is `.gitattributes` or `.gitmodules`, or replaces a tracked directory or lies below a tracked file | — | `never` |
 | `STAGED_CONTENT_CHANGED` | `commit` | A Git filter, or a write since the digest check, changed a staged file, so the commit would not hold what `check` saw | — | `user` |
-| `UNSAFE_TEXT` | `commit`, `publish` | The intent holds text that GitHub acts on | — | `revise` |
+| `UNSAFE_TEXT` | `commit`, `publish`, `refresh` | The intent, or the `refresh` merge message, holds text that GitHub acts on; or, for `publish`, the title is empty or longer than 256 characters, or the body is longer than 65,536. The details name the field; for an empty or too long text, the reason; and for the merge message, the remote and the branch, whose names put the text there | — | `revise`, or `user` for the `refresh` merge message |
 | `NOTHING_TO_COMMIT` | `commit` | No path of the change set differs from `HEAD` | — | `never` |
 | `NOTHING_TO_PUBLISH` | `publish` | The branch has no commit that the default branch lacks | — | `never` |
 | `BASE_NOT_ON_DEFAULT` | `publish` | `base_commit` is not on the canonical default branch | — | `user` |
@@ -1484,7 +1511,7 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `NOT_APPROVED` | `approved_merge` | The change set is not approved on the default branch, or the host has no merged pull request of it | — | `user` |
 | `NOT_A_MERGE_COMMIT` | `approved_merge` | The commit that added the manifest has one parent | — | `reconcile` |
 | `MERGE_COMMIT_MISMATCH` | `approved_merge` | Git and the host name different merge commits | Registration rejected, different merge commit | `reconcile` |
-| `GIT_FAILED` | All | An unexpected Git failure, a branch that another writer moved while `commit` ran included; the details give the command and its status | — | `reconcile` |
+| `GIT_FAILED` | All | An unexpected Git failure, a branch that another writer moved while `commit` ran included; the details give the command and its status. For a short ref name that a tag or a local branch shadows, the details give that name and the ref it must name | — | `reconcile`, or `user` for a shadowed short name |
 | `INTERNAL` | All | An internal invariant failed | — | `never` |
 
 Two #34 rows are outside the SCM: "Merge refused by branch
@@ -1571,10 +1598,10 @@ either.
   ([Exit conditions][exit-conditions]). The comparison does not see a
   change to the content of the same paths after the review; one
   session per checkout is what excludes that.
-- **No text that GitHub acts on.** The SCM writes no closing keyword or
-  mention outside a code span ([Text that GitHub acts
+- **No text that GitHub acts on.** The SCM writes no closing keyword,
+  mention, or CI-skip token outside a code span ([Text that GitHub acts
   on](#text-that-github-acts-on)), so a commit or a pull request never
-  closes an issue that is a build work item.
+  closes an issue that is a build work item, and never skips CI.
 - **No credential leaves the SCM.** Results, errors, and audit records
   name remotes, never their URLs, and refuse a remote whose configured
   or effective URL carries userinfo other than the fixed `git@` of the
@@ -1750,6 +1777,14 @@ The second table tests the SCM's own boundary.
 | Another writer during the call: the driver defines a clean filter that passes its input through unchanged and, when it runs for the SCM's private index, adds an empty commit to the branch; `ears-manager artifact put`, then `commit` | `GIT_FAILED` with `retry: reconcile`; the branch tip is the other writer's commit, and the index and the working tree are as they were |
 | A merge in progress: the second clone pushes a conflicting change to `docs/vision.md` on `main`, and the driver runs `git merge origin/main` in its own shell and leaves the conflict; then `commit` | `UNCOMMITTED_CHANGES`, naming the merge; no commit, and `MERGE_HEAD` still exists |
 | A hosted commit: a Streamable HTTP request with a full signed context, after `ears-manager artifact put` | The commit's author is the context's `author`, and its committer is the service actor of the SCM's own configuration; no result and no argument list holds the name or the email |
+| A stale tracking ref of the initialization branch: in a copy of the state before step 1, the driver sets `refs/remotes/origin/cs/00001-project-init`, a branch that `origin` does not have; then `branch_init` | It succeeds as in step 1; `git ls-remote` of `origin` finds no such branch |
+| The initialization branch on the upstream remote: in a copy of the state before step 1, the second clone pushes `cs/00001-project-init`; then `branch_init` | `BRANCH_EXISTS`, with `where: remote` |
+| An upstream remote with no `HEAD`: in a copy of the state before step 1, the driver runs `git remote set-head origin --delete`, then `branch_init` | `DEFAULT_NOT_FOUND`; the details name `git remote set-head origin --auto` |
+| A title that GitHub would refuse: `ears-manager change-set update` sets an intent longer than 256 characters, then `commit`, then `publish` | `commit` succeeds; `publish` fails with `UNSAFE_TEXT` and names the reason; nothing is pushed, and the `gh` stub records no call |
+| GitHub text behind a Unicode space or a CI-skip token: `ears-manager change-set update` sets the intent to `Fixes #12` with a no-break space, then to `Adds a tag [skip ci]`; `commit` each time | `UNSAFE_TEXT` each time; no commit |
+| A merge message that a branch name makes unsafe: the second clone pushes an unrelated commit to `main`, and the driver renames the change-set branch to `cs/00002-fixes#1`; then `refresh` | `UNSAFE_TEXT` with `retry: user`; no merge |
+| A tag that shadows the remote default branch: the second clone pushes an unrelated commit to `main`, and the driver tags an unreviewed commit `origin/main` in the clone; `refresh`, then `repo_state` on `main` | `refresh` fails with `GIT_FAILED`, names `origin/main`, and merges nothing; `repo_state` reports `local: behind` and moves nothing |
+| Protected names in another letter case: the `ears-manager` stub registers and writes `claude.md`, then `.GitAttributes`, then `.Claude/settings.json`; `commit` each time | `PATH_NOT_STAGEABLE` each time; no commit |
 
 ---
 

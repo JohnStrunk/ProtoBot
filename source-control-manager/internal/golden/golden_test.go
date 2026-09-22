@@ -597,6 +597,65 @@ var negativeChecks = []check{
 			}
 		}
 	}},
+	{"a stale tracking ref of the initialization branch", "base", func(d *driver) {
+		// The branch was deleted on the host, but its tracking ref stayed.
+		d.git(d.clone(), "update-ref", "refs/remotes/origin/cs/00001-project-init", "HEAD")
+		d.expect("1-branch-init", d.step("1-branch-init")["result"], d.call("branch_init", nil))
+	}},
+	{"a live initialization branch on the upstream remote", "base", func(d *driver) {
+		d.git(d.second(), "push", "--quiet", "origin", "main:refs/heads/cs/00001-project-init")
+		out := d.call("branch_init", nil)
+		if !bytes.Contains(out, []byte(`"code":"BRANCH_EXISTS"`)) || !bytes.Contains(out, []byte(`"where":"remote"`)) {
+			d.t.Fatalf("branch_init with the branch on origin: %s", out)
+		}
+	}},
+	{"an upstream remote with no HEAD", "base", func(d *driver) {
+		d.git(d.clone(), "remote", "set-head", "origin", "--delete")
+		out := d.call("branch_init", nil)
+		if !bytes.Contains(out, []byte(`"code":"DEFAULT_NOT_FOUND"`)) || !bytes.Contains(out, []byte(`"next":["git","remote","set-head","origin","--auto"]`)) {
+			d.t.Fatalf("branch_init with no remote HEAD: %s", out)
+		}
+	}},
+	{"an intent longer than a pull-request title", "after-6", func(d *driver) {
+		intent := strings.TrimSpace(strings.Repeat("Add the initial Sketch ", 12))
+		if _, status := d.ears([]string{"--output", "json", "change-set", "update", "--change-set", "CS-00002", "--intent", intent}, nil); status != 0 {
+			d.t.Fatalf("change-set update exited %d", status)
+		}
+		if out := d.call("commit", nil); !bytes.Contains(out, []byte(`"ok":true`)) {
+			d.t.Fatalf("commit of a long intent: %s", out)
+		}
+		calls := len(d.gh().Recorded)
+		out := d.call("publish", nil)
+		if !bytes.Contains(out, []byte(`"code":"UNSAFE_TEXT"`)) || !bytes.Contains(out, []byte("longer than 256 characters")) {
+			d.t.Fatalf("publish of a long intent: %s", out)
+		}
+		if len(d.gh().Recorded) != calls {
+			d.t.Fatal("the gh stub recorded a call")
+		}
+		d.assertRefs(map[string]string{"origin/refs/heads/cs/00002-add-the-initial-sketch": "c2"})
+	}},
+	{"an intent that hides GitHub text", "after-6", func(d *driver) {
+		for _, intent := range []string{"Fixes\u00a0#12", "Adds a tag [skip ci]"} {
+			d.restore("after-6")
+			if _, status := d.ears([]string{"--output", "json", "change-set", "update", "--change-set", "CS-00002", "--intent", intent}, nil); status != 0 {
+				d.t.Fatalf("change-set update exited %d", status)
+			}
+			head := d.rev(d.clone(), "HEAD")
+			out := d.call("commit", nil)
+			if !bytes.Contains(out, []byte(`"code":"UNSAFE_TEXT"`)) || d.rev(d.clone(), "HEAD") != head {
+				d.t.Fatalf("commit of the intent %q: %s", intent, out)
+			}
+		}
+	}},
+	{"a merge message that a branch name makes unsafe", "after-6", func(d *driver) {
+		d.upstreamCommit("CHANGELOG.md", "# Changes\n", "Add a changelog")
+		d.git(d.clone(), "branch", "-m", "cs/00002-add-the-initial-sketch", "cs/00002-fixes#1")
+		head := d.rev(d.clone(), "HEAD")
+		out := d.call("refresh", nil)
+		if !bytes.Contains(out, []byte(`"code":"UNSAFE_TEXT"`)) || !bytes.Contains(out, []byte(`"retry":"user"`)) || d.rev(d.clone(), "HEAD") != head {
+			d.t.Fatalf("refresh on cs/00002-fixes#1: %s", out)
+		}
+	}},
 	{"scm-9 other repository", "after-6", func(d *driver) {
 		calls := d.gh().Calls
 		d.callStep("scm-9-other-repo")
