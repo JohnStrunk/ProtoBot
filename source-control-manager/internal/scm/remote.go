@@ -154,8 +154,8 @@ func transportClass(stderr string) result.Code {
 // credentialSource names where the credential comes from in this mode.
 const credentialSource = "the user's own Git credential helper and gh's store"
 
-// fetch fetches a remote without tags. A fetch moves only remote-tracking
-// refs, so it is listed but it is not a mutation.
+// fetch fetches a remote without tags. A fetch moves and prunes
+// remote-tracking refs only, so it is listed but it is not a mutation.
 func (c *call) fetch(remote string) *result.Failure {
 	failure, _ := c.tryFetch(remote)
 	return failure
@@ -165,8 +165,11 @@ func (c *call) fetch(remote string) *result.Failure {
 // report a fetch that ran and failed as a state. The refspec is explicit,
 // and the empty --refmap stops git from also mapping the fetched refs
 // through remote.<name>.fetch, which could name a local branch or a tag.
+// --prune drops the tracking ref of a branch the remote deleted, so every
+// later step reads refs that this fetch refreshed; with one refspec on the
+// command line, git prunes only its destination.
 func (c *call) tryFetch(remote string) (*result.Failure, bool) {
-	args := []string{"fetch", "--no-tags", "--refmap=", remote, "+refs/heads/*:refs/remotes/" + remote + "/*"}
+	args := []string{"fetch", "--no-tags", "--prune", "--refmap=", remote, "+refs/heads/*:refs/remotes/" + remote + "/*"}
 	res, err := c.git.Run(gitx.Opts{Record: true}, args...)
 	if err != nil {
 		return c.gitFailure(err), false

@@ -571,9 +571,13 @@ is prose that #34 allows.
 2. Read the Git-facing fields of `.protobot/project.yaml`, which #34
    lets the Drafting Table read ([Repository fields][repo-fields]).
 3. Find and check `<remote>`, as the placeholders above state.
-4. Fetch `<remote>`, without tags. When the fetch fails, report
-   `remote.reachable: false` with the failure code and continue with
-   the local refs.
+4. Fetch `<remote>`, without tags. Every step below reads the
+   remote-tracking refs that this fetch refreshed, and the fetch prunes
+   the ones whose branch the remote deleted, so after a fetch that
+   succeeded no deleted branch is reported as one the remote still has.
+   When the fetch fails,
+   report `remote.reachable: false` with the failure code and continue
+   with the local refs, which are then older than the remote.
 5. Read the current branch and its tip. Classify it as a change-set
    branch, the default branch, another branch, or a detached `HEAD`.
    For a change-set branch, read the manifest through `ears-manager
@@ -614,9 +618,10 @@ is prose that #34 allows.
    ([Permitted Git operations][git-ops]). A local `<default>` that has
    commits the remote lacks is never moved; the result reports it as
    `diverged`. A local `<default>` that is not moved for another reason,
-   in another worktree, because a tag or a local branch shadows
-   `<remote>/<default>`, or because Git refuses the fast-forward,
-   changes nothing, and the result reports it as `behind`. This is the last
+   in another worktree, because `<remote>/<default>` does not exist,
+   because a tag or a local branch shadows it, or because Git refuses
+   the fast-forward, changes nothing, and the result reports it as
+   `behind`. This is the last
    step, and it runs only when every step before it succeeded, so the
    fast-forward never comes with a failed result.
 
@@ -630,7 +635,7 @@ and the pull request. Its `data` fields are:
 | `initialized` | Whether `.protobot/project.yaml` exists at the working-tree root. When it is `false`, `data` holds only `initialized` and `branch.name` |
 | `project` | `id`, `default_branch`, `branch_prefix`, and `review_mode` |
 | `remote` | `name`, and `reachable` with a failure code when it is `false` |
-| `default_branch` | `head` of `<remote>/<default>`, and `local`: `current`, `fast-forwarded`, `behind`, or `diverged` |
+| `default_branch` | `head` of `<remote>/<default>`, `null` when `<remote>` has no `<default>`, and `local`: `current`, `fast-forwarded`, `behind`, or `diverged` |
 | `branch` | `name`, `kind` (`change-set`, `default`, `other`, or `detached`), `head`, the commit that `HEAD` names when the call returns, and for a change-set branch `change_set_id`, `base_commit`, `default_moved`, and `default_merged_in` |
 | `working_tree` | `change_set_paths`, sorted, and the count `other_paths` |
 | `pull_request` | `number`, `state` (`open`, `merged`, `closed`, `none`, `unavailable`, or `ambiguous`), `url`, and `merge_commit` |
@@ -655,8 +660,8 @@ and the pull request. Its `data` fields are:
    When that remote has no `HEAD`, as after `git init` and `git remote
    add`, the details name `git remote set-head <remote> --auto`.
 5. Check that upstream remote as the placeholders above state, and
-   fetch it, without tags. A fetch moves only remote-tracking refs
-   ([Mapping to #34's permitted operations][scm-ops]).
+   fetch it, without tags. A fetch moves and prunes remote-tracking refs
+   only ([Mapping to #34's permitted operations][scm-ops]).
 6. Refuse with `DEFAULT_DIVERGED` when the local `<default>` has commits
    that its upstream lacks, so the initialization branch never carries
    unpublished commits, or when it is behind and checked out in another
@@ -897,6 +902,10 @@ but #33 refused it, and the SCM keeps that refusal
    registration. A closed one is `PR_CLOSED`: #34 never reopens a pull
    request to hide history, so the user decides.
 5. Check the base, in this order:
+   - `BASE_NOT_ON_DEFAULT` with `default_head: null` when `<remote>` has
+     no `<default>` at all, as after the remote deleted it and the fetch
+     pruned its tracking ref: every check below would read a ref that is
+     gone;
    - `NOTHING_TO_PUBLISH` when `HEAD` has no commit that
      `<remote>/<default>` lacks;
    - `BASE_NOT_ON_DEFAULT` when the manifest's `base_commit` is not
@@ -1023,7 +1032,10 @@ match runs on the intent and again on the text as rendered.
    `NOT_A_CHANGE_SET_BRANCH`.
 2. Refuse with `UNCOMMITTED_CHANGES` when a tracked file has an
    uncommitted change. A merge commit records only committed work.
-3. Fetch `<remote>`.
+3. Fetch `<remote>`. When it has no `<default>` after that fetch, fail
+   with `GIT_FAILED` and merge nothing: there is nothing to merge from.
+   `approved_merge` fails the same state with `NOT_APPROVED`, because
+   approval lives on the default branch.
 4. When `<remote>/<default>` is not reachable from `HEAD`, merge it
    with a merge commit. The message is `Merge <remote>/<default> into
    <branch>`, then a blank line and the trailer `Change-Set:
@@ -1064,7 +1076,7 @@ it: the fast-forward of the local default branch.
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init`, after `branch_init` |
 | Read repository state | `repo_state` |
-| Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch, which it also asks with `git ls-remote`. Every fetch runs `git fetch --no-tags --refmap= <remote> +refs/heads/*:refs/remotes/<remote>/*`: the empty `--refmap` keeps Git from also mapping the fetched refs through the remote's configured `fetch` refspecs, so a fetch moves only remote-tracking refs, never a local branch or a tag |
+| Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch, which it also asks with `git ls-remote`. Every fetch runs `git fetch --no-tags --prune --refmap= <remote> +refs/heads/*:refs/remotes/<remote>/*`: the empty `--refmap` keeps Git from also mapping the fetched refs through the remote's configured `fetch` refspecs, so a fetch moves only remote-tracking refs, never a local branch or a tag, and `--prune` drops the tracking ref of a branch the remote deleted. With one refspec on the command line, Git prunes only that refspec's destination, `refs/remotes/<remote>/` |
 | Fast-forward the local default branch | `repo_state` and `branch_init`, only by fast-forward |
 | Create a change-set branch | `ears-manager change-set create`; the initialization branch is `branch_init` |
 | Switch to an existing change-set branch | `branch_resume`, to a local branch only |
@@ -1485,8 +1497,8 @@ Failed result:
   private index and `git write-tree` are not listed. No argument list
   holds a credential or a remote URL.
 - **`mutation`** counts changes to local branches, the index, the
-  working tree, the remote, and the host. A fetch that only moves
-  remote-tracking refs is not a mutation. On a failure it is `none`,
+  working tree, the remote, and the host. A fetch, which only moves and
+  prunes remote-tracking refs, is not a mutation. On a failure it is `none`,
   `partial` (only `publish` after the push, and `branch_init` after
   the fast-forward), or `unknown`.
 - **`retry`** is one of: `retry` (the same call is safe now),
@@ -1550,7 +1562,7 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `UNSAFE_TEXT` | `commit`, `publish`, `refresh` | The intent, or the `refresh` merge message, holds text that GitHub acts on; or, for `publish`, the title is empty or longer than 256 characters, or the body is longer than 65,536. The details name the field; for an empty or too long text, the reason; and for the merge message, the remote and the branch, whose names put the text there | — | `revise`, or `user` for the `refresh` merge message |
 | `NOTHING_TO_COMMIT` | `commit` | No path of the change set differs from `HEAD` | — | `never` |
 | `NOTHING_TO_PUBLISH` | `publish` | The branch has no commit that the default branch lacks | — | `never` |
-| `BASE_NOT_ON_DEFAULT` | `publish` | `base_commit` is not on the canonical default branch | — | `user` |
+| `BASE_NOT_ON_DEFAULT` | `publish` | `base_commit` is not on the canonical default branch, or the remote has no default branch | — | `user` |
 | `DEFAULT_MOVED` | `publish` | The default branch moved since `base_commit` | Default branch has moved since `base_commit` | `refresh-branch` |
 | `BASE_COMMIT_STALE` | `publish` | The default branch was merged in, and `base_commit` was not updated | — | `revise` |
 | `PR_MERGED` | `publish` | The pull request is merged | — | `never` |
@@ -1563,7 +1575,7 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `HOST_UNAVAILABLE` | `publish`, `approved_merge` | Before any push, or for `approved_merge`, the host cannot be reached or rate-limits the call, so the pull request's state is unknown | — | `retry` |
 | `HOST_REQUEST_FAILED` | `publish` | The host refused or failed the lookup of the pull request before any push, or any host request after it; the details give the host class, and `pushed` after a push | Pull-request creation failed | `retry`, or `reconcile` with `mutation: unknown` when the host may have applied the request after the push |
 | `MERGE_CONFLICT` | `refresh` | The merge conflicted and was aborted; the details name and classify each file | Merge conflict in a change-set manifest or index file; merge conflict in a requirement record | `user` |
-| `NOT_APPROVED` | `approved_merge` | The change set is not approved on the default branch, or the host has no merged pull request of it | — | `user` |
+| `NOT_APPROVED` | `approved_merge` | The change set is not approved on the default branch, the remote has no default branch, or the host has no merged pull request of it | — | `user` |
 | `NOT_A_MERGE_COMMIT` | `approved_merge` | The commit that added the manifest has one parent | — | `reconcile` |
 | `MERGE_COMMIT_MISMATCH` | `approved_merge` | Git and the host name different merge commits | Registration rejected, different merge commit | `reconcile` |
 | `GIT_FAILED` | All | An unexpected Git failure, a branch that another writer moved while `commit` ran included; the details give the command and its status. For a short ref name that a tag or a local branch shadows, the details give that name and the ref it must name | — | `reconcile`, or `user` for a shadowed short name and for a push that the remote rejected for a reason other than branch protection |
@@ -1842,7 +1854,7 @@ these checks, and the transcript has no record for them.
 
 | SCM check, asserted by the driver | Expected result |
 | --- | --- |
-| A stale tracking ref of the initialization branch: in a copy of the state before step 1, the driver sets `refs/remotes/origin/cs/00001-project-init`, a branch that `origin` does not have; then `branch_init` | It succeeds as in step 1; `git ls-remote` of `origin` finds no such branch |
+| A stale tracking ref of the initialization branch: in a copy of the state before step 1, the driver sets `refs/remotes/origin/cs/00001-project-init`, a branch that `origin` does not have; then `branch_init` | It succeeds as in step 1: the fetch prunes the stale ref, and the SCM asks `origin` with `git ls-remote` in any case |
 | The initialization branch on the upstream remote: in a copy of the state before step 1, the second clone pushes `cs/00001-project-init`; then `branch_init` | `BRANCH_EXISTS`, with `where: remote` |
 | An upstream remote with no `HEAD`: in a copy of the state before step 1, the driver runs `git remote set-head origin --delete`, then `branch_init` | `DEFAULT_NOT_FOUND`; the details name `git remote set-head origin --auto` |
 | A title that GitHub would refuse: `ears-manager change-set update` sets an intent longer than 256 characters, then `commit`, then `publish` | `commit` succeeds; `publish` fails with `UNSAFE_TEXT` and names the reason; nothing is pushed, and the `gh` stub records no call |
@@ -1855,6 +1867,8 @@ these checks, and the transcript has no record for them.
 | A symlinked control directory: the driver moves `.protobot/` out of the clone and links it back, then `repo_state` | `PROJECT_UNREADABLE`, naming `.protobot/`, although the link's target holds a valid `project.yaml` |
 | Trace context and CLI parity: a `repo_state` whose `_meta` carries a `traceparent`, then the same call through the CLI, then `publish --force` on the CLI | The result copies the trace context unchanged; the CLI result equals the MCP result byte for byte; `INVALID_REQUEST` naming `force`, and no command runs |
 | A fetch refspec that maps into local refs: the driver sets `remote.origin.fetch` to `+refs/heads/*:refs/heads/mirror/*` and adds `+refs/tags/*:refs/tags/*`, and the second clone pushes a commit and a tag to `origin`; then `repo_state` | `origin/main` moves to the new commit; no `refs/heads/mirror/*` and no tag exist in the clone |
+| A change-set branch that the remote deleted: `repo_state`; the second clone deletes `cs/00002-<slug>` on `origin`; `repo_state` again | The first call reports `on_remote: true`, the second `on_remote: false`, and no tracking ref of that branch is left |
+| A default branch that the remote deleted: `origin` gets a second branch `keep`, points its `HEAD` at it, and deletes `main`; then `publish` | `BASE_NOT_ON_DEFAULT` with `default_head: null`; no tracking ref of `main` is left, and nothing is pushed |
 
 ---
 

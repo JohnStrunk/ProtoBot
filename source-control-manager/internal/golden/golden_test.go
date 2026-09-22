@@ -723,6 +723,35 @@ var negativeChecks = []check{
 			d.t.Fatalf("origin/main is %s, want %s", got, want)
 		}
 	}},
+	{"a change-set branch that the remote deleted", "after-6", func(d *driver) {
+		const branch = "cs/00002-add-the-initial-sketch"
+		if out := d.call("repo_state", nil); !bytes.Contains(out, []byte(`"branch":"`+branch+`","on_remote":true`)) {
+			d.t.Fatalf("repo_state before the delete: %s", out)
+		}
+		d.git(d.second(), "push", "--quiet", "origin", "--delete", branch)
+		out := d.call("repo_state", nil)
+		if !bytes.Contains(out, []byte(`"branch":"`+branch+`","on_remote":false`)) {
+			d.t.Fatalf("repo_state after the delete: %s", out)
+		}
+		if refs := d.git(d.clone(), "for-each-ref", "--format=%(refname)", "refs/remotes/origin/"+branch); refs != "" {
+			d.t.Fatalf("the tracking ref of the deleted branch stands: %s", refs)
+		}
+	}},
+	{"a default branch that the remote deleted", "after-6", func(d *driver) {
+		// A bare repository refuses to delete the branch its HEAD names.
+		d.git(d.second(), "push", "--quiet", "origin", "main:refs/heads/keep")
+		d.git(d.origin(), "symbolic-ref", "HEAD", "refs/heads/keep")
+		d.git(d.second(), "push", "--quiet", "origin", "--delete", "main")
+		out := d.call("publish", nil)
+		if !bytes.Contains(out, []byte(`"code":"BASE_NOT_ON_DEFAULT"`)) || !bytes.Contains(out, []byte(`"default_head":null`)) {
+			d.t.Fatalf("publish with no default branch on the remote: %s", out)
+		}
+		if refs := d.git(d.clone(), "for-each-ref", "--format=%(refname)", "refs/remotes/origin/main"); refs != "" {
+			d.t.Fatalf("the tracking ref of the deleted default branch stands: %s", refs)
+		}
+		// assertNoPush reads other.git, which this check does not create.
+		d.assertRefs(map[string]string{"origin/refs/heads/cs/00002-add-the-initial-sketch": "c2"})
+	}},
 	{"a host failure after a no-op push", "after-6", func(d *driver) {
 		cases := []struct{ answer, mutation, retry string }{
 			// A 5xx can come after GitHub applied the edit.
