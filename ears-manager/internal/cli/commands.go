@@ -952,6 +952,7 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
+	observeWritePath(&state, canonicalPath)
 	changeSetIndex, changeSet, failure := proposedChangeSet(state, changeSetID)
 	if failure != nil {
 		return nil, Mutation{}, failure

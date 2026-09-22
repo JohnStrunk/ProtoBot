@@ -176,6 +176,14 @@ func observeSnapshot(root string, snapshot specvalidation.Snapshot) map[string]f
 	return observed
 }
 
+func observeWritePath(state *projectState, path string) {
+	normalized := filepath.ToSlash(path)
+	if _, exists := state.observed[normalized]; exists {
+		return
+	}
+	state.observed[normalized] = readExpectation(state.root, normalized)
+}
+
 func readExpectation(root, relative string) fileExpectation {
 	if _, err := storage.ValidatePathWithinNoSymlinks(root, filepath.FromSlash(relative)); err != nil {
 		return fileExpectation{}

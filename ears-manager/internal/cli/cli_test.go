@@ -137,6 +137,8 @@ func TestCLIArtifactPutGetAndAtomicInvalidWrite(t *testing.T) {
 	if jsonString(t, stdout, "data", "artifact", "digest") == "" {
 		t.Fatalf("artifact digest was empty: %s", stdout)
 	}
+	code, stdout, stderr = runCLI([]byte("# Updated Architecture\n"), "--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "architecture", "--kind", "architecture", "--path", "docs/architecture.md", "--owner", "user", "--content-stdin")
+	assertSuccess(t, code, stdout, stderr)
 
 	code, stdout, stderr = runCLI(nil, "--output", "json", "artifact", "get", "--id", "vision")
 	assertSuccess(t, code, stdout, stderr)
