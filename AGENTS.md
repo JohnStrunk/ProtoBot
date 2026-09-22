@@ -99,10 +99,11 @@ must follow these rules:
 
 5. **Review agents must also check for staleness introduced
    elsewhere.** When a PR changes a contract, lifecycle, or
-   behavior description in any governed document, search all
-   other governed documents under `docs/` — not only the ones
-   the diff touches — for existing prose describing the same
-   behavior, and flag any that were not updated to match.
+   behavior description in a specification document, search
+   all other governed Markdown documents under `docs/` — not
+   only the ones the diff touches — for existing prose
+   describing the same behavior, and flag any that were not
+   updated to match.
 
 ## Agent skills
 
