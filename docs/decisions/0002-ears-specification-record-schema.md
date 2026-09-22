@@ -75,21 +75,32 @@ Each specification store carries a schema version in
 ([architecture.md](../architecture.md#persistent-state)). The
 version applies per store, not per file: all records in a store
 share the store's version. `ears-manager` refuses to operate on
-data at a version newer than its own and forward-migrates older
-versions through a reviewed change set.
+data at a version newer than its own. The version-1 definitions in
+this ADR are being finalized before the first project adopts them;
+pre-adoption clarifications do not require a migration path.
 
 This ADR defines four record types that live in two of the
 Architecture's six stores: requirements, interfaces, and
 change sets in the specification store, and artifact-registry
 entries in `.protobot/project.yaml`. Each store carries one
-version key; the initial version for both is `1`. The version
-number is a monotonically increasing integer. Any change to a
+version key; the initial and current version for both is `1`.
+The version-1 project definition includes the artifact registry's
+owner enum, canonical digest format, and structured-store integrity
+digests. The version number is a monotonically increasing integer.
+After version 1 is adopted, any change to a
 store's field names, types, required constraints, or enum
 values increments its version. This ADR establishes the
 following increment policy: additive changes (new optional
 fields, new enum values) and breaking changes both increment
 the version; `ears-manager` uses the version to decide
 whether migration is needed.
+
+**[Amended September 2026]** The owner, digest, relationship, and
+change-set validation rules in this ADR are clarified before the
+first supported project uses version 1. A deployed version-1 project
+will require the normal reviewed migration policy for any later
+schema change; this amendment does not reinterpret an existing
+deployment.
 
 ### Requirement Records
 
@@ -181,8 +192,14 @@ mechanically
 
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `mode` | string (enum) | yes | One of `isolated-interface` (default) or `implementation-aware`. |
+| `mode` | string (enum) | no | One of `isolated-interface` (default) or `implementation-aware`. |
 | `rationale` | string | conditional | Required when `mode` is `implementation-aware`. Explains why isolated-interface testing is insufficient. |
+
+The `verification` object itself is required. Validation checks that the
+object is present before applying canonical defaults. An omitted `mode` is
+then treated as `isolated-interface` on a validation copy; validation never
+mutates the decoded record. The same ordering applies to optional record
+defaults such as `status: active`.
 
 #### Provenance Enum
 
@@ -264,7 +281,7 @@ change:
 | Field | Type | Required | Description |
 | --- | --- | --- | --- |
 | `action` | string (enum) | yes | One of `add`, `revise`, or `retire`. |
-| `requirement_id` | string (ID) | yes | The requirement being operated on. For `add`, this is the new ID. For `revise` and `retire`, this must resolve to an existing requirement. |
+| `requirement_id` | string (ID) | yes | The requirement being operated on. For `add`, this is the new ID. For `revise` and `retire`, this must resolve to an existing requirement. A proposed `retire` operation is valid only when the corresponding proposed record has `status: retired`; an approved manifest is checked against its stored historical assessment rather than later records. |
 | `rationale` | string | no | Why this operation is included. Particularly useful for `revise` and `retire`. |
 
 #### Interface Operations
@@ -307,6 +324,13 @@ requirement and its reviewed disposition:
 | `rationale` | string | yes | Why this requirement is or is not affected by the change set. |
 | `origin` | string (enum) | yes | How the candidate was identified. One of `mechanical` (found by `ears-manager impact` via scope intersection) or `semantic` (added by the Dimensioning agent or user during review). |
 
+Impact completeness is a proposed-change-set rule. For a proposed
+manifest, `ears-manager` computes candidates from the proposed
+snapshot and requires one final assessment for each candidate. An
+approved manifest is immutable historical evidence: validation checks
+the stored assessment's shape and references but does not recompute
+its candidates against later requirements or statuses.
+
 ### Artifact-Registry Entries
 
 Artifact-registry entries track registered specification artifacts
@@ -323,10 +347,10 @@ logical structure of each entry within that file.
 | --- | --- | --- | --- |
 | `id` | string (ID) | yes | Stable identifier. Format: a short lowercase-hyphenated name describing the artifact (e.g., `vision`, `architecture`, `api-gateway-openapi`). |
 | `kind` | string (enum) | yes | Artifact kind. See [Artifact Kind Enum](#artifact-kind-enum). |
-| `path` | string | yes | Relative path from the repository root to the artifact file. |
-| `digest` | string | yes | Content digest for integrity verification. Format: `<algorithm>:<value>` (e.g., `sha256:...`). Updated by `ears-manager` on every write. |
-| `owner` | string | yes | The component or role responsible for this artifact (e.g., `ears-manager`, `user`, `kit`). |
-| `validator` | string (enum) | no | A name drawn from `ears-manager`'s built-in validator registry. `ears-manager` ships a fixed set of validator names (e.g., `markdownlint`, `openapi-lint`, `protoc`) and resolves each to a known, bundled validation routine. `ears-manager` never executes a caller-supplied command line; unrecognized names are rejected. When absent, no content validation is performed beyond path and digest tracking. |
+| `path` | string | yes | Relative path from the repository root to the artifact file. It must follow the complete [project path contract](../architecture/git-integration.md#path-rules), including control-path, store, symlink, and projection restrictions. |
+| `digest` | string | yes | Content digest for integrity verification. Format: `sha256:<64 lowercase hexadecimal characters>`. Updated by `ears-manager` on every write. |
+| `owner` | string (enum) | yes | The responsible authority for the artifact, not the last mutator. Version 1 permits `user` and `ears-manager`; Git and change-set history record who last changed it. Kit imports are re-owned by `ears-manager`, with Kit provenance retained separately. |
+| `validator` | string (enum) | no | A stable name drawn from `ears-manager`'s code-controlled validator registry. Initial entries include `markdownlint`, `openapi-lint`, and `protoc`; each name selects a fixed adapter, declares compatible artifact kinds, and may invoke an approved external tool with fixed arguments. `ears-manager` never executes a caller-supplied command line, executable, or argument list. When absent, no content validation is performed beyond path and digest tracking. |
 
 #### Artifact Kind Enum
 
@@ -337,9 +361,68 @@ logical structure of each entry within that file.
 | `interface-idl` | An interface specification in a machine-readable IDL format (OpenAPI, protobuf, etc.). |
 | `interface-prose` | An interface specification in prose form. |
 
+#### Artifact Owner Enum
+
+| Value | Meaning |
+| --- | --- |
+| `user` | The artifact's content is owned and maintained by the project user or maintainers. |
+| `ears-manager` | The artifact is generated, imported, or otherwise maintained by `ears-manager`. |
+
+#### Digest Calculation
+
+Artifact digests use SHA-256 over the artifact's canonical UTF-8 text
+content. Before hashing, `ears-manager` converts CRLF and lone CR line
+endings to LF. All other content is preserved, including trailing
+whitespace and the presence or absence of a final newline. Invalid UTF-8
+and UTF-8 BOMs are rejected; Unicode normalization is not performed.
+
+`project init` computes the initial digests for existing opaque artifacts
+and the configured structured stores. `artifact put` writes the normalized
+LF form and records its digest.
+`ears-manager check` applies the same normalization in memory before
+comparing a registered artifact, so a checkout or editor's platform-specific
+line endings do not produce a false mismatch. A change to any other content
+still produces a digest mismatch. Binary artifact kinds require a separate
+schema decision.
+
+#### Structured-store integrity
+
+The `store_digests` block in `.protobot/project.yaml` records one
+canonical digest for each requirement, interface, and change-set store.
+The digest input is the sorted set of visible YAML record paths paired
+with each record's canonical text digest. Adding, deleting, renaming, or
+editing a record therefore changes the store digest. Hidden temporary
+entries are excluded, while non-YAML or symlinked entries are validation
+errors. Governed writes update the affected store digest atomically with
+the record change; pre-stage comparison and `ears-manager check` compare
+the recorded values before a change can reach the default branch.
+
+#### Validator Registry
+
+Format-specific validation is selected through a code-controlled registry,
+not through executable names stored in project configuration. Each registry
+entry has a stable name, declares the artifact kinds it accepts, and
+returns deterministic diagnostics. Adding support for a new specification
+format, such as Smithy, adds a new registry entry and controlled adapter
+without changing the artifact record shape. The adapter may invoke an
+approved external tool, but its executable and arguments are code-controlled.
+The registry validates opaque specification artifacts only; structured
+requirements, interfaces, change-set manifests, and implementation code use
+their own validation boundaries.
+
+#### Artifact Mutation and Ownership
+
+An artifact may be created or revised while its change set is proposed.
+`artifact put` writes the canonical content, recomputes the digest, and
+records an artifact operation. Once the change set is approved and merged,
+the registered artifact state is immutable; a later change requires a new
+change set. Direct edits do not update the registry and are rejected by
+digest validation. The `owner` field remains the responsible authority
+across ordinary revisions; it is not a last-mutator or audit field.
+
 Structured requirement, interface, and change-set stores are configured in
 the `stores` block of `.protobot/project.yaml` and are not artifact-registry
-entries. Their layout and directory digest rules are defined by
+entries. Their layout and integrity digest rules are defined by
 [ADR-0003](0003-ears-manager-storage-layout.md).
 
 ---
@@ -366,7 +449,7 @@ Each entry in the `relationships` list has the following fields:
 | --- | --- | --- | --- |
 | `depends-on` | Directional | Source file only | The declaring requirement depends on the target. A depends on B means A cannot be satisfied unless B is also satisfied. |
 | `conflicts-with` | Bidirectional | Both files | Both requirements must declare the relationship. `ears-manager check` validates that if A declares `conflicts-with` B, then B also declares `conflicts-with` A. |
-| `supersedes` | Directional | Source file only | The declaring requirement supersedes the target. A supersedes B means A replaces B. The superseded requirement should be `retired`. |
+| `supersedes` | Directional | Source file only | The declaring requirement supersedes the target. A supersedes B means A replaces B. The target requirement must be `retired`; the retirement may be part of the same proposed change set. |
 | `related-to` | Bidirectional | Both files | Both requirements must declare the relationship. `ears-manager check` validates symmetric storage, the same as `conflicts-with`. Informational only; no validation constraints beyond target existence and symmetry. |
 
 ### Cycle Rules
@@ -376,7 +459,8 @@ Each entry in the `relationships` list has the following fields:
 - **`conflicts-with`**: no cycle constraint (conflicts are pairwise
   declarations, not a directed graph).
 - **`supersedes`**: must be acyclic. A chain of supersession (A
-  supersedes B, B supersedes C) is valid but cycles are rejected.
+  supersedes B, B supersedes C) is valid but cycles are rejected. Every
+  superseded target must also be retired.
 - **`related-to`**: no cycle constraint (informational links with
   no ordering semantics).
 
@@ -575,7 +659,7 @@ impact_assessment:
       Logging requirement shares the api-gateway interface
       but authentication changes do not affect logging
       behavior.
-    origin: semantic
+    origin: mechanical
 created: "2026-08-01T14:00:00Z"
 ```
 
@@ -587,17 +671,17 @@ artifacts:
   - id: vision
     kind: vision
     path: docs/vision.md
-    digest: "sha256:example"
+    digest: "sha256:e06dbbb451a2eeaa837b763f4f15e991a056fdef2c4f3aae9ee65de002c2a39f"
     owner: user
   - id: architecture
     kind: architecture
     path: docs/architecture.md
-    digest: "sha256:example"
+    digest: "sha256:e1bc4fc7df69cdced24b2a22486b16eca8b1aa4be49b3bcf1094d4cc9cd1cff5"
     owner: user
   - id: api-gateway-openapi
     kind: interface-idl
     path: specs/api-gateway.yaml
-    digest: "sha256:example"
+    digest: "sha256:f39db8e8ede3dc2457c613e2a304e6d478f6e5ec660e4746464f41e76ac77006"
     owner: ears-manager
     validator: openapi-lint
 ```

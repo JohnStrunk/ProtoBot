@@ -156,6 +156,7 @@ This document adds a `repository` block for the Git-facing fields:
 | `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager project init` and `check` reject it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
 | `schema_versions` | One version per store, as decided by [ADR-0002][adr2-versioning]. |
 | `stores` | Relative paths for the requirement, interface, and change-set stores, as decided by [ADR-0003](../decisions/0003-ears-manager-storage-layout.md). |
+| `store_digests` | Canonical integrity digest for each configured structured store. The digest covers its sorted visible YAML file set. |
 | `artifacts` | The artifact registry: `id`, `kind`, `path`, `digest`, `owner`, and optional `validator` per entry ([ADR-0002][adr2-registry]). |
 
 `ears-manager` owns this file and is the only writer
@@ -437,8 +438,11 @@ A specification commit contains only:
 
 - registered artifact paths whose `owner` is `ears-manager` or
   `user`, and only those the active change set actually touched;
+- structured requirement and interface records touched by the active
+  change set;
 - the change-set manifest under `.protobot/change-sets/`;
-- `.protobot/project.yaml`, when the registry or a digest changed;
+- `.protobot/project.yaml`, when the registry, a store digest, or an
+  artifact digest changed;
   and
 - `.protobot/projection.yaml`, when the change set registers a new
   specification path and `ears-manager` classifies it.
@@ -723,23 +727,25 @@ fire.
 | Layer | Where | Catches |
 | --- | --- | --- |
 | Harness tool permission rules (optional, [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops)) | The agent's own tool call | A write under a registered path before it happens |
-| Pre-stage digest comparison | The Drafting Table, in the SCM's `commit`, before staging | A registered path whose content no longer matches its registry digest |
-| `ears-manager check` | Branch push and merge gate in CI | Malformed records, digest mismatches, dangling references, symmetry and cycle violations |
+| Pre-stage digest comparison | The Drafting Table, in the SCM's `commit`, before staging | A registered artifact or structured store whose content no longer matches its governed digest |
+| `ears-manager check` | Branch push and merge gate in CI | Malformed records, artifact or store digest mismatches, dangling references, symmetry and cycle violations |
 | Path ownership in CI | Merge gate | A change that edits files outside the owning component's paths |
 
 ### The pre-stage digest comparison
 
 Before staging anything, the Drafting Table recomputes the content
-digest of every registered artifact the change set touches and
-compares it with the `digest` recorded in the registry.
-`ears-manager` updates that digest on every governed write
-([ADR-0002][adr2-registry]), so a mismatch means the file changed
-by some other route.
+digest of every registered artifact the change set touches using the
+canonical text rules in [ADR-0002][adr2-digest], then compares it with the
+`digest` recorded in the registry. It also recomputes the canonical file-set
+digest for every structured store and compares it with `store_digests`.
+`ears-manager` updates the affected digest on every governed write
+([ADR-0002][adr2-registry]), so a mismatch means the file or record set
+changed by some other route beyond an allowed line-ending representation.
 
-When a registry entry names a directory rather than a file, the
-digest covers that directory's canonical file set, so an added or
-deleted record is a mismatch too. This holds for the requirement
-store and for the change-set folder alike.
+Artifact registry entries name regular opaque files. The structured
+requirement, interface, and change-set directories are configured through
+the `stores` block, remain distinct from opaque artifact entries, and are
+protected by their own canonical store digests.
 
 On a mismatch the Drafting Table:
 
@@ -871,8 +877,8 @@ detects with a stable code
 | --- | --- | --- | --- |
 | No `.protobot/project.yaml` found | Project resolution walks to the filesystem root | Names the directory searched and the expected path | Run project initialization, or start the session inside the project |
 | `project.yaml` is not at the working-tree root | Project resolution | Names both the file location and the working-tree root | Move the session to the correct checkout; the Drafting Table never relocates the file |
-| Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Upgrade `ears-manager`; migration is a reviewed change set, never automatic |
-| Registered path digest mismatch | Pre-stage comparison | Names each path and both digests | Discard the direct edit, or re-apply it through `ears-manager` |
+| Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Use the supported version; after v1 adoption, perform any upgrade through a reviewed migration change set |
+| Registered artifact or structured-store digest mismatch | Pre-stage comparison | Names the safe configuration field and mismatch class | Discard the direct edit, or re-apply it through `ears-manager` |
 | Registered path missing from the projection manifest | `ears-manager check` | Names the path and the required class `shared` | Re-run the registration; `ears-manager` writes the classification entry and the Drafting Table stages `projection.yaml` with it |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
 | Default branch has moved since `base_commit` | `merge-base` check before push or merge | Names the recorded base and the current head | Refresh: merge the default branch in, then `change-set update` |
@@ -881,7 +887,7 @@ detects with a stable code
 | Merge refused by branch protection | Host API response | Names the protected branch, the failing requirement, and the declared `review_mode` | Satisfy the requirement, such as a green check or a review. If `review_mode` says `single-player` and the host still demands a reviewer, the declaration and the host disagree and the project configuration must be corrected |
 | Push rejected, missing or expired credential | Push exit status | Names the remote and the credential source for the mode | Refresh the credential outside the agent; the agent never receives one directly |
 | Pull-request creation failed | Host API response | Names the host status and whether the branch was pushed | Retry creation; the branch and its commits are already correct |
-| `ears-manager check` failed in CI | Non-zero exit in the merge gate | The check's own diagnostics, by record | Fix through `ears-manager`, commit, push to the same branch |
+| `ears-manager check` failed in CI | Non-zero exit in the merge gate | The check's complete deterministic diagnostic set | Fix through `ears-manager`, commit, push to the same branch |
 | Merge conflict in a change-set manifest or index file | Merge of the default branch | Names the conflicting file | Resolve mechanically; sorted lists and fixed key order keep the resolution deterministic ([ADR-0001][adr1-diff]) |
 | Merge conflict in a requirement record | Merge of the default branch | Names the record | Rare by design, since records are one file each; resolve through `ears-manager` and revalidate |
 | Merge succeeded, registration failed | Registration call | Names the change set, merge commit, materialization key, and registration idempotency key | Repeat the same registration call with both derived keys; it is idempotent and never merges again |
@@ -916,10 +922,10 @@ protection rule.
 
 | # | Action | Expected result |
 | --- | --- | --- |
-| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, schema versions, and the four default registry entries. `.protobot/projection.yaml` carries a `shared` class for each of those four paths. One commit of three files, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
+| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, version-1 schema keys, the three configured store paths and store digests, and two opaque artifact entries. `.protobot/projection.yaml` carries a `shared` class for each governed specification path. One commit of the control files and initial manifest, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
 | 2 | Merge `CS-00001`, register, then create change set `CS-00002` for the initial Sketch | The default branch head is a merge commit. Branch `cs/00002-<slug>` exists and is checked out. Its tip equals the new default-branch head, and the manifest records that head's full 40-character hash as `base_commit`. No other branch was created. |
-| 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content. `projection.yaml` is unchanged, because step 1 already classified both paths and `artifact put` classifies only a new path ([Artifacts](ears-manager-cli.md#artifacts)). `git status` lists only the two artifacts, the manifest, and `project.yaml`. |
-| 4 | Edit a registered artifact directly with a text editor, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |
+| 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content and the structured-store digests still match their record sets. `projection.yaml` is unchanged, because step 1 already classified both paths and `artifact put` classifies only a new path ([Artifacts](ears-manager-cli.md#artifacts)). `git status` lists only the two artifacts, the manifest, and `project.yaml`. |
+| 4 | Make a substantive direct edit to a registered artifact, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |
 | 5 | Discard the direct edit, which also drops the uncommitted step-3 write of that artifact; write it again through `ears-manager artifact put`; request a commit | Exactly one commit. It contains only the two artifacts, the manifest, and `project.yaml`. Subject is `spec(CS-00002): <intent>`; the body carries the `Change-Set: CS-00002` trailer. |
 | 6 | Push the branch and prepare the pull request | `origin` has `cs/00002-<slug>` at the same commit; the default branch is unchanged. The rendered body contains the intent, the `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. It matches the output of `change-set compare` and `impact`. |
 | 7 | Commit an unrelated change on the default branch, then refresh the change set | The change-set branch gains a merge commit with two parents. The manifest's `base_commit` equals the new default-branch head. `git log --walk-reflogs` shows no rebase and the branch's first commit is unchanged. |
@@ -932,6 +938,7 @@ protection rule.
 | Force push the change-set branch | Refused by the Drafting Table; the remote branch is unchanged |
 | Amend a pushed commit | Refused; the pushed commit is unchanged |
 | Stage an unregistered file | Refused; the file stays untracked or unstaged |
+| Edit, add, delete, or rename a structured record outside `ears-manager` | Refused by the store digest comparison; no commit is created |
 | Create or write a `wi/` branch | Refused; no such ref exists in the fixture |
 | Write under `.protobot/attestations/` | Refused; the path stays absent |
 | Push to the default branch, in either `review_mode` | Refused before the push runs |
@@ -1001,6 +1008,7 @@ resurface.
 [adr1-history]: ../decisions/0001-requirements-storage-format.md#change-set-history-representation
 [adr1-pr]: ../decisions/0001-requirements-storage-format.md#4-pr-reviewability-plan
 [adr2-changeset]: ../decisions/0002-ears-specification-record-schema.md#change-set-manifests
+[adr2-digest]: ../decisions/0002-ears-specification-record-schema.md#digest-calculation
 [adr2-registry]: ../decisions/0002-ears-specification-record-schema.md#artifact-registry-entries
 [adr2-versioning]: ../decisions/0002-ears-specification-record-schema.md#schema-versioning
 [change-types]: user-interaction-flow.md#incremental-development-and-change-types

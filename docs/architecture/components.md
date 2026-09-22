@@ -429,8 +429,12 @@ It is used by these callers:
   Site, CI, and maintainers.
 - **Specification working tree:** Registered artifact paths in the
   current change-set/build branch; no independent service database.
-- **Validator plugins/tools:** Format-specific IDL/prose/schema checks
-  invoked under registered artifact policy.
+- **Validator registry:** Code-controlled, extensible format-specific
+  IDL/prose/schema checks selected by stable names in the artifact registry.
+  New formats, such as Smithy, add a registry entry and controlled adapter.
+  An adapter may invoke an approved external tool such as `protoc` or
+  `markdownlint`, but the executable and arguments are fixed in code;
+  caller-supplied commands are never executed.
 - **Outputs:** Deterministic structured results, diagnostics, diffs,
   impact candidates, and non-zero validation status for CI.
 
@@ -438,15 +442,15 @@ It is used by these callers:
 
 | Subcommand | Purpose |
 | --- | --- |
-| `ears-manager project init` | Initialize `.protobot/project.yaml`, seed stores, schema versions, and opaque artifact entries, and classify registered specification paths. |
-| `ears-manager check` | Validate all spec files: EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
+| `ears-manager project init` | Initialize `.protobot/project.yaml`, seed version-1 schema keys, stores, store integrity digests, and opaque artifact entries, and classify registered specification paths. |
+| `ears-manager check` | Validate all spec files: project configuration and store integrity, EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
 | `ears-manager requirement add` | Add a new EARS requirement with interface or project-wide applicability selectors and optional narrower scopes. Validates the EARS statement and metadata before writing. |
 | `ears-manager requirement list/show` | Read requirements at the working tree or an immutable `--at` revision. |
 | `ears-manager requirement update/retire` | Modify requirements through a proposed change set. |
 | `ears-manager interface add` | Register a new interface in the Architecture within the active proposed change set. |
 | `ears-manager interface list/show` | Read interfaces at the working tree or an immutable `--at` revision. |
 | `ears-manager interface update` | Modify interfaces through a proposed change set. |
-| `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest and invokes its configured validator without requiring `ears-manager` to understand every format. |
+| `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest and invokes the selected code-controlled validator adapter without requiring `ears-manager` to understand every format. |
 | `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by ID or unique kind through the governed path registry. |
 | `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, and requirement operations. Approved change sets are immutable. |
 | `ears-manager change-set compare` | Compare a proposed change set with the current Schematic and open deltas. Reports exact duplicates, stable-ID before/after changes, declared conflicts/supersession, and dependency cycles for agent/user review. |
@@ -472,14 +476,22 @@ It is used by these callers:
   requirement relationships and change-set references must resolve.
   The minimum relationship vocabulary is `depends-on`, `conflicts-with`,
   `supersedes`, and `related-to`; `depends-on` and `supersedes` must be
-  acyclic. Dangling references are flagged.
+  acyclic, and a `supersedes` target must be retired. Dangling references
+  are flagged.
+- **Change-set integrity.** Change-set manifests have valid base commits,
+  timestamps, operations, retire-target states, and complete mechanical
+  impact assessments while proposed. Approved manifests retain their
+  reviewed historical assessments and are not invalidated by later records.
+- **Project and repository configuration.** Schema versions, configured
+  store paths and integrity digests, canonical remotes, review modes, and
+  branch prefixes are validated before records are trusted.
 - **Artifact governance.** Vision, Architecture, interface IDL, and
   interface-prose files are registered by kind, path, digest, owner, and
   validator. Structured requirement, interface, and change-set records use
-  the `stores` block and their ADR-0003 layout. Opaque prose and external
-  IDLs still pass through `ears-manager` for change-set membership and
-  path/transaction control; format-specific tools perform their content
-  validation.
+  the `stores` block, per-store integrity digests, and their ADR-0003 layout.
+  Opaque prose and external IDLs still pass through `ears-manager` for
+  change-set membership and path/transaction control; controlled validator
+  adapters invoke approved format-specific tools.
 - **File format consistency.** `ears-manager` ensures one-file-per-record
   YAML files ([ADR-0001](../decisions/0001-requirements-storage-format.md))
   are syntactically valid and follow the expected schema.
@@ -517,6 +529,12 @@ Retired requirements remain in the audit delta but are not obligations.
 Recording exclusions prevents the same conservative false positives from
 being reconsidered without context on every run.
 
+Impact candidate completeness is evaluated only for proposed change sets,
+using the proposed snapshot supplied by the caller. An approved manifest is
+immutable historical evidence; later requirement changes must not invalidate
+its stored assessment. Approved-manifest validation checks stored entry
+shape and references without recomputing the current candidate set.
+
 An approved change set materializes one build work item by default. If the
 approved change set declares `implementation_required: false`, it records a
 durable `omitted` reservation instead. The materializer reruns deterministic
@@ -552,11 +570,12 @@ idempotency input.
   code — a linter/validator/CRUD tool, not an LLM. It enforces
   rules mechanically. The _agent_ decides what requirements to
   write; `ears-manager` ensures they're well-formed.
-- **Statically linked Go binary.** Implemented in Go and distributed
-  as a single static binary with zero runtime dependencies. This
-  ensures it works identically across all deployment contexts — dev
-  containers, CI runners, OpenShell sandboxes, local machines —
-  without depending on what's installed in the local environment.
+- **Statically linked Go binary.** The `ears-manager` executable is
+  implemented in Go and has zero runtime dependencies for its core
+  storage and validation behavior. Optional controlled validator adapters
+  may require approved tools such as `protoc` or `markdownlint` in the
+  execution environment; those tools are selected by registry name, never
+  by caller-supplied commands.
 - **Format-agnostic interface.** Callers interact via subcommands,
   not by reading/writing files directly. This means the underlying
   storage format can change without breaking agents, CI, or
@@ -797,9 +816,11 @@ fencing token, preventing the old owner from affecting it.
 Every adapter must provide the same atomic materialization and transition
 semantics. It may use a backend primitive or an external coordinator,
 but issue, ticket, or card assignment by itself is insufficient.
-`ears-manager` knows nothing about workflow state; it stores and
+`ears-manager` knows nothing about WMS workflow state; it stores and
 validates the specification content referenced by each work-item
-contract.
+contract. Change-set validation receives proposed-versus-approved context
+from its caller so immutable approved manifests are not re-evaluated
+against later specification state.
 
 ### Open design questions
 
@@ -913,7 +934,7 @@ language/source/test layout:
 
 | Path | Owner and purpose |
 | --- | --- |
-| `.protobot/project.yaml` | Project identity, configured artifact paths, non-secret WMS/backend references, the canonical remote, default branch and declared review mode ([git-integration.md](git-integration.md#repository-fields)), and schema versions. |
+| `.protobot/project.yaml` | Project identity, configured artifact paths, non-secret WMS/backend references, the canonical remote, default branch and declared review mode ([git-integration.md](git-integration.md#repository-fields)), schema versions, store paths, and store integrity digests. |
 | `.protobot/projection.yaml` | Deny-by-default path classification for Worker and attestation projections. `ears-manager` writes the class for a registered specification path ([git-integration.md](git-integration.md#path-rules)); every other entry is reviewed project policy. |
 | `.protobot/policy.yaml` | Required Inspectors, WIP/scheduling policy, sandbox profile, and other reviewed project policy. |
 | `.protobot/kits.lock` | Optional Kit source/version/digest/provenance locks. |
@@ -932,10 +953,10 @@ may register different relative paths.
 
 `ears-manager` is the exclusive write gate for every registered
 specification artifact: it owns structured requirements, the interface
-registry, relationships, and change-set manifests and delegates
-format-specific validation for prose/IDL artifacts. The Job Site owns the
-test catalog and attestation snapshots. ProtoBot configuration never
-contains credentials.
+registry, relationships, change-set manifests, and store integrity
+digests, and delegates prose/IDL validation to controlled adapters. The
+Job Site owns the test catalog and attestation snapshots. ProtoBot
+configuration never contains credentials.
 
 Source and test trees may follow Go, Python, TypeScript, existing-project,
 or future optional Kit conventions. The committed projection manifest is

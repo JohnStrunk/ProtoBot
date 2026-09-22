@@ -32,6 +32,10 @@ stores:
   requirements: .protobot/requirements
   interfaces: .protobot/interfaces
   change_sets: .protobot/change-sets
+store_digests:
+  requirements: sha256:<computed>
+  interfaces: sha256:<computed>
+  change_sets: sha256:<computed>
 ```
 
 The default store paths are:
@@ -50,10 +54,20 @@ paths, traversal paths, and symlink escapes are invalid.
 structured interface records in the interface store are distinct from
 opaque interface IDL or prose artifacts registered in that list.
 
-`ears-manager` supports schema version `1` for both `project` and
-`specification`. It refuses missing, invalid, or newer versions. Older
-versions require an explicitly implemented reviewed migration and are
-not silently interpreted as version `1`.
+`ears-manager` supports project and specification schema version `1`. It
+refuses missing, invalid, or newer versions. The version-1 definition is
+being finalized before the first supported project adopts it, so the
+artifact owner/digest constraints and structured-store integrity metadata
+are clarifications of the initial contract, not a migration from an
+in-use version. Explicit YAML null values are also rejected rather than
+treated as omitted fields.
+
+Each configured store has a `store_digests` entry. Its canonical input is
+the sorted visible YAML file set, with each path paired with the canonical
+text digest of its contents. A record edit, addition, deletion, or rename
+changes the store digest; hidden temporary files are excluded. Governed
+writes update the digest atomically, and validation rejects a mismatch
+before the change can be approved.
 
 The stable filename mapping is owned by `ears-manager`:
 
@@ -65,7 +79,7 @@ Canonical serialization uses schema field order, stable scalar styles,
 sorted set-like lists, LF endings, no trailing whitespace, and one final
 newline. Empty optional fields use one consistent representation. The
 storage layer rejects malformed YAML, duplicate keys, aliases, merge
-keys, and custom tags before typed decoding.
+keys, explicit null values, and custom tags before typed decoding.
 
 ## Consequences
 
