@@ -240,10 +240,22 @@ already there.
 
 ## Registered artifact paths
 
-Every specification artifact the Drafting Table may commit is
-registered in the `artifacts` list of `project.yaml`. An
-unregistered path is not a specification artifact, and the
-Drafting Table never stages it.
+The Drafting Table stages three categories of files: opaque
+specification files listed in the `artifacts` registry of
+`project.yaml`; structured requirement, interface, and change-set
+files resolving under a directory named in the `stores` block (with
+layout defined by
+[ADR-0003](../decisions/0003-ears-manager-storage-layout.md)); and the
+governed control files named in [Commit behavior](#commit-behavior)
+(`.protobot/project.yaml` and `.protobot/projection.yaml`
+classification entries). Opaque Vision, Architecture,
+interface-IDL, and interface-prose files occupy `artifacts`.
+Structured requirement, interface, and change-set records occupy
+`stores`. A path matching none of these is not staged.
+(The section heading serves as an umbrella term covering both
+registered `artifacts` entries and structured `stores` directories,
+while governed control files are a distinct, non-"artifact-path"
+staged category outside the heading's scope.)
 
 ### Selecting the paths
 
@@ -303,9 +315,9 @@ Every registered path:
 
 - is relative to the project root and resolves inside the working
   tree, after symlink resolution;
-- is owned by exactly one component in the registry `owner` field,
-  and the Drafting Table stages only entries owned by
-  `ears-manager` or `user`;
+- if it is an `artifacts` entry, is owned by exactly one component
+  in the registry `owner` field, and is staged only when that owner
+  is `ears-manager` or `user`;
 - must not fall under `.protobot/attestations/` or name
   `.protobot/test-catalog.jsonl`, which the Job Site owns; and
 - must be classified `shared` in `.protobot/projection.yaml`, so
@@ -436,11 +448,13 @@ contract.
 
 A specification commit contains only:
 
-- registered artifact paths whose `owner` is `ears-manager` or
+- registered `artifacts` entries whose `owner` is `ears-manager` or
   `user`, and only those the active change set actually touched;
 - structured requirement and interface records touched by the active
   change set;
-- the change-set manifest under `.protobot/change-sets/`;
+- the active change-set manifest file itself, always (under the
+  configured `stores.change_sets` directory, `.protobot/change-sets/`
+  by default);
 - `.protobot/project.yaml`, when the registry, a store digest, or an
   artifact digest changed;
   and
@@ -801,7 +815,7 @@ The later layers hold when the harness layer is off.
 | Fast-forward the local default branch | Only to the head of `repository.default_branch` on the canonical remote, or, before `project.yaml` exists, on the upstream remote of the local default branch; only by fast-forward; and, when it is checked out, only with no uncommitted change to a tracked file; a fetch alone leaves the local ref stale, and a change-set branch is cut from it |
 | Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
-| Stage | Registered artifact paths, the change-set manifest, `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path, each a file, never a directory. A failed commit leaves the user's index as it was, content that was already staged included; after a successful commit, the index entries of exactly those paths are set to the new commit |
+| Stage | Registered `artifacts` entries owned by `ears-manager` or `user` and touched by the active change set, structured requirement and interface records touched by the active change set, the active change-set manifest file itself (always), `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path, each a file, never a directory. A failed commit leaves the user's index as it was, content that was already staged included; after a successful commit, the index entries of exactly those paths are set to the new commit |
 | Commit | On explicit user request, with the required message and trailer |
 | Push a change-set branch | Non-force, to the canonical remote only |
 | Open or update a pull request | Against `repository.default_branch`, body rendered from `change-set compare` and `impact` |
@@ -959,7 +973,7 @@ resurface.
 | Bot account model for the Job Site | The Drafting Table commits with the user's identity, so the open question in [Multi-player Workflow](components.md#multi-player-workflow) is unchanged by this contract. |
 | Merge queue or batching | Concurrent change sets follow the standard refresh-before-merge model. A Bors-style queue is [related work](related-work.md#gas-town--beads-steve-yegge), not a decision here. |
 | Commit signing | Whether commits and merges must be signed is a project policy and deployment decision, not a Drafting Table behavior. |
-| Directory layout inside the requirement store | Open with `ears-manager` ([`ears-manager`](components.md#ears-manager)). This document constrains which paths may be committed, not how the store organizes them. |
+| Store directory layout and record filenames | Defined by [ADR-0003](../decisions/0003-ears-manager-storage-layout.md). This document constrains which paths may be staged and committed, not how stores organize their records. |
 | `ears-manager` command and result shapes | Defined by the [`ears-manager` CLI Integration Contract](ears-manager-cli.md). |
 | Harness tool permission rules | Defined by [#33](agent-harness/adapter-contract.md#what-the-harness-layer-stops). This document names the layer and its effect, not its configuration. |
 | Kit import commits | Kit packaging is open ([Kits](components.md#kits)). The imported specification content arrives as a proposed change set and follows this contract. The lock file `.protobot/kits.lock` is a separate matter: no document names its writer, so this contract does not stage it. Whoever settles Kit packaging must name that owner. |
@@ -1003,6 +1017,8 @@ resurface.
   change-set history representation.
 - [ADR-0002](../decisions/0002-ears-specification-record-schema.md)
   — Record schemas, `base_commit`, and the artifact registry.
+- [ADR-0003](../decisions/0003-ears-manager-storage-layout.md) —
+  Store paths, schema version keys, and the `stores` block.
 
 [adr1-diff]: ../decisions/0001-requirements-storage-format.md#1-git-diffmerge-compatibility
 [adr1-history]: ../decisions/0001-requirements-storage-format.md#change-set-history-representation
