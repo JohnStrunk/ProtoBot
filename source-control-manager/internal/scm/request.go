@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/redhat-et/protobot/source-control-manager/internal/jsonx"
+	"github.com/redhat-et/protobot/source-control-manager/internal/project"
 	"github.com/redhat-et/protobot/source-control-manager/internal/refname"
 	"github.com/redhat-et/protobot/source-control-manager/internal/render"
 	"github.com/redhat-et/protobot/source-control-manager/internal/result"
@@ -113,7 +114,11 @@ func validate(operation string, args map[string]any) (request, *result.Failure) 
 		if !present {
 			def = DefaultDefaultBranch
 		}
-		if !refname.ValidBranch(def) || strings.HasPrefix(def, "wi/") || strings.HasPrefix(def, prefix) {
+		// The same namespace rules as the persisted configuration: Git
+		// cannot hold a branch wi and a branch below wi/ at once, so a
+		// default branch named wi would block the Job Site's namespace.
+		if !refname.ValidBranch(def) || project.Under(def, strings.TrimSuffix(project.ReservedPrefix, "/")) ||
+			strings.HasPrefix(def, prefix) {
 			return req, mismatch(FieldDefaultBranch)
 		}
 		req.branchPrefix, req.defaultBranch = prefix, def

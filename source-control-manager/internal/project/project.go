@@ -169,8 +169,16 @@ func load(root string) (*Config, *result.Failure) {
 		return nil, unreadable("repository.default_branch is not a valid branch name")
 	case !prefixPattern.MatchString(repo.BranchPrefix) || !refname.ValidBranch(repo.BranchPrefix+"x"):
 		return nil, unreadable("repository.branch_prefix is not a valid branch prefix")
-	case repo.BranchPrefix == ReservedPrefix:
+	case strings.HasPrefix(repo.BranchPrefix, ReservedPrefix):
 		return nil, unreadable("repository.branch_prefix is reserved")
+	// The persisted configuration follows the same namespace rules as the
+	// branch_init request: a default branch inside the change-set prefix
+	// would read as a change-set branch, and the ref policy would then
+	// let commit and publish write the branch that holds approved state.
+	case Under(repo.DefaultBranch, strings.TrimSuffix(ReservedPrefix, "/")):
+		return nil, unreadable("repository.default_branch is in the reserved " + ReservedPrefix + " namespace")
+	case strings.HasPrefix(repo.DefaultBranch, repo.BranchPrefix):
+		return nil, unreadable("repository.default_branch is inside repository.branch_prefix")
 	case repo.ReviewMode != "single-player" && repo.ReviewMode != "multi-player":
 		return nil, unreadable("repository.review_mode is not single-player or multi-player")
 	}

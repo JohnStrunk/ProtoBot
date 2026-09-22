@@ -45,8 +45,8 @@ func (c *call) branchInit() (*outcome, *result.Failure) {
 		return nil, result.Fail(result.AlreadyInitialized, ".protobot/ exists at the working-tree root.")
 	}
 	// Step 2.
-	if prefix == project.ReservedPrefix {
-		return nil, result.Fail(result.ReservedPrefix, "The branch prefix is reserved.", jsonx.F("branch_prefix", prefix))
+	if strings.HasPrefix(prefix, project.ReservedPrefix) {
+		return nil, result.Fail(result.ReservedPrefix, "The branch prefix is in the reserved namespace.", jsonx.F("branch_prefix", prefix))
 	}
 	// Step 3.
 	changes, err := c.git.TrackedChanges()

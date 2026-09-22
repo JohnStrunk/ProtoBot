@@ -152,9 +152,9 @@ This document adds a `repository` block for the Git-facing fields:
 | `project.id` | Stable project identifier. Used as the WMS project key and in materialization keys. |
 | `project.name` | Human-readable project name. |
 | `repository.canonical_remote` | URL of the canonical repository. The Drafting Table pushes to this remote only. |
-| `repository.default_branch` | The branch that holds approved specification state. `main` by default. |
+| `repository.default_branch` | The branch that holds approved specification state. `main` by default. It must lie outside `repository.branch_prefix` and outside the reserved `wi/` namespace: a default branch inside the prefix would read as a change-set branch, which the Drafting Table may write. The Source Control Manager enforces this when it loads the project, and when it cuts the branch; `ears-manager` does not check it yet. |
 | `repository.review_mode` | `single-player` or `multi-player`. Declares the review ceremony. |
-| `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not be `wi/`, which is the only reserved prefix today; `ears-manager project init` and `check` reject it. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
+| `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not lie in the reserved `wi/` namespace, the only reserved one today: neither `wi/` itself nor a prefix below it, such as `wi/cs/`; `ears-manager project init` and `check` reject it, and the Source Control Manager refuses to load such a project. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
 | `schema_versions` | One version per store, as decided by [ADR-0002][adr2-versioning]. |
 | `stores` | Relative paths for the requirement, interface, and change-set stores, as decided by [ADR-0003](../decisions/0003-ears-manager-storage-layout.md). |
 | `store_digests` | Canonical integrity digest for each configured structured store. The digest covers its sorted visible YAML file set. |

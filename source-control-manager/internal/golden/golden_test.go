@@ -723,6 +723,30 @@ var negativeChecks = []check{
 			d.t.Fatalf("origin/main is %s, want %s", got, want)
 		}
 	}},
+	{"a default branch inside the change-set prefix", "after-6", func(d *driver) {
+		// Such a default branch would read as CS-00001, and the ref policy
+		// would then permit a write to the branch that holds approved state.
+		content := strings.Replace(d.read(".protobot/project.yaml"), "default_branch: main", "default_branch: cs/00001-main", 1)
+		d.write(".protobot/project.yaml", content)
+		head := d.rev(d.clone(), "HEAD")
+		calls := d.gh().Calls
+		for _, tool := range []string{"commit", "publish"} {
+			out := d.call(tool, nil)
+			if !bytes.Contains(out, []byte(`"code":"PROJECT_UNREADABLE"`)) || !bytes.Contains(out, []byte(`"commands":[]`)) {
+				d.t.Fatalf("%s with a default branch inside the prefix: %s", tool, out)
+			}
+		}
+		if d.rev(d.clone(), "HEAD") != head {
+			d.t.Fatal("HEAD moved")
+		}
+		if d.gh().Calls != calls {
+			d.t.Fatal("the gh stub received a call")
+		}
+		d.assertRefs(map[string]string{
+			"refs/heads/main": "m1", "refs/heads/cs/00002-add-the-initial-sketch": "c2",
+			"origin/refs/heads/main": "m1", "origin/refs/heads/cs/00002-add-the-initial-sketch": "c2",
+		})
+	}},
 	{"a change-set branch that the remote deleted", "after-6", func(d *driver) {
 		const branch = "cs/00002-add-the-initial-sketch"
 		if out := d.call("repo_state", nil); !bytes.Contains(out, []byte(`"branch":"`+branch+`","on_remote":true`)) {

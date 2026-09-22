@@ -536,7 +536,7 @@ does not match its rule is `INVALID_REQUEST`, and nothing runs.
 | Operation | Fields |
 | --- | --- |
 | `repo_state` | None |
-| `branch_init` | `branch_prefix`, optional, default `cs/`, of the form `^[a-z0-9][a-z0-9._-]*/$`; `default_branch`, optional, default `main`, a valid branch name that starts neither with `wi/` nor with the prefix |
+| `branch_init` | `branch_prefix`, optional, default `cs/`, of the form `^[a-z0-9][a-z0-9._-]*/$`; `default_branch`, optional, default `main`, a valid branch name that does not start with the prefix and is neither `wi` nor under `wi/`, because Git holds no branch `wi` beside a branch below `wi/` |
 | `branch_resume` | `change_set_id`, required, `^CS-[0-9]{5}$` |
 | `commit` | `body`, optional prose of at most 2000 characters, with no line that starts with `Change-Set:` and no [text that GitHub acts on](#text-that-github-acts-on) |
 | `publish` | None |
@@ -569,7 +569,13 @@ is prose that #34 allows.
    fail with `PROJECT_UNREADABLE`. When nothing is found, return
    `initialized: false` and the current branch.
 2. Read the Git-facing fields of `.protobot/project.yaml`, which #34
-   lets the Drafting Table read ([Repository fields][repo-fields]).
+   lets the Drafting Table read ([Repository fields][repo-fields]). The
+   persisted fields follow the same branch rules as the `branch_init`
+   request: `PROJECT_UNREADABLE` when `default_branch` starts with
+   `branch_prefix`, or when either is in the reserved `wi/` namespace.
+   A default branch inside the prefix would read as a change-set
+   branch, and the ref policy would then permit a write to the branch
+   that holds approved state.
 3. Find and check `<remote>`, as the placeholders above state.
 4. Fetch `<remote>`, without tags. Every step below reads the
    remote-tracking refs that this fetch refreshed, and the fetch prunes
@@ -1540,10 +1546,10 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `INVALID_REQUEST` | All | A field is unknown, missing, or does not match its rule | — | `revise` |
 | `PROJECT_NOT_FOUND` | All except `repo_state` and `branch_init` | No `.protobot/project.yaml` on the walk up | No `.protobot/project.yaml` found | `user` |
 | `PROJECT_NOT_AT_ROOT` | All | The `project.yaml` that the walk up finds is not at the working-tree root | `project.yaml` is not at the working-tree root | `user` |
-| `PROJECT_UNREADABLE` | All | `.protobot/` exists without a readable, valid `project.yaml`, or is a symbolic link or not a directory | — | `user` |
+| `PROJECT_UNREADABLE` | All | `.protobot/` exists without a readable, valid `project.yaml`, or is a symbolic link or not a directory; or `project.yaml` names a `default_branch` inside `branch_prefix`, or either field in the reserved `wi/` namespace | — | `user` |
 | `SPEC_TOOL_FAILED` | All that read `ears-manager` | `ears-manager` did not run, or returned status 2, 3, 6, or 70 on a read; its envelope is in `details` | Store schema version newer than the tool | `user`, or `reconcile` when the envelope says `mutation: unknown` |
 | `ALREADY_INITIALIZED` | `branch_init` | `.protobot/` exists | — | `never` |
-| `RESERVED_PREFIX` | `branch_init` | The prefix is `wi/` | — | `revise` |
+| `RESERVED_PREFIX` | `branch_init` | The prefix is in the reserved `wi/` namespace: `wi/` itself, or one below it such as `wi/cs/` | — | `revise` |
 | `DEFAULT_NOT_FOUND` | `branch_init` | The local default branch does not exist, has no commit or no upstream, or is not the branch that its upstream remote's `HEAD` names | — | `user` |
 | `DEFAULT_DIVERGED` | `branch_init` | The local default branch has commits that its upstream lacks, or it is behind and checked out in another worktree; either way no fast-forward from here can move it | — | `user` |
 | `BRANCH_EXISTS` | `branch_init` | The initialization branch exists; the details say local, remote, or both | Branch `cs/<nnnnn>-<slug>` already exists | `user` |
@@ -1867,6 +1873,7 @@ these checks, and the transcript has no record for them.
 | A symlinked control directory: the driver moves `.protobot/` out of the clone and links it back, then `repo_state` | `PROJECT_UNREADABLE`, naming `.protobot/`, although the link's target holds a valid `project.yaml` |
 | Trace context and CLI parity: a `repo_state` whose `_meta` carries a `traceparent`, then the same call through the CLI, then `publish --force` on the CLI | The result copies the trace context unchanged; the CLI result equals the MCP result byte for byte; `INVALID_REQUEST` naming `force`, and no command runs |
 | A fetch refspec that maps into local refs: the driver sets `remote.origin.fetch` to `+refs/heads/*:refs/heads/mirror/*` and adds `+refs/tags/*:refs/tags/*`, and the second clone pushes a commit and a tag to `origin`; then `repo_state` | `origin/main` moves to the new commit; no `refs/heads/mirror/*` and no tag exist in the clone |
+| A default branch inside the change-set prefix: the driver rewrites `project.yaml` with `default_branch: cs/00001-main`, then `commit`, then `publish` | `PROJECT_UNREADABLE` each time; no command runs, the `gh` stub records no call, and no ref moves |
 | A change-set branch that the remote deleted: `repo_state`; the second clone deletes `cs/00002-<slug>` on `origin`; `repo_state` again | The first call reports `on_remote: true`, the second `on_remote: false`, and no tracking ref of that branch is left |
 | A default branch that the remote deleted: `origin` gets a second branch `keep`, points its `HEAD` at it, and deletes `main`; then `publish` | `BASE_NOT_ON_DEFAULT` with `default_head: null`; no tracking ref of `main` is left, and nothing is pushed |
 

@@ -25,6 +25,8 @@ func TestValidate(t *testing.T) {
 		{"prefix case", OpBranchInit, map[string]any{"branch_prefix": "CS/"}, "branch_prefix", "rule"},
 		{"default under prefix", OpBranchInit, map[string]any{"default_branch": "cs/main"}, "default_branch", "rule"},
 		{"default under wi", OpBranchInit, map[string]any{"default_branch": "wi/main"}, "default_branch", "rule"},
+		// Git cannot hold the branch wi and a branch below wi/ at once.
+		{"default is the reserved name", OpBranchInit, map[string]any{"default_branch": "wi"}, "default_branch", "rule"},
 		{"default invalid", OpBranchInit, map[string]any{"default_branch": "a..b"}, "default_branch", "rule"},
 		{"body trailer", OpCommit, map[string]any{"body": "Change-Set: CS-00009"}, "body", "Change-Set:"},
 		{"body keyword", OpCommit, map[string]any{"body": "Fixes #1"}, "body", "GitHub acts on"},
