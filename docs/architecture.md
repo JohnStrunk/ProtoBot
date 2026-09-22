@@ -473,11 +473,10 @@ components.
   the test catalog and attestation paths. CI rejects edits
   by a component or Worker outside its owned/allowlisted
   paths.
-- **Integrity:** `store_digests` in `.protobot/project.yaml` protects
-  the canonical file set of each structured record store. Pre-stage
-  comparison and CI validation reject direct record edits, additions,
-  deletions, renames, and symlinked entries that do not match the
-  governed digest.
+- **Integrity:** `store_digests` in `.protobot/project.yaml` protect
+  each structured store's canonical file set. Pre-stage comparison and
+  CI reject direct edits, additions, deletions, renames, and symlinks
+  that do not match the digest.
 - **Merge strategy:** Merge commits (not squash or rebase) to
   preserve the iteration DAG for evaluability.
 
