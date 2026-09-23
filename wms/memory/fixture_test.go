@@ -289,7 +289,11 @@ func loadWMSFixture(t *testing.T) []wmsFixtureRecord {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() {
+		if err := file.Close(); err != nil {
+			t.Errorf("close WMS fixture: %v", err)
+		}
+	}()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 4096), 1<<20)
 	var records []wmsFixtureRecord

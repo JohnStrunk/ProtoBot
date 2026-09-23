@@ -259,7 +259,8 @@ func (memory *Memory) applyLifecycleRequest(
 ) Result {
 	decision := validation.Evaluate(request, current, evaluation)
 	result := resultFromDecision(operation, decision)
-	if decision.Outcome == validation.OutcomeAllowed {
+	switch decision.Outcome {
+	case validation.OutcomeAllowed:
 		if request.Operation == validation.OperationMaterialize {
 			item := cloneWorkItem(*request.Payload.WorkItem)
 			item.State = decision.After.State
@@ -295,7 +296,7 @@ func (memory *Memory) applyLifecycleRequest(
 			Before:                 cloneStateVersion(decision.Before),
 			After:                  cloneStateVersion(decision.After),
 		})
-	} else if decision.Outcome == validation.OutcomeOmitted {
+	case validation.OutcomeOmitted:
 		result.Submission = "omitted"
 		memory.events = append(memory.events, AuditEvent{
 			Operation:              string(request.Operation),
