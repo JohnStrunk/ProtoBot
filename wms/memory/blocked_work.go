@@ -74,13 +74,17 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 		if prior.Status == "pending" {
 			prior.Status = "superseded"
 			memory.submissions[priorID] = prior
-			priorApproval := memory.approvals[prior.ApprovalID]
-			priorApproval.ID = prior.ApprovalID
-			priorApproval.Status = "revoked"
-			memory.approvals[prior.ApprovalID] = priorApproval
 			result.PriorResolutionSubmissionID = priorID
 			result.PriorSubmissionStatus = "superseded"
-			result.PriorApprovalStatus = "revoked"
+			if prior.ApprovalID == call.HumanApprovalID {
+				result.PriorApprovalStatus = memory.approvals[prior.ApprovalID].Status
+			} else {
+				priorApproval := memory.approvals[prior.ApprovalID]
+				priorApproval.ID = prior.ApprovalID
+				priorApproval.Status = "revoked"
+				memory.approvals[prior.ApprovalID] = priorApproval
+				result.PriorApprovalStatus = "revoked"
+			}
 		}
 	}
 	memory.resolutionRevisions[item.ID]++
