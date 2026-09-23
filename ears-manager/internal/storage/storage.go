@@ -117,6 +117,13 @@ func ValidatePathWithin(root, relativePath string) (string, error) {
 	return candidate, nil
 }
 
+// ValidatePathWithinNoSymlinks is the named write-side alias for
+// ValidatePathWithin, which already rejects existing symlink components,
+// including a symlinked final target.
+func ValidatePathWithinNoSymlinks(root, relativePath string) (string, error) {
+	return ValidatePathWithin(root, relativePath)
+}
+
 func (s *Store[T]) PathForID(id string) (string, error) {
 	filename, _, err := s.relativePathForID(id)
 	if err != nil {

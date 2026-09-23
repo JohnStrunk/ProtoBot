@@ -116,10 +116,12 @@ does not commit, push, open, or merge a pull request. The Git integration
 contract owns those operations. The
 [Source Control Manager](source-control-manager.md) performs the commit,
 the push, and the pull-request operations; a person merges.
-`change-set create` is the governed seam at
+In the target Git integration, `change-set create` is the governed seam at
 which the Drafting Table requests a change-set branch; branch naming and
 branch lifecycle still follow [Git and Project-Repository
-Integration](git-integration.md#change-set-branches).
+Integration](git-integration.md#change-set-branches). The EM-04 first release
+only records the manifest and does not request or create a branch (see
+[first-release scope](#em-04-first-release-scope)).
 
 The write destination allowlist is independent of Git staging. A write may
 target a registered specification artifact, the registered requirement or
@@ -223,6 +225,24 @@ ears-manager change-set compare
 ears-manager check
 ears-manager impact
 ```
+
+### EM-04 first-release scope
+
+The command surface above is the target caller contract. The EM-04 first
+release implements only `check`, requirement add/list/show/update/retire,
+interface add/list/show, artifact get/put, and minimal proposed change-set
+creation. Project initialization, artifact listing, interface updates,
+change-set listing/show/update/compare, impact analysis, immutable `--at`
+reads, and governed branch/commit/pull-request automation remain follow-on
+work. The first-release dispatcher must not claim those operations are
+available.
+
+In the first release, `change-set create` allocates the ID, records the base
+commit, and writes the manifest. It does not create or check out the change-set
+branch, so its success data contains `id`, `base_commit`, and
+`manifest_path`. The branch behavior in [Git and Project-Repository
+Integration](git-integration.md#change-set-branches) remains the target
+integration contract for the follow-on Git workflow.
 
 Every command accepts `--help`. Help is a read-only successful operation and
 exits with status `0`. `--version` is accepted at the top level and prints
@@ -429,7 +449,7 @@ Failed result envelope:
   "command": "requirement add",
   "error": {
     "code": "validation.failed",
-    "message": "The requirement is not valid.",
+    "message": "The specification is not valid.",
     "exit_code": 4,
     "diagnostics": [],
     "mutation": "none",
@@ -510,7 +530,7 @@ sequence; initialization itself does not approve or commit the project.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_path`, `artifact.validator_not_allowed`, `artifact.validator_unavailable`, `artifact.write_not_allowed`, or a validator diagnostic |
+| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_id`, `artifact.invalid_path`, `artifact.invalid_content`, `artifact.owner_immutable`, `artifact.validator_not_allowed`, `artifact.validator_incompatible`, `artifact.write_not_allowed`, or a validator diagnostic |
 | `artifact get` | Exactly one of artifact ID or kind, where kind must match one opaque artifact entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
@@ -541,8 +561,8 @@ An interface record is not a lifecycle work item. Setting its record status to
 | `requirement add` | Change set plus ID, EARS type/text, applicability selectors, verification, provenance, timestamp, and optional relationships | The complete new record and the `add` operation | `requirement.duplicate_id`, `requirement.invalid_id`, `requirement.invalid_applicability`, EARS diagnostics, or relationship diagnostics |
 | `requirement list` | Optional interface, scope, type, status, relationship, and `--at` filters | Matching records sorted by stable requirement ID | `requirement.read_failed` |
 | `requirement show` | Requirement ID and optional `--at` | The complete requirement record | `requirement.not_found` |
-| `requirement update` | Change set, stable ID, and replacement fields | Before/after record summary and the `revise` operation | `requirement.not_found`, `requirement.immutable_field`, or validation diagnostics |
-| `requirement retire` | Change set and stable ID | Before/after status and the `retire` operation | `requirement.not_found`, `requirement.already_retired`, or impact/reference diagnostics |
+| `requirement update` | Change set, stable ID, and replacement fields | Complete before/after records and the `revise` operation | `requirement.not_found`, `requirement.immutable_field`, or validation diagnostics |
+| `requirement retire` | Change set and stable ID | Complete before/after records and the `retire` operation | `requirement.not_found`, `requirement.already_retired`, or impact/reference diagnostics |
 
 All requirement mutations validate the complete affected relationship graph
 before writing. Retirement preserves the record and its historical ID.
@@ -554,22 +574,17 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
-`change-set create` allocates the next unused sequence number and records a
-full 40-character `base_commit`. Normal creation cuts the branch named by
-`repository.branch_prefix` and the slug rules in #34. Project initialization
-is the documented exception: when the working tree is already on the
-pre-cut `cs/<nnnnn>-project-init` branch, the project is not yet approved, and
-that branch has no manifest, `change-set create` records the existing branch
-and does not return `change_set.branch_exists`. This is the only branch
-reuse case and corresponds to [Git and Project-Repository
-Integration](git-integration.md#project-initialization). A failed creation
-leaves neither a manifest nor a new branch.
+In the EM-04 first release, `change-set create` allocates the next unused
+sequence number, records a full 40-character `base_commit`, and writes the
+manifest. It does not create or check out a branch. Branch creation and branch
+reuse are deferred to the follow-on Git integration. A failed creation leaves
+no manifest.
 
 Every successful `change-set update` returns a `before` and `after` manifest
 summary, the resulting `assessment_status`, and sorted `changed_paths`.
@@ -588,12 +603,14 @@ ears-manager check [--at FULL-SHA] [--change-set CS-ID]
 `check` is read-only. Without `--change-set`, it validates the complete
 project store, registry, projection classification, all records, and all
 referential, relationship, EARS, artifact-digest, structured-store-integrity,
-and change-set rules. It verifies impact completeness for every proposed
-change set found in the working tree, while preserving approved manifests'
-stored historical assessments. Independent load failures are aggregated with
-semantic diagnostics from records that could still be read.
-With `--change-set`, it narrows that impact check to the named proposed
-manifest. "Matches"
+and change-set rules. The EM-04 first release defers impact-completeness
+validation until the `impact` and `change-set update` commands land; the
+complete impact rules below are the target contract for that follow-on scope.
+Approved manifests' stored historical assessments remain preserved.
+Independent load failures are aggregated with semantic diagnostics from records
+that could still be read.
+In the follow-on impact scope, `--change-set` narrows that impact check to the
+named proposed manifest. "Matches"
 means that every current mechanical candidate has exactly one final recorded
 disposition, every recorded `mechanical` entry is still a current mechanical
 candidate, and every `semantic` entry names an unchanged active requirement
@@ -617,11 +634,11 @@ Success data contains:
 
 An invalid specification returns the failure envelope with one or more stable
 diagnostics and status `4`; project discovery or schema-version failures use
-status `3`. When `--change-set` finds an incomplete, stale, or mismatched
-proposed impact assessment, `check` returns status `5` so the caller refreshes
-and re-reviews state rather than revising record content. Approved manifests
-are checked against their stored historical assessment. `check` never repairs
-files.
+status `3`. In the follow-on impact scope, an incomplete, stale, or mismatched
+proposed impact assessment returns status `5` so the caller refreshes and
+re-reviews state rather than revising record content. The EM-04 first release
+does not evaluate impact completeness. Approved manifests are checked against
+their stored historical assessment. `check` never repairs files.
 
 ### `change-set compare`
 
@@ -754,9 +771,9 @@ Every mutating command follows this sequence:
    integrity digests.
 4. For an existing-change-set write, verify that the change set is proposed
    and its base/revision is current. `project init` instead verifies that the
-   control namespace is absent; `change-set create` verifies project
-   configuration, base availability, branch state, and the initialization
-   branch-reuse rule.
+   control namespace is absent. In the EM-04 first release, `change-set create`
+   verifies project configuration and base availability only; branch state and
+   initialization branch reuse are deferred to the follow-on Git integration.
 5. Write a complete replacement set through a temporary file or directory.
 6. Re-read and validate the replacement set.
 7. Atomically replace the governed paths and return the result.
@@ -783,7 +800,11 @@ path as a workaround. Safe retries are:
 ## Golden fixture
 
 [`fixtures/ears-manager-cli-golden.jsonl`](fixtures/ears-manager-cli-golden.jsonl)
-is the harness-neutral fixture for the implementation issues. It covers:
+is the harness-neutral follow-on fixture for the complete target contract. Its
+`fixture-scope` record identifies the subset implemented by EM-04 and
+the commands deferred to later increments. The EM-04 implementation tests
+exercise the implemented subset directly; the deferred fixture steps remain
+acceptance data for their owning follow-on issues. The fixture covers:
 
 - project initialization;
 - change-set creation;

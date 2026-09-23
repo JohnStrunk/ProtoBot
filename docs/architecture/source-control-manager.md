@@ -67,7 +67,10 @@ defined here. The Job Site face is named and bounded, not designed
 - **#30** ([`ears-manager` CLI Integration Contract](ears-manager-cli.md))
   defines the governed specification boundary. The SCM reads it, the way
   the Drafting Table does, and never writes through it.
-  `ears-manager change-set create` still cuts the change-set branch.
+  The target #30 contract assigns change-set branch creation to
+  `ears-manager change-set create`; the EM-04 first release only writes
+  the manifest and defers branch creation (see the
+  [first-release scope](ears-manager-cli.md#em-04-first-release-scope)).
 - **#31** ([Drafting Table WMS Integration](drafting-table-wms.md)) and
   **#32** ([Validation Rules](validation-rules.md)) are the model for a
   governed boundary: a closed operation set, a trusted authorization
@@ -247,7 +250,7 @@ argument keeps the weight shown here:
 | 4 | The local security gain is small | Accepted. Locally the SCM runs as the user, with the user's credentials. It narrows the Drafting Table role and isolates nothing ([Security posture](#security-posture-and-persistent-state)). The real boundary exists only behind the Gate. |
 | 5 | Flexibility moves to the user | Accepted, with a bound. A state that no operation covers, such as a merge conflict, a diverged branch, or commits that someone else pushed to the change-set branch, is refused with a diagnostic that names the state and what the user can run. The user already merges, discards, and deletes branches under #33. |
 | 6 | The Job Site reuse is speculative | Accepted. This document defines no Job Site operation. The core holds no lease, fencing token, or patch concept. The Job Site face uses the core only if its own design fits it ([Q21][q21]). |
-| 7 | It creates a split transaction | Avoided. `ears-manager change-set create` still allocates the ID, writes the manifest, records `base_commit`, and cuts the branch in one command. The SCM never writes a manifest. Where a Git step and an `ears-manager` step follow each other, as in a refresh, the SCM detects the half-done state deterministically (`BASE_COMMIT_STALE`). |
+| 7 | It creates a split transaction | Avoided by the target #30 contract: `ears-manager change-set create` allocates the ID, writes the manifest, records `base_commit`, and cuts the branch in one command. The EM-04 first release only writes the manifest, so this branch-and-manifest transaction is deferred with branch creation (see the [first-release scope](ears-manager-cli.md#em-04-first-release-scope)). The SCM never writes a manifest. Where a Git step and an `ears-manager` step follow each other, as in a refresh, the SCM detects the half-done state deterministically (`BASE_COMMIT_STALE`). |
 | 8 | Smaller changes close the text gap | A rendered text that the agent passes through can still be changed on the way. The SCM calls `ears-manager` itself, so no model is in that path, and no guard has to compare a copy. |
 | 9 | Host neutrality is not needed yet | Accepted. The host adapter is one internal boundary with one implementation, for GitHub. No second adapter is designed. The boundary exists so that the failure codes and the audit record do not depend on `gh` output. |
 | 10 | Every binding carries more | One MCP server entry per binding, the same shape as `wms`. The `scm` server is local in single-player and multi-player alike, because the working tree is local, so it needs no MCP authentication (H13 stays a `wms` concern). |
@@ -617,8 +620,8 @@ is prose that #34 allows.
    - in another worktree: nothing, because neither command can move
      that worktree's index and files from here.
 
-   `git fetch` alone does not move the local default branch, and #34
-   cuts every change-set branch from that local ref
+   `git fetch` alone does not move the local default branch, and the
+   target #34 workflow cuts every change-set branch from that local ref
    ([When the branch is created][branch-created]),
    so #34 allows this one write to a branch that no change set owns
    ([Permitted Git operations][git-ops]). A local `<default>` that has
@@ -706,9 +709,11 @@ differs, the branch is not a change-set branch of the project, and
 `commit` refuses. If the default branch differs, the first `publish`
 fails with `BASE_NOT_ON_DEFAULT` or `DEFAULT_MOVED`.
 
-A normal change-set branch is not cut by the SCM.
-`ears-manager change-set create` cuts it, as #30 decides
-([Answers](#answers-to-the-open-questions-of-125)).
+A normal change-set branch is not cut by the SCM. The target #30
+contract assigns that operation to `ears-manager change-set create`
+([Answers](#answers-to-the-open-questions-of-125)); EM-04 defers it to
+follow-on Git integration (see the
+[first-release scope](ears-manager-cli.md#em-04-first-release-scope)).
 
 ### `branch_resume`
 
@@ -1084,7 +1089,7 @@ it: the fast-forward of the local default branch.
 | Read repository state | `repo_state` |
 | Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch, which it also asks with `git ls-remote`. Every fetch runs `git fetch --no-tags --prune --refmap= <remote> +refs/heads/*:refs/remotes/<remote>/*`: the empty `--refmap` keeps Git from also mapping the fetched refs through the remote's configured `fetch` refspecs, so a fetch moves only remote-tracking refs, never a local branch or a tag, and `--prune` drops the tracking ref of a branch the remote deleted. With one refspec on the command line, Git prunes only that refspec's destination, `refs/remotes/<remote>/` |
 | Fast-forward the local default branch | `repo_state` and `branch_init`, only by fast-forward |
-| Create a change-set branch | `ears-manager change-set create`; the initialization branch is `branch_init` |
+| Create a change-set branch | Target #30 behavior: `ears-manager change-set create`; the initialization branch is `branch_init`. EM-04 first release does not create change-set branches; see the [first-release scope](ears-manager-cli.md#em-04-first-release-scope). |
 | Switch to an existing change-set branch | `branch_resume`, to a local branch only |
 | Stage | `commit`, by explicit path, into a private index; the user's index changes only after a successful commit |
 | Commit | `commit`, on explicit user request |
@@ -1346,10 +1351,12 @@ it. The deployment therefore keeps these rules:
 
 - The runtime reaches the SCM only through the Gate, and the SCM
   accepts only a context that the Gate signed for it.
-- The runtime has no write access to the workspace's `.git/`. Only the
-  SCM, and `ears-manager` for the branch that `change-set create` cuts,
-  write Git state there, so the repository's own configuration is the
-  SCM's.
+- The runtime has no write access to the workspace's `.git/`. In the
+  target Git integration, the SCM and the follow-on branch-cut behavior
+  of `ears-manager change-set create` write Git state there, so the
+  repository's own configuration is the SCM's. EM-04's first-release
+  command writes only the manifest and does not write `.git/`; see the
+  [first-release scope](ears-manager-cli.md#em-04-first-release-scope).
 - The runtime writes neither `.protobot/`, a registered artifact path,
   nor a configured store directly, because the SCM trusts them all:
   `project.yaml` names the refs and holds the artifact and store
@@ -1714,7 +1721,7 @@ host adapter.
 | # | Question | Answer |
 | --- | --- | --- |
 | 1 | One shared service, or a core with one face per role? | A core with one face per role. The role is fixed by the face a caller gets, and Job Site rules never enter a component that the Drafting Table depends on. |
-| 2 | Who cuts the change-set branch? | `ears-manager change-set create`, as #30 decides. The branch name needs the change-set ID that it allocates and the slug of the intent that it records, and one command keeps the manifest, `base_commit`, and the branch together. The SCM cuts only the initialization branch, which needs neither. Hosted, `ears-manager` runs beside the SCM, outside the runtime ([Hosted isolation](#hosted-isolation)). |
+| 2 | Who cuts the change-set branch? | In the target #30 contract, `ears-manager change-set create` does. The branch name needs the change-set ID that it allocates and the slug of the intent that it records, and one command keeps the manifest, `base_commit`, and the branch together. The EM-04 first release defers branch creation; the SCM cuts only the initialization branch, which needs neither (see the [first-release scope](ears-manager-cli.md#em-04-first-release-scope)). Hosted, `ears-manager` runs beside the SCM, outside the runtime ([Hosted isolation](#hosted-isolation)). |
 | 3 | Does the SCM read the manifest, digests, `compare`, and `impact` itself? | Yes, through `ears-manager --output json`, with argument lists. The caller never passes them in, so no model-written content returns. |
 | 4 | Where does single-player registration live? | It stays the Job Site's `register-approved-change-set`, a shell operation of the role. It takes the change-set ID only, and reads the merge commit through `approved_merge`. |
 | 5 | Does `commit` run the project's Git hooks? | No, in every mode, and no other program that a repository can ship either. Locally, the programs of the user's own Git configuration still run ([Design principles](#design-principles)). |
@@ -1727,7 +1734,10 @@ host adapter.
 ## Repository fixture against the SCM
 
 The [repository fixture][git-fixture] of #34 runs against the SCM, with
-every negative check, and with no shell in the caller.
+every negative check, and with no shell in the caller. It exercises the
+target combined Git/CLI workflow after branch creation is integrated;
+EM-04 first release does not yet implement the CLI branch cut (see the
+[first-release scope](ears-manager-cli.md#em-04-first-release-scope)).
 [`fixtures/source-control-manager-golden.jsonl`](fixtures/source-control-manager-golden.jsonl)
 is its harness-neutral transcript. It records the steps, #34's negative
 checks, and the second table of [Negative checks](#negative-checks). The

@@ -125,6 +125,11 @@ func (p *Project) SaveArtifact(artifact records.ArtifactEntry) error {
 	return p.SaveConfig(config)
 }
 
+// GitRoot resolves the Git working-tree root for a path.
+func GitRoot(path string) (string, error) {
+	return systemGitRoot(path)
+}
+
 func systemGitRoot(path string) (string, error) {
 	command := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel")
 	output, err := command.Output()

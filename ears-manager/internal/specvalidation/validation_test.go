@@ -495,6 +495,21 @@ func TestValidateStoreIntegrityDetectsRecordEdits(t *testing.T) {
 	}
 }
 
+func TestCanonicalStoreDigestRejectsUnobservedEntry(t *testing.T) {
+	root := t.TempDir()
+	store := filepath.Join(root, ".protobot", "requirements")
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "REQ-RACE-00001.yaml"), []byte("id: REQ-RACE-00001\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := CanonicalStoreDigestWithOverridesAndObserved(root, ".protobot/requirements", nil, map[string]bool{})
+	if !errors.Is(err, ErrUnobservedStoreEntry) {
+		t.Fatalf("digest error = %v, want ErrUnobservedStoreEntry", err)
+	}
+}
+
 func TestValidateRequiresRetireOperationToBeApplied(t *testing.T) {
 	snapshot := validSnapshot(t)
 	snapshot.ChangeSets[0].Value.Operations = []records.RequirementOperation{{Action: "retire", RequirementID: "REQ-A-00001"}}

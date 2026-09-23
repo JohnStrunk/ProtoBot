@@ -111,9 +111,12 @@ ProtoBot has eight primary logical components and reusable asset families:
    turns the user's decision about a governed object into Git and Git
    host state: commits, pushes, pull requests, refresh merges, and the
    initialization branch. The Drafting Table reaches Git and the Git
-   host only through it, apart from the change-set branch that
-   `ears-manager change-set create` cuts, and the Job Site reads
-   approved merge commits through it. It never decides content.
+   host only through it, apart from the target change-set branch behavior
+   assigned to `ears-manager change-set create`. The EM-04 first release
+   writes the manifest but does not cut that branch (see the
+   [`ears-manager` CLI first-release
+   scope](ears-manager-cli.md#em-04-first-release-scope)). The Job Site
+   reads approved merge commits through the SCM. It never decides content.
 7. **Validation Rules** — Domain logic that enforces well-formedness
    on work item state transitions. Shared across the Drafting
    Table and the Job Site — both use these rules when writing to the
@@ -284,8 +287,11 @@ The final cross-harness packaging boundary remains an open question.
   project's git repo (on contributor or change-set branches before
   approval and build-work-item branches during execution), accessed
   exclusively through `ears-manager`. Commits, pushes, PRs, refresh
-  merges, and the initialization branch are made through the SCM;
-  `ears-manager change-set create` cuts change-set branches. The
+  merges, and the initialization branch are made through the SCM; the
+  target `ears-manager change-set create` contract cuts change-set
+  branches. EM-04 currently defers that behavior to follow-on Git
+  integration (see the [`ears-manager` CLI first-release
+  scope](ears-manager-cli.md#em-04-first-release-scope)). The
   toolkit does not maintain its own state store.
 - **Versioned and testable.** The toolkit should be versioned
   alongside the WMS Adapter API and the Source Control Manager's tool
@@ -325,7 +331,10 @@ The final cross-harness packaging boundary remains an open question.
   describe and the agent runs through the harness's shell tool, and
   Git and the Git host through the Source Control Manager's MCP tools.
   The WMS Adapter tools handle work item lifecycle; `ears-manager`
-  handles all spec read/write operations and cuts change-set branches;
+  handles all spec read/write operations and, in the target contract,
+  cuts change-set branches. EM-04 defers branch cutting (see the
+  [`ears-manager` CLI first-release
+  scope](ears-manager-cli.md#em-04-first-release-scope));
   the SCM handles commits, pushes, PRs, refresh merges, and the
   initialization branch. The agent should not need to manipulate spec
   files or run Git directly. Whether `ears-manager` also moves to
@@ -440,6 +449,11 @@ It is used by these callers:
 
 ### Subcommands
 
+The table describes the target `ears-manager` subcommand surface. The EM-04
+first release implements only a subset and does not create change-set branches;
+see the [`ears-manager` CLI first-release
+scope](ears-manager-cli.md#em-04-first-release-scope).
+
 | Subcommand | Purpose |
 | --- | --- |
 | `ears-manager project init` | Initialize `.protobot/project.yaml`, seed version-1 schema keys, stores, store integrity digests, and opaque artifact entries, and classify registered specification paths. |
@@ -452,7 +466,7 @@ It is used by these callers:
 | `ears-manager interface update` | Modify interfaces through a proposed change set. |
 | `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest and invokes the selected code-controlled validator adapter without requiring `ears-manager` to understand every format. |
 | `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by ID or unique kind through the governed path registry. |
-| `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, and requirement operations. Approved change sets are immutable. |
+| `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, and requirement operations. EM-04 first release only implements minimal creation and does not cut a branch; see the [`ears-manager` CLI first-release scope](ears-manager-cli.md#em-04-first-release-scope). Approved change sets are immutable. |
 | `ears-manager change-set compare` | Compare a proposed change set with the current Schematic and open deltas. Reports exact duplicates, stable-ID before/after changes, declared conflicts/supersession, and dependency cycles for agent/user review. |
 | `ears-manager impact` | Read-only comparison of a proposed change set with the Schematic that produces potentially applicable requirements from scope intersections and explicit relationships. Reviewed dispositions are written by `change-set update`. |
 

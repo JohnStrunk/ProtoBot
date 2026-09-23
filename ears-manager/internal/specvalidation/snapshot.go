@@ -32,7 +32,11 @@ type Snapshot struct {
 	ConfigPath   string
 	ConfigFields map[string]bool
 	Context      ValidationContext
-	Requirements []Document[records.Requirement]
-	Interfaces   []Document[records.InterfaceRecord]
-	ChangeSets   []Document[records.ChangeSet]
+	// ArtifactContents contains proposed content for artifact paths during a
+	// mutation validation. It lets callers validate a new artifact before the
+	// final transaction writes it to the working tree.
+	ArtifactContents map[string][]byte
+	Requirements     []Document[records.Requirement]
+	Interfaces       []Document[records.InterfaceRecord]
+	ChangeSets       []Document[records.ChangeSet]
 }
