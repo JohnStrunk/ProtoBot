@@ -1222,6 +1222,27 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				assertEventCount(t, memory, 1)
 			})
 		}},
+		{"VR-050", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			candidate := testWorkItem("wi-050", validation.StateInitial, 0)
+			candidate.ChangeType = "undefined"
+			candidate.Dependencies = []validation.Dependency{{State: validation.StateWaiting}}
+
+			materialized := memory.Execute(materializeCall(candidate, "vr050-materialize", "vr050-key"))
+			decision := assertAllowedDecision(t, materialized, validation.AuthorityAuthoritative)
+			if decision.After.State != validation.StateWaiting {
+				t.Fatalf("materialized decision = %#v, want waiting for incomplete dependency without an ID", decision)
+			}
+			stored, exists := memory.WorkItem(candidate.ID)
+			if !exists || stored.State != validation.StateWaiting {
+				t.Fatalf("stored work item = %#v, exists=%t; want waiting", stored, exists)
+			}
+
+			refresh := memory.Execute(conformanceCall(validation.OperationRefreshDependencies, "materializer", stored, "vr050-refresh"))
+			assertRejectedDecision(t, refresh, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+			assertItemUnchanged(t, memory, stored)
+			assertEventCount(t, memory, 1)
+		}},
 	}
 
 	for _, test := range tests {

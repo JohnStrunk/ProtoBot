@@ -171,6 +171,10 @@ func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.
 	if !validClassification(payload.Classification) || !validRefinementState(payload.RefinementState) {
 		return rejectedResult(call.Operation, invalidRequest("classification/refinement_state", "the value is outside the request vocabulary"))
 	}
+	if (payload.Intent != "" && isBlank(payload.Intent)) || (payload.Rationale != "" && isBlank(payload.Rationale)) {
+		return rejectedResult(call.Operation, invalidRequest("intent/rationale", "supplied intent and rationale must not be blank"))
+	}
+	priorSemanticKey := requestSemanticKeyFor(request.Intent, request.AffectedInterfaces, request.AffectedScopes)
 	approvalID := payload.HumanApprovalID
 	if call.HumanApprovalID != "" {
 		approvalID = call.HumanApprovalID
@@ -213,8 +217,21 @@ func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.
 	}
 	request.Classification = payload.Classification
 	request.RefinementState = payload.RefinementState
+	nextSemanticKey := requestSemanticKeyFor(request.Intent, request.AffectedInterfaces, request.AffectedScopes)
+	if duplicateID, exists := m.semanticRequests[nextSemanticKey]; exists && duplicateID != request.ID {
+		return rejectedResult(call.Operation, wmsRejection(
+			CodeDuplicateRequest,
+			"A semantically equivalent request already exists.",
+			map[string]any{"request_id": duplicateID},
+			validation.RetryQuery,
+		))
+	}
 	request.Revision++
 	m.requests[request.ID] = request
+	if priorSemanticKey != nextSemanticKey {
+		delete(m.semanticRequests, priorSemanticKey)
+	}
+	m.semanticRequests[nextSemanticKey] = request.ID
 	approval.Status = validation.ApprovalStatusConsumed
 	m.approvals[approvalID] = approval
 	m.events = append(m.events, AuditEvent{
@@ -323,6 +340,10 @@ func (m *Memory) linkChangeSetLocked(call CallRequest, authorization validation.
 	}
 	request.ChangeSetID = payload.ChangeSetID
 	request.Revision++
+	if request.BusinessPriority != "" {
+		changeSet.BusinessPriority = request.BusinessPriority
+	}
+	m.changeSets[changeSet.ID] = changeSet
 	m.requests[request.ID] = request
 	m.events = append(m.events, AuditEvent{
 		Operation:     call.Operation,
@@ -353,7 +374,8 @@ func (m *Memory) linkWorkItemLocked(call CallRequest, authorization validation.A
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
-	if _, exists := m.workItems[payload.BuildWorkItemID]; !exists {
+	workItem, exists := m.workItems[payload.BuildWorkItemID]
+	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("work-item"))
 	}
 	if payload.BuildWorkItemID == "" || request.BuildWorkItemID == payload.BuildWorkItemID {
@@ -361,6 +383,10 @@ func (m *Memory) linkWorkItemLocked(call CallRequest, authorization validation.A
 	}
 	request.BuildWorkItemID = payload.BuildWorkItemID
 	request.Revision++
+	if request.BusinessPriority != "" {
+		workItem.Priority = request.BusinessPriority
+	}
+	m.workItems[workItem.ID] = workItem
 	m.requests[request.ID] = request
 	m.events = append(m.events, AuditEvent{
 		Operation:     call.Operation,
@@ -492,13 +518,17 @@ func validateRequestRevision(call CallRequest, request RequestRecord) *validatio
 }
 
 func requestSemanticKey(payload createRequestPayload) string {
-	interfaces := sortedUnique(payload.AffectedInterfaces)
-	scopes := sortedUnique(payload.AffectedScopes)
+	return requestSemanticKeyFor(payload.Intent, payload.AffectedInterfaces, payload.AffectedScopes)
+}
+
+func requestSemanticKeyFor(intent string, affectedInterfaces, affectedScopes []string) string {
+	interfaces := sortedUnique(affectedInterfaces)
+	scopes := sortedUnique(affectedScopes)
 	value := struct {
 		Intent     string
 		Interfaces []string
 		Scopes     []string
-	}{strings.ToLower(strings.TrimSpace(payload.Intent)), interfaces, scopes}
+	}{strings.ToLower(strings.TrimSpace(intent)), interfaces, scopes}
 	encoded, _ := json.Marshal(value)
 	digest := sha256.Sum256(encoded)
 	return hex.EncodeToString(digest[:])

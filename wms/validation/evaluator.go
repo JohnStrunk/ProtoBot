@@ -272,7 +272,7 @@ func evaluatePlanningTransition(request Request, current *WorkItem, evaluation E
 		if reason := readinessBlocker(readiness); reason != "" {
 			return "", OutcomeRejected, nil, preconditionFailed(reason, "readiness-evidence")
 		}
-		if dependency := firstIncompleteDependency(effectiveDependencies(current, evaluation)); dependency != "" {
+		if dependency, incomplete := firstIncompleteDependency(effectiveDependencies(current, evaluation)); incomplete {
 			return "", OutcomeRejected, nil, dependencyFailed(dependency)
 		}
 		return StateReadyForBuilding, OutcomeAllowed, nil, nil
@@ -291,7 +291,7 @@ func evaluatePlanningTransition(request Request, current *WorkItem, evaluation E
 		if reason := readinessBlocker(effectiveReadiness(current, evaluation)); reason != "" {
 			return "", OutcomeRejected, nil, preconditionFailed(reason, "readiness-evidence")
 		}
-		if dependency := firstIncompleteDependency(effectiveDependencies(current, evaluation)); dependency != "" {
+		if dependency, incomplete := firstIncompleteDependency(effectiveDependencies(current, evaluation)); incomplete {
 			return "", OutcomeRejected, nil, dependencyFailed(dependency)
 		}
 		return StateReadyForBuilding, OutcomeAllowed, nil, nil
@@ -309,16 +309,17 @@ func evaluateLeaseTransition(request Request, current *WorkItem, evaluation Eval
 		if reason := readinessBlocker(current.Readiness); reason != "" {
 			return "", OutcomeRejected, nil, preconditionFailed(reason, "readiness-evidence")
 		}
-		if dependency := firstIncompleteDependency(current.Dependencies); dependency != "" {
+		if dependency, incomplete := firstIncompleteDependency(current.Dependencies); incomplete {
 			return "", OutcomeRejected, nil, dependencyFailed(dependency)
 		}
 		return StateBuilding, OutcomeAllowed, nil, nil
 	case OperationRenewLease:
 		return current.State, OutcomeAllowed, nil, nil
 	case OperationRefreshActive:
+		_, incompleteDependency := firstIncompleteDependency(effectiveDependencies(current, evaluation))
 		if readinessContractFailure(effectiveReadiness(current, evaluation)) != "" ||
 			readinessBlocker(effectiveReadiness(current, evaluation)) != "" ||
-			firstIncompleteDependency(effectiveDependencies(current, evaluation)) != "" {
+			incompleteDependency {
 			return StateBlocked, OutcomeAllowed, nil, nil
 		}
 		return StateBuilding, OutcomeAllowed, nil, nil
@@ -444,7 +445,7 @@ func evaluateMaterialization(request Request) (State, Outcome, *MaterializationR
 			Outcome:           MaterializationOutcomeBlocked,
 		}, nil
 	}
-	if dependency := firstIncompleteDependency(candidate.Dependencies); dependency != "" {
+	if _, incomplete := firstIncompleteDependency(candidate.Dependencies); incomplete {
 		return StateWaiting, OutcomeAllowed, &MaterializationReservation{
 			Key:               request.MaterializationKey,
 			SourceFingerprint: fingerprint,
@@ -734,14 +735,16 @@ func effectiveDependencies(current *WorkItem, evaluation EvaluationContext) []De
 	return current.Dependencies
 }
 
-func firstIncompleteDependency(dependencies []Dependency) string {
+func firstIncompleteDependency(dependencies []Dependency) (string, bool) {
 	blocking := ""
+	found := false
 	for _, dependency := range dependencies {
-		if dependency.State != StateCompleted && (blocking == "" || dependency.ID < blocking) {
+		if dependency.State != StateCompleted && (!found || dependency.ID < blocking) {
 			blocking = dependency.ID
+			found = true
 		}
 	}
-	return blocking
+	return blocking, found
 }
 
 func dependencyFailed(dependency string) *Rejection {

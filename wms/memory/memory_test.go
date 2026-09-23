@@ -513,6 +513,242 @@ func TestRequestLinkAuditIncludesActorAndPolicyVersion(t *testing.T) {
 	}
 }
 
+func TestRefinementRejectsWhitespaceOnlyIntentAndRationale(t *testing.T) {
+	for _, field := range []string{"intent", "rationale"} {
+		t.Run(field, func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			created := createTestRequest(t, memory, "Keep this request", "Keep this rationale", nil, nil, "blank-refine-create")
+			if !created.OK {
+				t.Fatalf("request create result = %#v", created)
+			}
+			before, _ := memory.Request(created.RequestID)
+			approval := seedRefinementApproval(t, memory, "blank-refine-approval", created.RequestID, "blank-refine-digest")
+
+			payload := refineRequestPayload{
+				Classification:           "changes",
+				RefinementState:          "ready-for-dimensioning",
+				HumanApprovalID:          approval.ID,
+				ApprovalRefinementDigest: approval.Digest,
+			}
+			if field == "intent" {
+				payload.Intent = "   "
+			} else {
+				payload.Rationale = "   "
+			}
+			result := memory.Execute(refineTestRequest(t, created.RequestID, created.RequestRevision, "blank-refine-"+field, payload))
+			if result.OK || result.Error == nil || result.Error.Code != CodeInvalidRequest || result.Mutation != mutationNone {
+				t.Fatalf("blank %s refinement = %#v, want mutation-free INVALID_REQUEST", field, result)
+			}
+			after, _ := memory.Request(created.RequestID)
+			approvalAfter, _ := memory.Approval(approval.ID)
+			if !reflect.DeepEqual(after, before) || approvalAfter.Status != validation.ApprovalStatusUnused {
+				t.Fatalf("blank refinement changed request or consumed approval: request=%#v approval=%#v", after, approvalAfter)
+			}
+			if len(memory.Events()) != 1 {
+				t.Fatalf("blank refinement recorded %d events, want only request creation", len(memory.Events()))
+			}
+		})
+	}
+}
+
+func TestRefinementMaintainsSemanticDuplicateIndex(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	first := createTestRequest(t, memory, "Request alpha", "Alpha rationale", []string{"interface-a"}, []string{"scope-a"}, "semantic-create-alpha")
+	second := createTestRequest(t, memory, "Request beta", "Beta rationale", []string{"interface-b"}, []string{"scope-b"}, "semantic-create-beta")
+	if !first.OK || !second.OK {
+		t.Fatalf("request creates = %#v / %#v", first, second)
+	}
+
+	firstBefore, _ := memory.Request(first.RequestID)
+	duplicateApproval := seedRefinementApproval(t, memory, "semantic-duplicate-approval", first.RequestID, "semantic-duplicate-digest")
+	duplicatePayload := refineRequestPayload{
+		Intent:                   "Request beta",
+		AffectedInterfaces:       []string{"interface-b"},
+		AffectedScopes:           []string{"scope-b"},
+		Classification:           "changes",
+		RefinementState:          "ready-for-dimensioning",
+		HumanApprovalID:          duplicateApproval.ID,
+		ApprovalRefinementDigest: duplicateApproval.Digest,
+	}
+	duplicate := memory.Execute(refineTestRequest(t, first.RequestID, first.RequestRevision, "semantic-refine-duplicate", duplicatePayload))
+	if duplicate.OK || duplicate.Error == nil || duplicate.Error.Code != CodeDuplicateRequest || duplicate.Mutation != mutationNone {
+		t.Fatalf("duplicate refinement = %#v, want mutation-free DUPLICATE_REQUEST", duplicate)
+	}
+	unchanged, _ := memory.Request(first.RequestID)
+	approvalAfterDuplicate, _ := memory.Approval(duplicateApproval.ID)
+	if !reflect.DeepEqual(unchanged, firstBefore) || approvalAfterDuplicate.Status != validation.ApprovalStatusUnused {
+		t.Fatalf("duplicate refinement changed request or consumed approval: request=%#v approval=%#v", unchanged, approvalAfterDuplicate)
+	}
+
+	refinementApproval := seedRefinementApproval(t, memory, "semantic-refinement-approval", first.RequestID, "semantic-refinement-digest")
+	refinement := refineRequestPayload{
+		Intent:                   "Request gamma",
+		AffectedInterfaces:       []string{"interface-c"},
+		AffectedScopes:           []string{"scope-c"},
+		Classification:           "changes",
+		RefinementState:          "ready-for-dimensioning",
+		HumanApprovalID:          refinementApproval.ID,
+		ApprovalRefinementDigest: refinementApproval.Digest,
+	}
+	updated := memory.Execute(refineTestRequest(t, first.RequestID, first.RequestRevision, "semantic-refine-gamma", refinement))
+	if !updated.OK {
+		t.Fatalf("unique refinement = %#v, want success", updated)
+	}
+
+	oldContent := createTestRequest(t, memory, "Request alpha", "A second alpha request", []string{"interface-a"}, []string{"scope-a"}, "semantic-create-old-content")
+	if !oldContent.OK {
+		t.Fatalf("create using refined-away semantic key = %#v, want success", oldContent)
+	}
+	newDuplicate := createTestRequest(t, memory, "Request gamma", "Another gamma request", []string{"interface-c"}, []string{"scope-c"}, "semantic-create-new-duplicate")
+	if newDuplicate.OK || newDuplicate.Error == nil || newDuplicate.Error.Code != CodeDuplicateRequest {
+		t.Fatalf("create using current refined semantic key = %#v, want DUPLICATE_REQUEST", newDuplicate)
+	}
+	if got := newDuplicate.Error.Details["request_id"]; got != first.RequestID {
+		t.Fatalf("duplicate request_id = %#v, want refined request %q", got, first.RequestID)
+	}
+	if len(memory.Events()) != 4 {
+		t.Fatalf("semantic refinement events = %d, want two creates, one refine, and old-key create", len(memory.Events()))
+	}
+}
+
+func TestRequestLinkBackfillsPrioritySetBeforeLinking(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	if err := memory.SeedChangeSet(ChangeSet{ID: "CS-priority", Revision: "proposed"}); err != nil {
+		t.Fatal(err)
+	}
+	workItem := testWorkItem("wi-priority", validation.StateReadyForBuilding, 1)
+	if err := memory.SeedWorkItem(workItem); err != nil {
+		t.Fatal(err)
+	}
+	created := createTestRequest(t, memory, "Prioritize the linked work", "Exercise priority snapshots.", nil, nil, "priority-link-create")
+	if !created.OK {
+		t.Fatalf("request create result = %#v", created)
+	}
+
+	priority := memory.Execute(CallRequest{
+		Operation:               "request.update-priority",
+		ActorContextRef:         "human-maintainer",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &created.RequestRevision,
+		IdempotencyKey:          "priority-before-link",
+		Payload:                 jsonPayload(t, priorityPayload{BusinessPriority: "high"}),
+	})
+	if !priority.OK {
+		t.Fatalf("priority update before linking = %#v", priority)
+	}
+
+	requestRevision := priority.RequestRevision
+	changeSetLink := memory.Execute(CallRequest{
+		Operation:               "request.link-change-set",
+		ActorContextRef:         "drafting-table",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &requestRevision,
+		IdempotencyKey:          "priority-link-change-set",
+		Payload: jsonPayload(t, changeSetLinkPayload{
+			ChangeSetID:    "CS-priority",
+			TargetRevision: "proposed",
+		}),
+	})
+	if !changeSetLink.OK {
+		t.Fatalf("change-set link = %#v", changeSetLink)
+	}
+	requestRevision = changeSetLink.RequestRevision
+	workItemLink := memory.Execute(CallRequest{
+		Operation:               "request.link-build-work-item",
+		ActorContextRef:         "drafting-table",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &requestRevision,
+		IdempotencyKey:          "priority-link-work-item",
+		Payload:                 jsonPayload(t, workItemLinkPayload{BuildWorkItemID: workItem.ID}),
+	})
+	if !workItemLink.OK {
+		t.Fatalf("work-item link = %#v", workItemLink)
+	}
+	if got := memory.changeSets["CS-priority"].BusinessPriority; got != "high" {
+		t.Fatalf("linked change-set priority = %q, want high", got)
+	}
+	linkedWorkItem, _ := memory.WorkItem(workItem.ID)
+	if linkedWorkItem.Priority != "high" {
+		t.Fatalf("linked work-item priority = %q, want high", linkedWorkItem.Priority)
+	}
+
+	requestRevision = workItemLink.RequestRevision
+	updatedPriority := memory.Execute(CallRequest{
+		Operation:               "request.update-priority",
+		ActorContextRef:         "human-maintainer",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &requestRevision,
+		IdempotencyKey:          "priority-after-link",
+		Payload:                 jsonPayload(t, priorityPayload{BusinessPriority: "urgent"}),
+	})
+	if !updatedPriority.OK {
+		t.Fatalf("priority update after linking = %#v", updatedPriority)
+	}
+	if got := memory.changeSets["CS-priority"].BusinessPriority; got != "urgent" {
+		t.Fatalf("post-link change-set priority = %q, want urgent", got)
+	}
+	linkedWorkItem, _ = memory.WorkItem(workItem.ID)
+	if linkedWorkItem.Priority != "urgent" {
+		t.Fatalf("post-link work-item priority = %q, want urgent", linkedWorkItem.Priority)
+	}
+	if len(memory.Events()) != 5 {
+		t.Fatalf("priority/link events = %d, want five accepted mutations", len(memory.Events()))
+	}
+}
+
+func createTestRequest(
+	t *testing.T,
+	memory *Memory,
+	intent, rationale string,
+	affectedInterfaces, affectedScopes []string,
+	key string,
+) Result {
+	t.Helper()
+	return memory.Execute(CallRequest{
+		Operation:       "request.create",
+		ActorContextRef: "drafting-table",
+		IdempotencyKey:  key,
+		Payload: jsonPayload(t, createRequestPayload{
+			Intent:             intent,
+			Rationale:          rationale,
+			AffectedInterfaces: affectedInterfaces,
+			AffectedScopes:     affectedScopes,
+		}),
+	})
+}
+
+func seedRefinementApproval(t *testing.T, memory *Memory, id, requestID, digest string) validation.ApprovalRecord {
+	t.Helper()
+	approval := validation.ApprovalRecord{
+		ID:                 id,
+		ApprovedSubject:    "human-reviewer",
+		DelegatedPrincipal: "drafting-agent",
+		ProjectID:          "fixture-project",
+		RequestID:          requestID,
+		Digest:             digest,
+		Action:             validation.Operation("request.refine"),
+		PolicyVersion:      "wms-policy/v1",
+		ExpiresAt:          memoryTestTime.Add(time.Hour),
+		Status:             validation.ApprovalStatusUnused,
+	}
+	if err := memory.SeedApproval(approval); err != nil {
+		t.Fatal(err)
+	}
+	return approval
+}
+
+func refineTestRequest(t *testing.T, requestID string, revision uint64, key string, payload refineRequestPayload) CallRequest {
+	t.Helper()
+	return CallRequest{
+		Operation:               "request.refine",
+		ActorContextRef:         "drafting-table",
+		RequestID:               requestID,
+		ExpectedRequestRevision: &revision,
+		IdempotencyKey:          key,
+		Payload:                 jsonPayload(t, payload),
+	}
+}
+
 func TestCompletionReplayReturnsOriginalResult(t *testing.T) {
 	jobSiteAuthorization := testAuthorization("job-site", validation.RoleJobSite, validation.OperationRecordMerge)
 	jobSiteAuthorization.AllowedRefs = append(jobSiteAuthorization.AllowedRefs, "main", "integration-head", "merge-commit-1", "inspection-1")
