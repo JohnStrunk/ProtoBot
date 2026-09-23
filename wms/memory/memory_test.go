@@ -235,7 +235,7 @@ func TestSupersedingResolutionWithSameApprovalKeepsApprovalUsable(t *testing.T) 
 }
 
 func TestResolveBlockRefreshesLiveDependenciesAndPersistsSnapshot(t *testing.T) {
-	memory, _ := newConformanceMemory(t)
+	memory, gate := newConformanceMemory(t)
 	dependency := testWorkItem("wi-live-dependency", validation.StateMerging, 9)
 	expectedMerge := &validation.MergeEnvelope{
 		ProductTreeDigest: "tree-live-dependency",
@@ -273,6 +273,7 @@ func TestResolveBlockRefreshesLiveDependenciesAndPersistsSnapshot(t *testing.T) 
 
 	merge := *expectedMerge
 	merge.MergeCommit = "merge-live-dependency"
+	setConformanceAllowedRefs(gate, "job-site", merge.Target, merge.IntegrationHead, merge.MergeCommit, merge.InspectionRunID)
 	completeDependency := conformanceCall(validation.OperationRecordMerge, "job-site", dependency, "live-dependency-complete")
 	completeDependency.FencingToken = "fence-live-dependency"
 	completeDependency.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &merge})
@@ -513,8 +514,10 @@ func TestRequestLinkAuditIncludesActorAndPolicyVersion(t *testing.T) {
 }
 
 func TestCompletionReplayReturnsOriginalResult(t *testing.T) {
+	jobSiteAuthorization := testAuthorization("job-site", validation.RoleJobSite, validation.OperationRecordMerge)
+	jobSiteAuthorization.AllowedRefs = append(jobSiteAuthorization.AllowedRefs, "main", "integration-head", "merge-commit-1", "inspection-1")
 	gate := StaticGate{
-		"job-site": testAuthorization("job-site", validation.RoleJobSite, validation.OperationRecordMerge),
+		"job-site": jobSiteAuthorization,
 	}
 	memory := newTestMemory(t, gate, "")
 	expected := &validation.MergeEnvelope{

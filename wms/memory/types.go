@@ -28,8 +28,8 @@ type Gate interface {
 type StaticGate map[string]validation.AuthorizationContext
 
 // Resolve returns a trusted context registered under actorContextRef.
-func (gate StaticGate) Resolve(actorContextRef string) (validation.AuthorizationContext, bool) {
-	context, ok := gate[actorContextRef]
+func (g StaticGate) Resolve(actorContextRef string) (validation.AuthorizationContext, bool) {
+	context, ok := g[actorContextRef]
 	if !ok {
 		return validation.AuthorizationContext{}, false
 	}
@@ -279,83 +279,83 @@ func New(config Config) (*Memory, error) {
 }
 
 // SeedWorkItem installs trusted fixture state before operations execute.
-func (memory *Memory) SeedWorkItem(item validation.WorkItem) error {
-	if item.ID == "" || item.ProjectID != memory.projectID {
+func (m *Memory) SeedWorkItem(item validation.WorkItem) error {
+	if item.ID == "" || item.ProjectID != m.projectID {
 		return errors.New("seed work item must have an ID in the configured project")
 	}
-	memory.mu.Lock()
-	defer memory.mu.Unlock()
-	if _, exists := memory.workItems[item.ID]; exists {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.workItems[item.ID]; exists {
 		return errors.New("work item is already seeded")
 	}
-	memory.workItems[item.ID] = cloneWorkItem(item)
+	m.workItems[item.ID] = cloneWorkItem(item)
 	return nil
 }
 
 // SeedChangeSet installs the minimal trusted change-set state used by request
 // linking tests.
-func (memory *Memory) SeedChangeSet(changeSet ChangeSet) error {
+func (m *Memory) SeedChangeSet(changeSet ChangeSet) error {
 	if changeSet.ID == "" {
 		return errors.New("seed change set must have an ID")
 	}
-	memory.mu.Lock()
-	defer memory.mu.Unlock()
-	if _, exists := memory.changeSets[changeSet.ID]; exists {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.changeSets[changeSet.ID]; exists {
 		return errors.New("change set is already seeded")
 	}
-	memory.changeSets[changeSet.ID] = changeSet
+	m.changeSets[changeSet.ID] = changeSet
 	return nil
 }
 
 // SeedApproval installs trusted Gate approval state for deterministic tests.
-func (memory *Memory) SeedApproval(approval validation.ApprovalRecord) error {
+func (m *Memory) SeedApproval(approval validation.ApprovalRecord) error {
 	if approval.ID == "" {
 		return errors.New("seed approval must have an ID")
 	}
-	memory.mu.Lock()
-	defer memory.mu.Unlock()
-	if _, exists := memory.approvals[approval.ID]; exists {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.approvals[approval.ID]; exists {
 		return errors.New("approval is already seeded")
 	}
-	memory.approvals[approval.ID] = cloneApproval(approval)
+	m.approvals[approval.ID] = cloneApproval(approval)
 	return nil
 }
 
 // WorkItem returns a detached copy of the current in-memory record.
-func (memory *Memory) WorkItem(id string) (validation.WorkItem, bool) {
-	memory.mu.RLock()
-	defer memory.mu.RUnlock()
-	item, ok := memory.workItems[id]
+func (m *Memory) WorkItem(id string) (validation.WorkItem, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	item, ok := m.workItems[id]
 	return cloneWorkItem(item), ok
 }
 
 // Request returns a detached copy of the current backlog record.
-func (memory *Memory) Request(id string) (RequestRecord, bool) {
-	memory.mu.RLock()
-	defer memory.mu.RUnlock()
-	request, ok := memory.requests[id]
+func (m *Memory) Request(id string) (RequestRecord, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	request, ok := m.requests[id]
 	return cloneRequest(request), ok
 }
 
 // Submission returns a detached copy of one blocked-work submission.
-func (memory *Memory) Submission(id string) (Submission, bool) {
-	memory.mu.RLock()
-	defer memory.mu.RUnlock()
-	submission, ok := memory.submissions[id]
+func (m *Memory) Submission(id string) (Submission, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	submission, ok := m.submissions[id]
 	return cloneSubmission(submission), ok
 }
 
 // Approval returns the trusted Gate approval state for test assertions.
-func (memory *Memory) Approval(id string) (validation.ApprovalRecord, bool) {
-	memory.mu.RLock()
-	defer memory.mu.RUnlock()
-	approval, ok := memory.approvals[id]
+func (m *Memory) Approval(id string) (validation.ApprovalRecord, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	approval, ok := m.approvals[id]
 	return cloneApproval(approval), ok
 }
 
 // Events returns the immutable audit events recorded so far.
-func (memory *Memory) Events() []AuditEvent {
-	memory.mu.RLock()
-	defer memory.mu.RUnlock()
-	return append([]AuditEvent(nil), memory.events...)
+func (m *Memory) Events() []AuditEvent {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]AuditEvent(nil), m.events...)
 }

@@ -698,6 +698,7 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-046` | Submit an `add-requirement` resolution while its planned dependency is incomplete, complete that dependency through an authoritative `record-merge`, then retry `resolve-block` with a fresh idempotency key. | The first resolve is rejected with `PRECONDITION_FAILED` and leaves approval unused; after completion, the retry observes the current dependency state and succeeds. |
 | `VR-047` | Materialize with `change_type` supplied only at payload level, then retry the same materialization key with a new idempotency key. | The canonical source fingerprint matches and the existing materialization is returned as replayed, not rejected with `IDEMPOTENCY_CONFLICT`. |
 | `VR-048` | Refine a request with an approval missing or mismatching `project_id`. | Rejected with `UNAUTHORIZED_ACTION`; the request and approval remain unchanged. |
+| `VR-049` | A lifecycle payload names a merge target, integration head, merge commit, or inspection run outside Gate `allowed_refs`; exercise authoritative `record-merge`, its preflight, and a `materialize` source contract. | Out-of-scope references are rejected with `UNAUTHORIZED_ACTION` before mutation; matching allowed references proceed to lifecycle evaluation. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests

@@ -205,7 +205,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			assertEventCount(t, memory, 0)
 		}},
 		{"VR-014", func(t *testing.T) {
-			memory, _ := newConformanceMemory(t)
+			memory, gate := newConformanceMemory(t)
 			dependency := testWorkItem("wi-014-dependency", validation.StateMerging, 9)
 			expectedMerge := &validation.MergeEnvelope{
 				ProductTreeDigest: "tree-014",
@@ -229,6 +229,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 
 			merge := *expectedMerge
 			merge.MergeCommit = "merge-014"
+			setConformanceAllowedRefs(gate, "job-site", merge.Target, merge.IntegrationHead, merge.MergeCommit, merge.InspectionRunID)
 			completeDependency := conformanceCall(validation.OperationRecordMerge, "job-site", dependency, "vr014-complete-dependency")
 			completeDependency.FencingToken = "fence-014"
 			completeDependency.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &merge})
@@ -314,7 +315,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			assertEventCount(t, memory, 1)
 		}},
 		{"VR-018", func(t *testing.T) {
-			memory, _ := newConformanceMemory(t)
+			memory, gate := newConformanceMemory(t)
 			item := testWorkItem("wi-018", validation.StateMerging, 9)
 			item.ExpectedMerge = &validation.MergeEnvelope{
 				ProductTreeDigest: "tree-018",
@@ -327,6 +328,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			seedConformanceItem(t, memory, item)
 			merged := *item.ExpectedMerge
 			merged.MergeCommit = "merge-018"
+			setConformanceAllowedRefs(gate, "job-site", merged.Target, merged.IntegrationHead, merged.MergeCommit, merged.InspectionRunID)
 			call := conformanceCall(validation.OperationRecordMerge, "job-site", item, "vr018-record-merge")
 			call.FencingToken = "fence-018"
 			call.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &merged})
@@ -766,7 +768,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				{name: "record merge stale fence", operation: validation.OperationRecordMerge},
 			} {
 				t.Run(test.name, func(t *testing.T) {
-					memory, _ := newConformanceMemory(t)
+					memory, gate := newConformanceMemory(t)
 					item := testWorkItem("wi-036-"+test.name, validation.StateMerging, 9)
 					setConformanceLease(&item, "job-site", "fence-036", memoryTestTime.Add(time.Hour))
 					call := conformanceCall(test.operation, "job-site", item, "vr036-"+test.name)
@@ -776,6 +778,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 						item.ExpectedMerge = &validation.MergeEnvelope{ProductTreeDigest: "tree-036", InspectionRunID: "inspect-036", IntegrationHead: "head-036", Target: "main", ContractVersion: 9}
 						actual := *item.ExpectedMerge
 						actual.MergeCommit = "merge-036"
+						setConformanceAllowedRefs(gate, "job-site", actual.Target, actual.IntegrationHead, actual.MergeCommit, actual.InspectionRunID)
 						call.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &actual})
 						call.FencingToken = "fence-old"
 					}
@@ -1142,6 +1145,83 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				})
 			}
 		}},
+		{"VR-049", func(t *testing.T) {
+			expected := &validation.MergeEnvelope{
+				ProductTreeDigest: "tree-049",
+				InspectionRunID:   "inspection-049",
+				IntegrationHead:   "integration-049",
+				Target:            "main",
+				ContractVersion:   9,
+			}
+			merged := *expected
+			merged.MergeCommit = "merge-049"
+			refs := []string{merged.Target, merged.IntegrationHead, merged.MergeCommit, merged.InspectionRunID}
+
+			for _, missing := range refs {
+				t.Run("authoritative rejects unscoped "+missing, func(t *testing.T) {
+					memory, gate := newConformanceMemory(t)
+					allowed := make([]string, 0, len(refs)-1)
+					for _, ref := range refs {
+						if ref != missing {
+							allowed = append(allowed, ref)
+						}
+					}
+					setConformanceAllowedRefs(gate, "job-site", allowed...)
+					item := testWorkItem("wi-049", validation.StateMerging, 9)
+					item.ExpectedMerge = expected
+					setConformanceLease(&item, "job-site", "fence-049", memoryTestTime.Add(time.Hour))
+					seedConformanceItem(t, memory, item)
+					call := conformanceCall(validation.OperationRecordMerge, "job-site", item, "vr049-unscoped-"+missing)
+					call.FencingToken = "fence-049"
+					call.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &merged})
+					result := memory.Execute(call)
+					assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeUnauthorizedAction)
+					assertItemUnchanged(t, memory, item)
+					assertEventCount(t, memory, 0)
+				})
+			}
+
+			t.Run("preflight rejects unscoped merge reference", func(t *testing.T) {
+				memory, gate := newConformanceMemory(t)
+				setConformanceAllowedRefs(gate, "job-site", merged.Target, merged.MergeCommit, merged.InspectionRunID)
+				item := testWorkItem("wi-049-preflight", validation.StateMerging, 9)
+				item.ExpectedMerge = expected
+				setConformanceLease(&item, "job-site", "fence-049", memoryTestTime.Add(time.Hour))
+				seedConformanceItem(t, memory, item)
+				preflight := memory.Execute(preflightLifecycleCall(
+					t,
+					"job-site",
+					item,
+					validation.OperationRecordMerge,
+					"fence-049",
+					validation.Payload{MergeEnvelope: &merged},
+				))
+				decision := assertPreflightDecision(t, preflight, validation.OutcomeRejected)
+				if decision.Rejection == nil || decision.Rejection.Code != validation.CodeUnauthorizedAction {
+					t.Fatalf("preflight rejection = %#v, want unscoped-reference authorization failure", decision.Rejection)
+				}
+				assertItemUnchanged(t, memory, item)
+				assertEventCount(t, memory, 0)
+			})
+
+			t.Run("materialize checks expected merge references", func(t *testing.T) {
+				memory, gate := newConformanceMemory(t)
+				candidate := testWorkItem("wi-049-materialize", validation.StateInitial, 0)
+				candidate.ChangeType = "undefined"
+				candidate.ExpectedMerge = expected
+				result := memory.Execute(materializeCall(candidate, "vr049-materialize-unscoped", "vr049-materialize-key"))
+				assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeUnauthorizedAction)
+				if _, exists := memory.WorkItem(candidate.ID); exists {
+					t.Fatal("unscoped materialization created a work item")
+				}
+				assertEventCount(t, memory, 0)
+
+				setConformanceAllowedRefs(gate, "materializer", expected.Target, expected.IntegrationHead, expected.InspectionRunID)
+				allowed := memory.Execute(materializeCall(candidate, "vr049-materialize-scoped", "vr049-materialize-key"))
+				assertAllowedDecision(t, allowed, validation.AuthorityAuthoritative)
+				assertEventCount(t, memory, 1)
+			})
+		}},
 	}
 
 	for _, test := range tests {
@@ -1245,6 +1325,12 @@ func conformanceCall(operation validation.Operation, actor string, item validati
 		ExpectedContractVersion: &version,
 		IdempotencyKey:          key,
 	}
+}
+
+func setConformanceAllowedRefs(gate StaticGate, actor string, refs ...string) {
+	authorization := gate[actor]
+	authorization.AllowedRefs = append([]string{"project:fixture-project"}, refs...)
+	gate[actor] = authorization
 }
 
 func preflightLifecycleCall(
