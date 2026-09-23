@@ -786,11 +786,27 @@ func rollbackFiles(root *os.Root, files []originalFile) error {
 			rollbackErr = err
 		}
 	}
-	for index := len(files) - 1; index >= 0; index-- {
-		for _, directory := range files[index].parentCreated {
-			if err := root.Remove(directory); rollbackErr == nil && err != nil && !errors.Is(err, fs.ErrNotExist) {
-				rollbackErr = err
-			}
+	directories := make(map[string]struct{})
+	for _, file := range files {
+		for _, directory := range file.parentCreated {
+			directories[filepath.Clean(directory)] = struct{}{}
+		}
+	}
+	orderedDirectories := make([]string, 0, len(directories))
+	for directory := range directories {
+		orderedDirectories = append(orderedDirectories, directory)
+	}
+	sort.Slice(orderedDirectories, func(i, j int) bool {
+		leftDepth := strings.Count(orderedDirectories[i], string(os.PathSeparator))
+		rightDepth := strings.Count(orderedDirectories[j], string(os.PathSeparator))
+		if leftDepth == rightDepth {
+			return orderedDirectories[i] < orderedDirectories[j]
+		}
+		return leftDepth > rightDepth
+	})
+	for _, directory := range orderedDirectories {
+		if err := root.Remove(directory); rollbackErr == nil && err != nil && !errors.Is(err, fs.ErrNotExist) {
+			rollbackErr = err
 		}
 	}
 	return rollbackErr

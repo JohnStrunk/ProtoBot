@@ -298,6 +298,25 @@ func TestApplyTransactionRollsBackSharedNewDirectory(t *testing.T) {
 	}
 }
 
+func TestApplyTransactionRollsBackSiblingDirectories(t *testing.T) {
+	root := t.TempDir()
+	_, failure := applyTransaction(root, []fileWrite{
+		{path: "tree/alpha/one.yaml", data: []byte("one\n")},
+		{path: "tree/beta/two.yaml", data: []byte("two\n")},
+	}, map[string]fileExpectation{
+		"tree/alpha/one.yaml": {},
+		"tree/beta/two.yaml":  {},
+	}, func() *commandFailure {
+		return validationFailure("validation.failed", "forced rollback", nil)
+	})
+	if failure == nil || failure.Code != "validation.failed" || failure.Mutation != "none" {
+		t.Fatalf("rollback failure = %#v", failure)
+	}
+	if _, err := os.Stat(filepath.Join(root, "tree")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rollback tree stat error = %v", err)
+	}
+}
+
 func TestApplyTransactionRejectsSymlinkTarget(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "records"), 0o755); err != nil {
