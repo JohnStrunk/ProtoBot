@@ -915,7 +915,7 @@ incompatible decisions.
 | Constraint | Rationale |
 | --- | --- |
 | `ears-manager`: Go, static binary | Zero runtime dependencies for core storage and validation across dev containers, CI runners, sandboxes, and local machines. Optional code-controlled validator adapters may require approved tools such as `protoc` or `markdownlint`. |
-| Source Control Manager: one executable | Needs only `git`, `gh`, and `ears-manager` at run time. Its dual-era MCP SDK is bundled into the one executable and must not add a runtime to contributor machines or the Job Site environment. The language is chosen in #160 ([Packaging](architecture/source-control-manager.md#packaging)). |
+| Source Control Manager: Go, one static executable | Needs only `git`, `gh`, and `ears-manager` at run time. Its dual-era MCP SDK is bundled into the one executable, so it adds no runtime to contributor machines or the Job Site environment. #160 chose Go, the language of `ears-manager` ([Packaging](architecture/source-control-manager.md#packaging)). |
 | First Drafting Table harness: OpenCode | OpenCode's model-provider flexibility and skill system provide the fastest path to a working TUI Drafting Table. |
 | First Job Site backend: Fullsend / OpenShell | Fullsend is the closest peer in the GE Agentic SDLC Working Group. OpenShell provides kernel-enforced sandboxing. Fallback: a portable rootless-OCI/microVM profile for platforms where OpenShell is unavailable (e.g., `restricted-v2` — no `CAP_SYS_ADMIN`). |
 | Prototype outputs: UBI + Hummingbird images | Lightweight, fast-turnaround demo builds on Red Hat certified base images. |

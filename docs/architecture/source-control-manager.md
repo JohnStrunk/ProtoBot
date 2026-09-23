@@ -149,12 +149,13 @@ reaches the SCM only through the face that its binding started.
 
 The core is a library inside the executable. The executable, the core,
 and the result schema share one version until a second deployable
-exists. The implementation language is the choice of #160, the
+exists. The implementation language was the choice of #160, the
 implementation issue, as the guard's is #77's
-([Out-of-scope decisions][adapter-oos]).
-It needs an MCP SDK that serves both eras below on stdio, such as
-`mcp` 2.0 for Python, within the executable's constraints in
-[Environmental Constraints][env-constraints].
+([Out-of-scope decisions][adapter-oos]). #160 chose Go: one static
+binary, as `ears-manager` is, within the executable's constraints in
+[Environmental Constraints][env-constraints]. It bundles the official
+MCP Go SDK, `github.com/modelcontextprotocol/go-sdk` v1.8.0, which
+serves both eras below on stdio.
 
 ### MCP protocol
 
@@ -172,7 +173,10 @@ The MCP face is a dual-era server, as the specification defines it
   revision therefore still loads the `scm` server. The official Python
   SDK, `mcp` 2.0.0, serves both eras on stdio without extra code: an
   `mcp` 1.30.0 client negotiated 2025-11-25 against an `mcp` 2.0.0
-  server and called its tools (observed on 2026-09-21).
+  server and called its tools (observed on 2026-09-21). The official Go
+  SDK, which the SCM bundles, does the same: in the repository
+  fixture, a Go client that opens with `initialize` negotiates
+  2025-11-25 and gets the same result as a modern client.
 
 The SCM's own rules are the same in both eras, and they fit the
 stateless protocol:
@@ -488,7 +492,7 @@ that reads `ears-manager` with `SPEC_TOOL_FAILED`.
 | `branch_resume` | The change set named in the request | Switches `HEAD` to the one local branch `<prefix><nnnnn>-<slug>` of that change set | The change set's manifest exists at the branch tip | The branch and its tip | `CHANGE_SET_NOT_FOUND`, `AMBIGUOUS_BRANCH`, `UNCOMMITTED_CHANGES` |
 | `commit` | The change set of the current branch | Writes one commit on `refs/heads/<branch>` | The current branch is a change-set branch; every staged path is a path of the change set that #34 lets the Drafting Table stage | The commit, its parent, its subject and trailer, and its paths | `NOT_A_CHANGE_SET_BRANCH`, `INIT_REMOTE_MISMATCH`, `UNCOMMITTED_CHANGES`, `SPEC_DIGEST_MISMATCH`, `SPEC_CHECK_FAILED`, `PATH_NOT_STAGEABLE`, `STAGED_CONTENT_CHANGED`, `UNSAFE_TEXT`, `NOTHING_TO_COMMIT` |
 | `publish` | The change set of the current branch and its pull request | Pushes `refs/heads/<branch>` to the same name on `<remote>`, without force and without tags. Creates or updates the pull request of `<branch>` | The same branch rule; the pull request is the one of `<branch>`, as the [host adapter](#host-adapter-boundary) finds it | The pushed commit, and the pull request's number, URL, and whether it was created, updated, or unchanged | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `NOTHING_TO_PUBLISH`, `BASE_NOT_ON_DEFAULT`, `DEFAULT_MOVED`, `BASE_COMMIT_STALE`, `UNSAFE_TEXT`, `PR_MERGED`, `PR_CLOSED`, `AMBIGUOUS_PULL_REQUEST`, `PUSH_REJECTED_NON_FAST_FORWARD`, `PUSH_REJECTED_PROTECTED`, `HOST_UNAVAILABLE`, `HOST_REQUEST_FAILED`, and the remote codes |
-| `refresh` | The change set of the current branch | Merges `<remote>/<default>` into `refs/heads/<branch>` | The same branch rule | The merge commit, and the new default head that `change-set update --base-commit` must record | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `MERGE_CONFLICT`, and the remote codes |
+| `refresh` | The change set of the current branch | Merges `<remote>/<default>` into `refs/heads/<branch>` | The same branch rule | The merge commit, and the new default head that `change-set update --base-commit` must record | `NOT_A_CHANGE_SET_BRANCH`, `UNCOMMITTED_CHANGES`, `UNSAFE_TEXT`, `MERGE_CONFLICT`, and the remote codes |
 
 The SCM fills every placeholder from the working tree and
 `.protobot/project.yaml`, never from a request:
@@ -532,7 +536,7 @@ does not match its rule is `INVALID_REQUEST`, and nothing runs.
 | Operation | Fields |
 | --- | --- |
 | `repo_state` | None |
-| `branch_init` | `branch_prefix`, optional, default `cs/`, of the form `^[a-z0-9][a-z0-9._-]*/$`; `default_branch`, optional, default `main`, a valid branch name that starts neither with `wi/` nor with the prefix |
+| `branch_init` | `branch_prefix`, optional, default `cs/`, of the form `^[a-z0-9][a-z0-9._-]*/$`; `default_branch`, optional, default `main`, a valid branch name that does not start with the prefix and is neither `wi` nor under `wi/`, because Git holds no branch `wi` beside a branch below `wi/` |
 | `branch_resume` | `change_set_id`, required, `^CS-[0-9]{5}$` |
 | `commit` | `body`, optional prose of at most 2000 characters, with no line that starts with `Change-Set:` and no [text that GitHub acts on](#text-that-github-acts-on) |
 | `publish` | None |
@@ -551,7 +555,13 @@ is prose that #34 allows.
 ### `repo_state`
 
 1. Resolve the project by the rule in [The project root][project-root],
-   in this order. Walk up from the current directory to the first
+   in this order. When `.protobot` at the working-tree root is a
+   symbolic link or not a directory, fail with `PROJECT_UNREADABLE`:
+   the project would then be read through a link whose target the
+   working tree does not fix, and the validator of #108 refuses such a
+   control namespace too. #34 reads a registered path only after
+   symlink resolution ([path rules][path-rules]). Walk up from the
+   current directory to the first
    directory that holds `.protobot/project.yaml`. When that directory is
    not the working-tree root, fail with `PROJECT_NOT_AT_ROOT`. When the
    file is at the root but cannot be read or is not valid, or when the
@@ -559,11 +569,21 @@ is prose that #34 allows.
    fail with `PROJECT_UNREADABLE`. When nothing is found, return
    `initialized: false` and the current branch.
 2. Read the Git-facing fields of `.protobot/project.yaml`, which #34
-   lets the Drafting Table read ([Repository fields][repo-fields]).
+   lets the Drafting Table read ([Repository fields][repo-fields]). The
+   persisted fields follow the same branch rules as the `branch_init`
+   request: `PROJECT_UNREADABLE` when `default_branch` starts with
+   `branch_prefix`, or when either is in the reserved `wi/` namespace.
+   A default branch inside the prefix would read as a change-set
+   branch, and the ref policy would then permit a write to the branch
+   that holds approved state.
 3. Find and check `<remote>`, as the placeholders above state.
-4. Fetch `<remote>`, without tags. When the fetch fails, report
-   `remote.reachable: false` with the failure code and continue with
-   the local refs.
+4. Fetch `<remote>`, without tags. Every step below reads the
+   remote-tracking refs that this fetch refreshed, and the fetch prunes
+   the ones whose branch the remote deleted, so after a fetch that
+   succeeded no deleted branch is reported as one the remote still has.
+   When the fetch fails,
+   report `remote.reachable: false` with the failure code and continue
+   with the local refs, which are then older than the remote.
 5. Read the current branch and its tip. Classify it as a change-set
    branch, the default branch, another branch, or a detached `HEAD`.
    For a change-set branch, read the manifest through `ears-manager
@@ -604,8 +624,10 @@ is prose that #34 allows.
    ([Permitted Git operations][git-ops]). A local `<default>` that has
    commits the remote lacks is never moved; the result reports it as
    `diverged`. A local `<default>` that is not moved for another reason,
-   in another worktree or because Git refuses the fast-forward, changes
-   nothing, and the result reports it as `behind`. This is the last
+   in another worktree, because `<remote>/<default>` does not exist,
+   because a tag or a local branch shadows it, or because Git refuses
+   the fast-forward, changes nothing, and the result reports it as
+   `behind`. This is the last
    step, and it runs only when every step before it succeeded, so the
    fast-forward never comes with a failed result.
 
@@ -619,7 +641,7 @@ and the pull request. Its `data` fields are:
 | `initialized` | Whether `.protobot/project.yaml` exists at the working-tree root. When it is `false`, `data` holds only `initialized` and `branch.name` |
 | `project` | `id`, `default_branch`, `branch_prefix`, and `review_mode` |
 | `remote` | `name`, and `reachable` with a failure code when it is `false` |
-| `default_branch` | `head` of `<remote>/<default>`, and `local`: `current`, `fast-forwarded`, `behind`, or `diverged` |
+| `default_branch` | `head` of `<remote>/<default>`, `null` when `<remote>` has no `<default>`, and `local`: `current`, `fast-forwarded`, `behind`, or `diverged` |
 | `branch` | `name`, `kind` (`change-set`, `default`, `other`, or `detached`), `head`, the commit that `HEAD` names when the call returns, and for a change-set branch `change_set_id`, `base_commit`, `default_moved`, and `default_merged_in` |
 | `working_tree` | `change_set_paths`, sorted, and the count `other_paths` |
 | `pull_request` | `number`, `state` (`open`, `merged`, `closed`, `none`, `unavailable`, or `ambiguous`), `url`, and `merge_commit` |
@@ -641,14 +663,20 @@ and the pull request. Its `data` fields are:
    exist, has no commit, has no upstream branch, or is not the branch
    that its upstream remote's `HEAD` names. This ties the default
    branch to the host's default branch before any project records it.
+   When that remote has no `HEAD`, as after `git init` and `git remote
+   add`, the details name `git remote set-head <remote> --auto`.
 5. Check that upstream remote as the placeholders above state, and
-   fetch it, without tags. A fetch moves only remote-tracking refs.
+   fetch it, without tags. A fetch moves and prunes remote-tracking refs
+   only ([Mapping to #34's permitted operations][scm-ops]).
 6. Refuse with `DEFAULT_DIVERGED` when the local `<default>` has commits
    that its upstream lacks, so the initialization branch never carries
    unpublished commits, or when it is behind and checked out in another
    worktree, where no fast-forward from here can move it. Refuse with
    `BRANCH_EXISTS` when `<prefix>00001-project-init` exists locally or
-   on any remote.
+   on any remote. The SCM asks the upstream remote itself, with `git
+   ls-remote`, so a stale tracking ref of a deleted branch does not
+   count. It may reach no other remote before a project exists, so for
+   those it reads their remote-tracking refs.
 7. Fast-forward `<default>` to its upstream when it is behind, as
    `repo_state` step 9 does: `update-ref` when it is checked out in no
    worktree, `git merge --ff-only` when it is checked out here. When
@@ -731,16 +759,19 @@ A normal change-set branch is not cut by the SCM.
      commit can hold neither half alone. The user commits the policy
      edit apart first.
 
-   Every path of the file set is a file. #34 lets a registry entry name
-   a directory ([The pre-stage digest comparison][pre-stage]), and
-   `change-set show` lists such an entry as its canonical file set. The
-   SCM never expands a directory and never gives one to `git add`,
-   which would stage every file below it, registered or not: a path
-   that is a directory is `PATH_NOT_STAGEABLE`. A file below a
-   registered directory that no record names is never in the file set,
-   and it changes that directory's digest, so `check` reports it, and
-   step 3 refuses the commit when that directory holds a path of the
-   file set.
+   Every path of the file set is a file. #34 registers artifacts as
+   regular files, and protects the structured requirement, interface,
+   and change-set stores by their own store digests
+   ([The pre-stage digest comparison][pre-stage]); `change-set show`
+   lists each record that the change set touches as one file (#30,
+   [Change sets][em-change-sets]). The SCM never expands a directory
+   and never gives one to `git add`, which would stage every file below
+   it, registered or not: a path that is a directory is
+   `PATH_NOT_STAGEABLE`. A record that the change set does not touch is
+   never in the file set. A visible YAML file in a store changes that
+   store's digest, and a non-YAML or symlinked entry there is a
+   validation error (ADR-0002), so `check` reports either, and step 3
+   refuses the commit.
 
    Keep the paths whose content differs from `HEAD`. Refuse with
    `PATH_NOT_STAGEABLE` when a path breaks #34's
@@ -762,25 +793,35 @@ A normal change-set branch is not cut by the SCM.
    nothing is staged, with two exceptions that are returned as
    warnings: status `5` alone, an impact assessment that is incomplete
    or stale, so a draft can be committed before impact review ends, and
-   a digest mismatch of a registered path that is outside the file set
-   and holds no path of it, which the commit leaves out. CI still gates
-   the merge on the impact assessment (#34).
-   - A diagnostic with the code `artifact.digest_mismatch` for a path of
-     the file set, or for a registered directory that holds one, makes
-     the refusal `SPEC_DIGEST_MISMATCH`. The error
-     names each path with `ears-manager`'s diagnostics unchanged, and
-     the two routes forward of #34
-     ([The pre-stage digest comparison][pre-stage]). The user runs the
-     discard, `git checkout -- <path>`, as #33 decided. The discard
+   a digest mismatch of a registered artifact outside the file set,
+   which the commit leaves out. CI still gates the merge on the impact
+   assessment (#34).
+   - A digest mismatch of an artifact of the file set, or of any
+     structured store, makes the refusal `SPEC_DIGEST_MISMATCH`, because
+     #34 compares every store, not only those that the change set
+     touches. The validator of #108 reports both on
+     `.protobot/project.yaml`, where the digests live:
+     `artifact.digest_mismatch` names the artifact by its `record_id`,
+     and `project.store_digest_mismatch` names the store by its
+     `store_digests.<store>` field. The SCM maps each to the artifact's
+     registered path or to the store's path, and never offers
+     `project.yaml` itself for a discard. The error names each path with
+     `ears-manager`'s diagnostics unchanged, and the two routes forward
+     of #34 ([The pre-stage digest comparison][pre-stage]). The user runs
+     the discard, `git checkout -- <path>`, as #33 decided. The discard
      restores the last committed content. When the path also holds a
      governed write that is not committed yet, that write goes with it,
      and the role repeats it through `ears-manager`; the digest matches
-     again only then. A mismatch of
-     any other registered path outside the file set is the second
-     warning: #34
-     checks the artifacts that the change set touches, and the commit
-     leaves that path out. #30 lists no code for a digest mismatch; the
-     `ears-manager` implementation of #110 adds this one, as #30 allows.
+     again only then. For a store, the discard leaves a record that was
+     added outside `ears-manager`, because Git does not track it, so the
+     error also names the untracked entries of each such store in
+     `untracked`. The user removes them, a record that `ears-manager`
+     wrote for this change set and that no commit holds yet included,
+     and the role repeats that write. A mismatch of a registered
+     artifact outside the file set is the second warning: #34 checks
+     the artifacts that the change set touches, and the commit leaves
+     that path out. #30 lists no code for a digest mismatch; the
+     validator of #108 adds both, as #30 allows.
    - Any other status `4`, apart from that warning, a specification
      that is not valid, is `SPEC_CHECK_FAILED`, with the envelope. A
      `.protobot/` file that carries a credential, which #34 makes a
@@ -852,8 +893,10 @@ but #33 refused it, and the SCM keeps that refusal
 1. Resolve the change set of the current branch, or refuse with
    `NOT_A_CHANGE_SET_BRANCH`.
 2. Refuse with `UNCOMMITTED_CHANGES` when a path of the change set has
-   an uncommitted change. The body is rendered from the working tree, so
-   the working tree must equal the commit that is pushed.
+   an uncommitted change, or cannot be compared with `HEAD`, such as a
+   directory where the change set has a file. The body is rendered from
+   the working tree, so the working tree must equal the commit that is
+   pushed.
 3. Fetch `<remote>`.
 4. Find the pull request of `<branch>` through the host adapter. No
    push runs while its state is unknown: an unreachable or
@@ -865,6 +908,10 @@ but #33 refused it, and the SCM keeps that refusal
    registration. A closed one is `PR_CLOSED`: #34 never reopens a pull
    request to hide history, so the user decides.
 5. Check the base, in this order:
+   - `BASE_NOT_ON_DEFAULT` with `default_head: null` when `<remote>` has
+     no `<default>` at all, as after the remote deleted it and the fetch
+     pruned its tracking ref: every check below would read a ref that is
+     gone;
    - `NOTHING_TO_PUBLISH` when `HEAD` has no commit that
      `<remote>/<default>` lacks;
    - `BASE_NOT_ON_DEFAULT` when the manifest's `base_commit` is not
@@ -878,24 +925,50 @@ but #33 refused it, and the SCM keeps that refusal
      merged in, and `change-set update --base-commit` did not run.
 6. Render the title and the body ([Title and body](#title-and-body)).
    Refuse with `UNSAFE_TEXT` when the intent holds text that GitHub acts
-   on.
+   on, when the title is empty or longer than the 256 characters that
+   GitHub takes, or when the body is longer than its 65,536 characters.
+   Each would fail only after the push, and again on every retry.
 7. Push `refs/heads/<branch>` to the same name on `<remote>`, without
    force and without tags, even when the user's Git configuration
    follows tags. A rejection because `<remote>/<branch>` has commits
    that `HEAD` lacks is `PUSH_REJECTED_NON_FAST_FORWARD`. The SCM never
    merges those commits: someone else pushed them, and they were never
    reviewed in this checkout. The user inspects and integrates them in
-   their own shell.
+   their own shell. A rejection for another reason, such as a
+   repository rule, a secret scan, or a server-side hook, is
+   `GIT_FAILED` with `retry: user`: the reason is the host's text,
+   which the result never carries, so the details name the branch and
+   the push command, for the user to run in their own shell. A
+   rejection changes nothing on the remote. A push
+   that fails in transport, `REMOTE_UNAVAILABLE`, can fail after the
+   remote updated the branch, so it says `mutation: unknown` and
+   `retry: reconcile`; a missing credential says `none`, because Git
+   authenticates before it sends anything.
 8. Create the pull request with base `<default>` and head `<branch>` in
    `<repo>`, or update the title and body of the one that exists. An
    update whose title and body are unchanged changes nothing.
 
-A host failure after the push leaves the branch pushed. The result says
-so, with `mutation: partial`: `error.details.pushed` names the pushed
-commit, as `data.pushed` does on success, and `error.details.refs`
-names the pushed ref. The same call
-completes the work: the push is then a no-op, and the pull request is
-created. This matches #34's "Pull-request creation failed" row.
+A host failure after the push is `HOST_REQUEST_FAILED`, and whether the
+host may have applied the request decides the mutation:
+
+- When the host refused the request, the host did not change. After a
+  push that changed the remote, the branch stays pushed, and the result
+  says `mutation: partial`. The same call completes the work: the push
+  is then a no-op, and the pull request is created. This matches #34's
+  "Pull-request creation failed" row. After a no-op push, nothing
+  changed, and the result says `mutation: none`. Both say
+  `retry: retry`.
+- When the host may have applied the create or the update before its
+  answer failed, as after a 5xx, a timeout, a host the adapter could
+  not reach at all, or a `gh` that gave no answer, the outcome is open,
+  whatever the push did: the result says `mutation: unknown` and
+  `retry: reconcile`, and `repo_state` reads the pull request before
+  anything else.
+
+In every case `error.details.pushed` names the commit, as `data.pushed`
+does on success, and `error.details.refs` names the pushed ref when the
+push changed the remote. The details also name the branch, and for an
+update the pull request.
 
 #### Title and body
 
@@ -934,18 +1007,30 @@ reference, such as `Fixes #12`, closes that issue when the commit or
 the pull request reaches the default branch, and `@name` notifies
 people. With GitHub Issues as the WMS backend, an issue is a build work
 item, so a closed issue would be a lifecycle change that the Drafting
-Table must never make. The SCM therefore keeps such text out of every
-line it writes outside a code span: the commit subject and body, and
-the pull-request title. A request body that holds a closing keyword
-with a reference, or an `@` mention, is `INVALID_REQUEST`. An intent
-that holds one is `UNSAFE_TEXT`.
+Table must never make. A token that skips CI does harm too: GitHub runs
+no workflow for a commit whose message holds one, so CI would not run
+the project's own checks on that push
+([Design principles](#design-principles)). The SCM therefore keeps
+such text out of every line it writes outside a code span: the commit
+subject and body, the `refresh` merge message, and the pull-request
+title. A request body that holds any of it is `INVALID_REQUEST`. An
+intent that holds any of it is `UNSAFE_TEXT`, and so is a merge message
+whose branch or remote name holds any of it.
 
 The match is wide on purpose. A closing keyword is any of GitHub's
 nine, `close`, `closes`, `closed`, `fix`, `fixes`, `fixed`,
 `resolve`, `resolves`, and `resolved`, in any letter case, with or
 without a colon, followed by a reference: `#12`, `GH-12`,
-`owner/repo#12`, or an issue URL. A mention is `@` followed by a user
-or a team name, such as `@name` or `@org/team`.
+`owner/repo#12`, or an issue URL. A mention is `@` after the start of
+the text or any character that is not a letter, a digit, or `_`,
+followed by a user or a team name, such as `@name` or `@org/team`. A
+CI-skip token is `[skip ci]`, `[ci skip]`, `[no ci]`, `[skip actions]`,
+or `[actions skip]` in any letter case, or a `skip-checks: true` line.
+Before the match, every Unicode space other than a line break becomes
+an ASCII space, every line ending becomes a line feed, and every
+invisible format character, such as a zero-width space, is dropped,
+because the SCM writes the intent on one line with ASCII spaces. The
+match runs on the intent and again on the text as rendered.
 
 ### `refresh`
 
@@ -953,15 +1038,27 @@ or a team name, such as `@name` or `@org/team`.
    `NOT_A_CHANGE_SET_BRANCH`.
 2. Refuse with `UNCOMMITTED_CHANGES` when a tracked file has an
    uncommitted change. A merge commit records only committed work.
-3. Fetch `<remote>`.
+3. Fetch `<remote>`. When it has no `<default>` after that fetch, fail
+   with `GIT_FAILED` and merge nothing: there is nothing to merge from.
+   `approved_merge` fails the same state with `NOT_APPROVED`, because
+   approval lives on the default branch.
 4. When `<remote>/<default>` is not reachable from `HEAD`, merge it
    with a merge commit. The message is `Merge <remote>/<default> into
    <branch>`, then a blank line and the trailer `Change-Set:
    CS-<nnnnn>`. The merge runs with `--cleanup=verbatim`, so no cleanup
-   mode or comment character strips the trailer. `refresh` merges
-   nothing else: commits on
+   mode or comment character strips the trailer. Refuse with
+   `UNSAFE_TEXT` when the message holds
+   [text that GitHub acts on](#text-that-github-acts-on). `refresh`
+   merges nothing else: commits on
    `<remote>/<branch>` that `HEAD` lacks are the user's to review, as
-   [`publish`](#publish) states.
+   [`publish`](#publish) states. When a tag or a local branch named
+   `<remote>/<default>` would win Git's lookup of that short name, the
+   call fails with `GIT_FAILED` and merges nothing. Once the merge
+   commit exists, the branch has moved: a read that fails after it, or a
+   merge commit that does not join `HEAD` and the default head that this
+   step checked, is `GIT_FAILED` with `mutation: unknown` and
+   `retry: reconcile`, because the call cannot then say which commit the
+   branch names.
 5. On a conflict, abort the merge. The working tree, the index, and
    `HEAD` are as they were before the call. Fail with `MERGE_CONFLICT`
    and classify each conflicting file as #34's failure table does: a
@@ -985,7 +1082,7 @@ it: the fast-forward of the local default branch.
 | --- | --- |
 | Initialize the control namespace | `ears-manager project init`, after `branch_init` |
 | Read repository state | `repo_state` |
-| Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch |
+| Fetch | `repo_state`, `publish`, and `refresh`, from `<remote>` only; `branch_init`, before a project exists, from the upstream of the local default branch, which it also asks with `git ls-remote`. Every fetch runs `git fetch --no-tags --prune --refmap= <remote> +refs/heads/*:refs/remotes/<remote>/*`: the empty `--refmap` keeps Git from also mapping the fetched refs through the remote's configured `fetch` refspecs, so a fetch moves only remote-tracking refs, never a local branch or a tag, and `--prune` drops the tracking ref of a branch the remote deleted. With one refspec on the command line, Git prunes only that refspec's destination, `refs/remotes/<remote>/` |
 | Fast-forward the local default branch | `repo_state` and `branch_init`, only by fast-forward |
 | Create a change-set branch | `ears-manager change-set create`; the initialization branch is `branch_init` |
 | Switch to an existing change-set branch | `branch_resume`, to a local branch only |
@@ -1253,9 +1350,11 @@ it. The deployment therefore keeps these rules:
   SCM, and `ears-manager` for the branch that `change-set create` cuts,
   write Git state there, so the repository's own configuration is the
   SCM's.
-- The runtime writes neither `.protobot/` nor a registered path
-  directly, because the SCM trusts both: `project.yaml` names the refs
-  and holds the registry digests that `check` compares. Hosted,
+- The runtime writes neither `.protobot/`, a registered artifact path,
+  nor a configured store directly, because the SCM trusts them all:
+  `project.yaml` names the refs and holds the artifact and store
+  digests that `check` compares, and ADR-0003 lets a store lie outside
+  `.protobot/`. Hosted,
   `ears-manager` therefore runs outside the runtime, beside the SCM. How
   the runtime calls it is the Web Drafting Table deployment's decision
   ([Out-of-scope decisions](#out-of-scope-decisions)).
@@ -1404,8 +1503,8 @@ Failed result:
   private index and `git write-tree` are not listed. No argument list
   holds a credential or a remote URL.
 - **`mutation`** counts changes to local branches, the index, the
-  working tree, the remote, and the host. A fetch that only moves
-  remote-tracking refs is not a mutation. On a failure it is `none`,
+  working tree, the remote, and the host. A fetch, which only moves and
+  prunes remote-tracking refs, is not a mutation. On a failure it is `none`,
   `partial` (only `publish` after the push, and `branch_init` after
   the fast-forward), or `unknown`.
 - **`retry`** is one of: `retry` (the same call is safe now),
@@ -1436,8 +1535,9 @@ Gate stamps its own record.
 
 Every failure leaves local branches, the index, the working tree, the
 remote, and the host as they were, except the partial `publish` that
-[`publish`](#publish) describes and the fast-forward that a failed
-[`branch_init`](#branch_init) keeps. An operation that cannot tell whether a
+[`publish`](#publish) describes, the fast-forward that a failed
+[`branch_init`](#branch_init) keeps, and a [`refresh`](#refresh) that
+fails after its merge commit exists. An operation that cannot tell whether a
 write happened returns `mutation: unknown` and `retry: reconcile`.
 
 | Code | Operations | Meaning | #34 failure row | Retry |
@@ -1446,10 +1546,10 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `INVALID_REQUEST` | All | A field is unknown, missing, or does not match its rule | — | `revise` |
 | `PROJECT_NOT_FOUND` | All except `repo_state` and `branch_init` | No `.protobot/project.yaml` on the walk up | No `.protobot/project.yaml` found | `user` |
 | `PROJECT_NOT_AT_ROOT` | All | The `project.yaml` that the walk up finds is not at the working-tree root | `project.yaml` is not at the working-tree root | `user` |
-| `PROJECT_UNREADABLE` | All | `.protobot/` exists without a readable, valid `project.yaml` | — | `user` |
+| `PROJECT_UNREADABLE` | All | `.protobot/` exists without a readable, valid `project.yaml`, or is a symbolic link or not a directory; or `project.yaml` names a `default_branch` inside `branch_prefix`, or either field in the reserved `wi/` namespace | — | `user` |
 | `SPEC_TOOL_FAILED` | All that read `ears-manager` | `ears-manager` did not run, or returned status 2, 3, 6, or 70 on a read; its envelope is in `details` | Store schema version newer than the tool | `user`, or `reconcile` when the envelope says `mutation: unknown` |
 | `ALREADY_INITIALIZED` | `branch_init` | `.protobot/` exists | — | `never` |
-| `RESERVED_PREFIX` | `branch_init` | The prefix is `wi/` | — | `revise` |
+| `RESERVED_PREFIX` | `branch_init` | The prefix is in the reserved `wi/` namespace: `wi/` itself, or one below it such as `wi/cs/` | — | `revise` |
 | `DEFAULT_NOT_FOUND` | `branch_init` | The local default branch does not exist, has no commit or no upstream, or is not the branch that its upstream remote's `HEAD` names | — | `user` |
 | `DEFAULT_DIVERGED` | `branch_init` | The local default branch has commits that its upstream lacks, or it is behind and checked out in another worktree; either way no fast-forward from here can move it | — | `user` |
 | `BRANCH_EXISTS` | `branch_init` | The initialization branch exists; the details say local, remote, or both | Branch `cs/<nnnnn>-<slug>` already exists | `user` |
@@ -1461,14 +1561,14 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `AMBIGUOUS_BRANCH` | `branch_resume` | Two local branches carry the requested change-set number | — | `user` |
 | `UNCOMMITTED_CHANGES` | `branch_init`, `branch_resume`, `commit`, `publish`, `refresh` | Uncommitted changes that the operation would carry or misreport, or, for `commit`, a `projection.yaml` that mixes the change set's entries with a policy edit, or a merge, cherry-pick, or revert in progress; the details name them | — | `user` |
 | `INIT_REMOTE_MISMATCH` | `commit` | On the initialization branch, `repository.canonical_remote` is not the fetch URL of the upstream remote of the default branch; the details name the discard of the uncommitted `.protobot/` and a new `project init` | — | `user` |
-| `SPEC_DIGEST_MISMATCH` | `commit` | `check` reports `artifact.digest_mismatch` for a path of the file set, or for a registered directory that holds one; the details name each path and the two routes forward | Registered path digest mismatch | `user` |
+| `SPEC_DIGEST_MISMATCH` | `commit` | `check` reports `artifact.digest_mismatch` for an artifact of the file set, by its `record_id`, or `project.store_digest_mismatch` for any structured store; the details name each artifact or store path, the two routes forward, and, in `untracked`, the entries of a store that the discard leaves | Registered artifact or structured-store digest mismatch | `user` |
 | `SPEC_CHECK_FAILED` | `commit` | `check` failed with status `4`, and without a digest-mismatch diagnostic that makes it `SPEC_DIGEST_MISMATCH` | `ears-manager check` failed; registered path missing from the projection manifest | `revise` |
 | `PATH_NOT_STAGEABLE` | `commit` | A path of the change set is a directory, breaks #34's path rules, is one that the guard keeps from `artifact put`, is `.gitattributes` or `.gitmodules`, or replaces a tracked directory or lies below a tracked file | — | `never` |
 | `STAGED_CONTENT_CHANGED` | `commit` | A Git filter, or a write since the digest check, changed a staged file, so the commit would not hold what `check` saw | — | `user` |
-| `UNSAFE_TEXT` | `commit`, `publish` | The intent holds text that GitHub acts on | — | `revise` |
+| `UNSAFE_TEXT` | `commit`, `publish`, `refresh` | The intent, or the `refresh` merge message, holds text that GitHub acts on; or, for `publish`, the title is empty or longer than 256 characters, or the body is longer than 65,536. The details name the field; for an empty or too long text, the reason; and for the merge message, the remote and the branch, whose names put the text there | — | `revise`, or `user` for the `refresh` merge message |
 | `NOTHING_TO_COMMIT` | `commit` | No path of the change set differs from `HEAD` | — | `never` |
 | `NOTHING_TO_PUBLISH` | `publish` | The branch has no commit that the default branch lacks | — | `never` |
-| `BASE_NOT_ON_DEFAULT` | `publish` | `base_commit` is not on the canonical default branch | — | `user` |
+| `BASE_NOT_ON_DEFAULT` | `publish` | `base_commit` is not on the canonical default branch, or the remote has no default branch | — | `user` |
 | `DEFAULT_MOVED` | `publish` | The default branch moved since `base_commit` | Default branch has moved since `base_commit` | `refresh-branch` |
 | `BASE_COMMIT_STALE` | `publish` | The default branch was merged in, and `base_commit` was not updated | — | `revise` |
 | `PR_MERGED` | `publish` | The pull request is merged | — | `never` |
@@ -1477,14 +1577,14 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `PUSH_REJECTED_NON_FAST_FORWARD` | `publish` | The remote branch has commits that `HEAD` lacks | Push rejected, non-fast-forward | `user` |
 | `PUSH_REJECTED_PROTECTED` | `publish` | The host protects the change-set branch | — | `user` |
 | `CREDENTIAL_UNAVAILABLE` | All that reach the remote or host | The credential is missing or expired; the details name the credential source for the mode | Push rejected, missing or expired credential | `authorize` |
-| `REMOTE_UNAVAILABLE` | All that reach the remote | The remote cannot be reached | — | `retry` |
+| `REMOTE_UNAVAILABLE` | All that reach the remote | The remote cannot be reached; for a push, the connection can fail after the remote updated the branch, so the result says `mutation: unknown` | — | `retry`, or `reconcile` for a push |
 | `HOST_UNAVAILABLE` | `publish`, `approved_merge` | Before any push, or for `approved_merge`, the host cannot be reached or rate-limits the call, so the pull request's state is unknown | — | `retry` |
-| `HOST_REQUEST_FAILED` | `publish` | The host refused or failed the lookup of the pull request before any push, or any host request after it; the details give the host class, and `pushed` after a push | Pull-request creation failed | `retry` |
+| `HOST_REQUEST_FAILED` | `publish` | The host refused or failed the lookup of the pull request before any push, or any host request after it; the details give the host class, and `pushed` after a push | Pull-request creation failed | `retry`, or `reconcile` with `mutation: unknown` when the host may have applied the request after the push |
 | `MERGE_CONFLICT` | `refresh` | The merge conflicted and was aborted; the details name and classify each file | Merge conflict in a change-set manifest or index file; merge conflict in a requirement record | `user` |
-| `NOT_APPROVED` | `approved_merge` | The change set is not approved on the default branch, or the host has no merged pull request of it | — | `user` |
+| `NOT_APPROVED` | `approved_merge` | The change set is not approved on the default branch, the remote has no default branch, or the host has no merged pull request of it | — | `user` |
 | `NOT_A_MERGE_COMMIT` | `approved_merge` | The commit that added the manifest has one parent | — | `reconcile` |
 | `MERGE_COMMIT_MISMATCH` | `approved_merge` | Git and the host name different merge commits | Registration rejected, different merge commit | `reconcile` |
-| `GIT_FAILED` | All | An unexpected Git failure, a branch that another writer moved while `commit` ran included; the details give the command and its status | — | `reconcile` |
+| `GIT_FAILED` | All | An unexpected Git failure, a branch that another writer moved while `commit` ran included; the details give the command and its status. For a short ref name that a tag or a local branch shadows, the details give that name and the ref it must name | — | `reconcile`, or `user` for a shadowed short name and for a push that the remote rejected for a reason other than branch protection |
 | `INTERNAL` | All | An internal invariant failed | — | `never` |
 
 Two #34 rows are outside the SCM: "Merge refused by branch
@@ -1502,7 +1602,7 @@ Every call produces one audit record:
 | --- | --- |
 | `operation`, `face` | The operation and the face that served it |
 | `object` | The project ID and the change-set ID |
-| `refs` | Every ref the call wrote: `mutation.refs`, or `error.details.refs` for a partial `publish` |
+| `refs` | Every ref the call wrote: `mutation.refs`, or `error.details.refs` for a `publish` that failed after a push that changed the remote |
 | `commands` | The argument lists of the state-changing commands |
 | `outcome` or `error.code` | The result |
 | Commits and pull request | The `data` fields that name them, such as `commit`, `merge_commit`, `pushed`, `cut_from`, and `pull_request`, when the call made or read them |
@@ -1571,10 +1671,10 @@ either.
   ([Exit conditions][exit-conditions]). The comparison does not see a
   change to the content of the same paths after the review; one
   session per checkout is what excludes that.
-- **No text that GitHub acts on.** The SCM writes no closing keyword or
-  mention outside a code span ([Text that GitHub acts
+- **No text that GitHub acts on.** The SCM writes no closing keyword,
+  mention, or CI-skip token outside a code span ([Text that GitHub acts
   on](#text-that-github-acts-on)), so a commit or a pull request never
-  closes an issue that is a build work item.
+  closes an issue that is a build work item, and never skips CI.
 - **No credential leaves the SCM.** Results, errors, and audit records
   name remotes, never their URLs, and refuse a remote whose configured
   or effective URL carries userinfo other than the fixed `git@` of the
@@ -1629,7 +1729,10 @@ host adapter.
 The [repository fixture][git-fixture] of #34 runs against the SCM, with
 every negative check, and with no shell in the caller.
 [`fixtures/source-control-manager-golden.jsonl`](fixtures/source-control-manager-golden.jsonl)
-is its harness-neutral transcript.
+is its harness-neutral transcript. It records the steps, #34's negative
+checks, and the second table of [Negative checks](#negative-checks). The
+third table's checks have no record there: the Go driver in
+`source-control-manager/internal/golden` asserts them.
 
 ### Setup
 
@@ -1682,22 +1785,23 @@ also stages nothing ([`commit`](#commit)).
 | 1 | `branch_init`; `ears-manager project init`; `ears-manager change-set create`; `commit` | `cs/00001-project-init` is checked out. `change-set create` records the existing branch. One commit of `.protobot/project.yaml`, `.protobot/projection.yaml`, and the manifest, with the subject `spec(CS-00001): <intent>` and the trailer `Change-Set: CS-00001`. `main` is unchanged, locally and on `origin`. `ears-manager check` exits zero. |
 | 2 | `publish`; the second clone merges `cs/00001-project-init`; `register-approved-change-set` with `CS-00001`; `repo_state`; `ears-manager change-set create` for the initial Sketch | The `gh` stub records one `pr create` with `--repo`, `--base main`, and `--head cs/00001-project-init`. Registration reads the merge commit through `approved_merge`, and the registration stub records one call with it. `repo_state` fast-forwards the local `main` to the merge commit. `cs/00002-<slug>` is checked out, its tip equals the new `main`, and the manifest records that head as `base_commit`. No other branch was created. |
 | 3 | `ears-manager artifact put` for the Vision and the Architecture; `repo_state` | `repo_state` names exactly the two artifacts, the manifest, and `project.yaml` as uncommitted change-set paths, and counts no other path. |
-| 4 | The driver edits `docs/vision.md` directly; `commit` | `SPEC_DIGEST_MISMATCH`: nothing is staged and no commit is created. The details name `docs/vision.md` with `ears-manager`'s diagnostics, and name `git checkout -- docs/vision.md` as the discard that the user runs. `ears-manager check` exits non-zero for the same path. |
+| 4 | The driver edits `docs/vision.md` directly; `commit` | `SPEC_DIGEST_MISMATCH`: nothing is staged and no commit is created. The details name `docs/vision.md` with `ears-manager`'s diagnostics, and name `git checkout -- docs/vision.md` as the discard that the user runs. `ears-manager check` reports `artifact.digest_mismatch` for record `vision`. |
 | 5 | The driver runs the discard, which restores the committed `docs/vision.md` and so drops the step-3 write too; `ears-manager artifact put` for the Vision again; `commit` | Exactly one commit, of the two artifacts, the manifest, and `project.yaml`. The subject is `spec(CS-00002): <intent>`, and the trailer is `Change-Set: CS-00002`. |
 | 6 | `publish` | `origin` has `cs/00002-<slug>` at the same commit, and `main` is unchanged. The `gh` stub records one `pr create` whose standard input is `<rendered:CS-00002>`: the intent, `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. |
-| 7 | The second clone pushes an unrelated commit to `main`; `publish`; `refresh`; `publish`; #34's refresh sequence: `ears-manager change-set update --base-commit`, `impact`, a reviewed `change-set update --impact-file -`, and `check`; `commit`; `publish` | The first `publish` fails with `DEFAULT_MOVED`. `refresh` adds a merge commit with two parents and returns the new `main` head. The second `publish` fails with `BASE_COMMIT_STALE`. After the update, `commit` records the manifest, and `publish` pushes and updates the pull request. The manifest's `base_commit` equals the new `main` head. `git log --walk-reflogs` shows no rebase, and the branch's first commit is unchanged. |
+| 7 | The second clone pushes an unrelated commit to `main`; `publish`; `refresh`; `publish`; #34's refresh sequence: `ears-manager change-set update --base-commit`, `impact`, a reviewed `change-set update --impact-file -`, and `check`; `commit`; `publish` | The first `publish` fails with `DEFAULT_MOVED`. `refresh` adds a merge commit with two parents and returns the new `main` head. The second `publish` fails with `BASE_COMMIT_STALE`. After the update, `commit` records the manifest and `project.yaml`, whose change-set store digest the update changed, and `publish` pushes and updates the pull request. The manifest's `base_commit` equals the new `main` head. `git log --walk-reflogs` shows no rebase, and the branch's first commit is unchanged. |
 | 8 | The second clone merges `cs/00002-<slug>`; `register-approved-change-set` with `CS-00002`, twice; `publish`; `repo_state`; a write to the merged manifest through `ears-manager` | `main` of `origin` is a merge commit with two parents. The registration stub records one call with `CS-00002`, that merge commit, the materialization key, and the registration idempotency key; the second run records no new call and returns the first result. `publish` fails with `PR_MERGED`. `repo_state` fast-forwards the local `main` to the merge commit, and the write to the merged manifest is then refused. |
 
 ### Negative checks
 
 Unless a row says otherwise, each check starts from a copy of the state
-after step 6. The first table holds #34's eight negative checks.
+after step 6. The first table holds #34's nine negative checks.
 
 | #34 check | Expected result |
 | --- | --- |
 | Force push: `publish` with a `force` field | `INVALID_REQUEST`; no command runs, and the remote branch is unchanged |
 | Amend a pushed commit: `commit` with an `amend` field | `INVALID_REQUEST`; the pushed commit and `HEAD` are unchanged |
 | Stage an unregistered file: the driver creates `notes.txt`, then `commit`, then `commit` with a `paths` field | `NOTHING_TO_COMMIT`, then `INVALID_REQUEST`; `notes.txt` stays untracked |
+| Edit, add, delete, or rename a structured record outside `ears-manager`: `ears-manager artifact put` for the Vision, then the driver edits the approved manifest `.protobot/change-sets/cs-00001.yaml`, then `commit`; again, with the driver adding `.protobot/requirements/REQ-FIX-00001.yaml` instead | `SPEC_DIGEST_MISMATCH` each time, naming the store, `.protobot/change-sets` and then `.protobot/requirements`, the second time with the added record in `untracked`; no commit is created |
 | Create or write a `wi/` branch: `branch_init` with `branch_prefix: "wi/"` in a copy of the state before step 1, and `branch_resume` with `WI-00042` | `RESERVED_PREFIX` and `INVALID_REQUEST`; no `wi/` ref exists |
 | Write under `.protobot/attestations/`: the driver creates a file there, then `commit` | `NOTHING_TO_COMMIT`; the path is absent from every commit and from `origin` |
 | Push to the default branch, in either `review_mode`: the driver checks out `main`, then `publish`; again with `review_mode: multi-player` | `NOT_A_CHANGE_SET_BRANCH` before any command runs; `main` of `origin` is unchanged |
@@ -1750,6 +1854,28 @@ The second table tests the SCM's own boundary.
 | Another writer during the call: the driver defines a clean filter that passes its input through unchanged and, when it runs for the SCM's private index, adds an empty commit to the branch; `ears-manager artifact put`, then `commit` | `GIT_FAILED` with `retry: reconcile`; the branch tip is the other writer's commit, and the index and the working tree are as they were |
 | A merge in progress: the second clone pushes a conflicting change to `docs/vision.md` on `main`, and the driver runs `git merge origin/main` in its own shell and leaves the conflict; then `commit` | `UNCOMMITTED_CHANGES`, naming the merge; no commit, and `MERGE_HEAD` still exists |
 | A hosted commit: a Streamable HTTP request with a full signed context, after `ears-manager artifact put` | The commit's author is the context's `author`, and its committer is the service actor of the SCM's own configuration; no result and no argument list holds the name or the email |
+
+The third table tests the SCM's own boundary too. The Go driver asserts
+these checks, and the transcript has no record for them.
+
+| SCM check, asserted by the driver | Expected result |
+| --- | --- |
+| A stale tracking ref of the initialization branch: in a copy of the state before step 1, the driver sets `refs/remotes/origin/cs/00001-project-init`, a branch that `origin` does not have; then `branch_init` | It succeeds as in step 1: the fetch prunes the stale ref, and the SCM asks `origin` with `git ls-remote` in any case |
+| The initialization branch on the upstream remote: in a copy of the state before step 1, the second clone pushes `cs/00001-project-init`; then `branch_init` | `BRANCH_EXISTS`, with `where: remote` |
+| An upstream remote with no `HEAD`: in a copy of the state before step 1, the driver runs `git remote set-head origin --delete`, then `branch_init` | `DEFAULT_NOT_FOUND`; the details name `git remote set-head origin --auto` |
+| A title that GitHub would refuse: `ears-manager change-set update` sets an intent longer than 256 characters, then `commit`, then `publish` | `commit` succeeds; `publish` fails with `UNSAFE_TEXT` and names the reason; nothing is pushed, and the `gh` stub records no call |
+| GitHub text behind a Unicode space or a CI-skip token: `ears-manager change-set update` sets the intent to `Fixes #12` with a no-break space, then to `Adds a tag [skip ci]`; `commit` each time | `UNSAFE_TEXT` each time; no commit |
+| A merge message that a branch name makes unsafe: the second clone pushes an unrelated commit to `main`, and the driver renames the change-set branch to `cs/00002-fixes#1`; then `refresh` | `UNSAFE_TEXT` with `retry: user`; no merge |
+| A tag that shadows the remote default branch: the second clone pushes an unrelated commit to `main`, and the driver tags an unreviewed commit `origin/main` in the clone; `refresh`, then `repo_state` on `main` | `refresh` fails with `GIT_FAILED`, names `origin/main`, and merges nothing; `repo_state` reports `local: behind` and moves nothing |
+| Protected names in another letter case: the `ears-manager` stub registers and writes `claude.md`, then `.GitAttributes`, then `.Claude/settings.json`; `commit` each time | `PATH_NOT_STAGEABLE` each time; no commit |
+| A change-set path replaced by a directory: the driver replaces `docs/vision.md` with a directory, then `publish` | `UNCOMMITTED_CHANGES`, naming `docs/vision.md`; nothing is pushed, and the `gh` stub records no call |
+| A host failure after a no-op push: the `gh` stub holds a body edited on the host and fails `pr edit`, first with HTTP 502, then with HTTP 422; `publish` each time | `HOST_REQUEST_FAILED`, naming pull request 2: after the 502 with `mutation: unknown` and `retry: reconcile`, after the 422 with `mutation: none` and `retry: retry` |
+| A symlinked control directory: the driver moves `.protobot/` out of the clone and links it back, then `repo_state` | `PROJECT_UNREADABLE`, naming `.protobot/`, although the link's target holds a valid `project.yaml` |
+| Trace context and CLI parity: a `repo_state` whose `_meta` carries a `traceparent`, then the same call through the CLI, then `publish --force` on the CLI | The result copies the trace context unchanged; the CLI result equals the MCP result byte for byte; `INVALID_REQUEST` naming `force`, and no command runs |
+| A fetch refspec that maps into local refs: the driver sets `remote.origin.fetch` to `+refs/heads/*:refs/heads/mirror/*` and adds `+refs/tags/*:refs/tags/*`, and the second clone pushes a commit and a tag to `origin`; then `repo_state` | `origin/main` moves to the new commit; no `refs/heads/mirror/*` and no tag exist in the clone |
+| A default branch inside the change-set prefix: the driver rewrites `project.yaml` with `default_branch: cs/00001-main`, then `commit`, then `publish` | `PROJECT_UNREADABLE` each time; no command runs, the `gh` stub records no call, and no ref moves |
+| A change-set branch that the remote deleted: `repo_state`; the second clone deletes `cs/00002-<slug>` on `origin`; `repo_state` again | The first call reports `on_remote: true`, the second `on_remote: false`, and no tracking ref of that branch is left |
+| A default branch that the remote deleted: `origin` gets a second branch `keep`, points its `HEAD` at it, and deletes `main`; then `publish` | `BASE_NOT_ON_DEFAULT` with `default_head: null`; no tracking ref of `main` is left, and nothing is pushed |
 
 ---
 
@@ -1821,6 +1947,7 @@ The second table tests the SCM's own boundary.
 [codex-user-runs]: agent-harness/codex.md#what-the-user-runs-in-codex
 [credential-isolation]: components.md#authentication-and-credential-isolation
 [credentials]: agent-harness/adapter-contract.md#credentials
+[em-change-sets]: ears-manager-cli.md#change-sets
 [em-init-grammar]: ears-manager-cli.md#project-initialization-grammar
 [env-constraints]: ../architecture.md#environmental-constraints
 [evaluability]: components.md#evaluability
@@ -1845,6 +1972,7 @@ The second table tests the SCM's own boundary.
 [refresh-seq]: git-integration.md#refreshing-from-the-default-branch
 [registration]: git-integration.md#registration
 [repo-fields]: git-integration.md#repository-fields
+[scm-ops]: #mapping-to-34s-permitted-operations
 [scm-state]: #security-posture-and-persistent-state
 [shell-ops]: agent-harness/adapter-contract.md#shell-operations
 [stricter]: agent-harness/adapter-contract.md#stricter-than-34

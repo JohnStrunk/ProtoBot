@@ -556,7 +556,7 @@ explicit.
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, branch name, manifest path, and empty proposed manifest | `change_set.branch_exists`, `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
-| `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: a directory registry entry is listed as its canonical file set | `change_set.not_found` |
+| `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
