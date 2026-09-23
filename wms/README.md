@@ -18,3 +18,9 @@ The Go module in this directory contains two backend-neutral components:
   Table conformance tests.
 
 Run the Go checks from this directory with `go test ./...` and `go vet ./...`.
+
+The backend-neutral WMS failure vocabulary includes `UNKNOWN_MUTATION` for
+writes whose result cannot be established. The in-memory adapter does not
+produce that result: its operations commit atomically under the adapter lock,
+so it has no external write whose outcome can be indeterminate. Backend
+adapters must implement the documented reconciliation behavior where needed.

@@ -70,15 +70,41 @@ type Diagnostic struct {
 	Field   string `json:"field,omitempty"`
 }
 
+// Outcome is the stable result outcome for one WMS operation.
+type Outcome string
+
+const (
+	OutcomeRead     Outcome = "read"
+	OutcomeApplied  Outcome = "applied"
+	OutcomeReplayed Outcome = "replayed"
+	OutcomeRejected Outcome = "rejected"
+)
+
+// Mutation reports whether one WMS operation changed adapter state.
+type Mutation string
+
+const (
+	MutationNone    Mutation = "none"
+	MutationApplied Mutation = "applied"
+)
+
+// Idempotency reports whether a mutating request is new or a replay.
+type Idempotency string
+
+const (
+	IdempotencyNew      Idempotency = "new"
+	IdempotencyReplayed Idempotency = "replayed"
+)
+
 // Result is the stable result envelope for one WMS operation.
 type Result struct {
 	OK                           bool                  `json:"ok"`
 	Operation                    string                `json:"operation"`
-	Outcome                      string                `json:"outcome"`
+	Outcome                      Outcome               `json:"outcome"`
 	Resource                     any                   `json:"resource,omitempty"`
 	Diagnostics                  []Diagnostic          `json:"diagnostics"`
-	Mutation                     string                `json:"mutation"`
-	Idempotency                  string                `json:"idempotency,omitempty"`
+	Mutation                     Mutation              `json:"mutation"`
+	Idempotency                  Idempotency           `json:"idempotency,omitempty"`
 	Error                        *validation.Rejection `json:"error,omitempty"`
 	Decision                     *validation.Decision  `json:"decision,omitempty"`
 	RequestID                    string                `json:"request_id,omitempty"`

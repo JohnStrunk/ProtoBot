@@ -6,23 +6,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 
 	"github.com/redhat-et/protobot/wms/validation"
 )
 
 const (
-	outcomeRead     = "read"
-	outcomeApplied  = "applied"
-	outcomeReplayed = "replayed"
-	outcomeRejected = "rejected"
+	outcomeRead     = OutcomeRead
+	outcomeApplied  = OutcomeApplied
+	outcomeReplayed = OutcomeReplayed
+	outcomeRejected = OutcomeRejected
 
-	mutationNone          = "none"
-	mutationApplied       = "applied"
-	mutationNotApplicable = "not-applicable"
+	mutationNone    = MutationNone
+	mutationApplied = MutationApplied
 
-	idempotencyNew      = "new"
-	idempotencyReplayed = "replayed"
+	idempotencyNew      = IdempotencyNew
+	idempotencyReplayed = IdempotencyReplayed
 )
 
 // Execute runs one operation against the in-memory WMS. Gate identity comes
@@ -31,17 +31,12 @@ func (memory *Memory) Execute(call CallRequest) Result {
 	memory.mu.Lock()
 	defer memory.mu.Unlock()
 
-	if !containsOperation(adapterOperations, call.Operation) {
+	if !slices.Contains(adapterOperations, call.Operation) {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
 	}
 	authorization, ok := memory.gate.Resolve(call.ActorContextRef)
 	if !ok {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
-	}
-	if authorization.ProjectID == "" {
-		// The in-memory adapter is already bound to this trusted project. The
-		// golden Gate fixture stores that binding once at its base-state level.
-		authorization.ProjectID = memory.projectID
 	}
 	if call.Operation == string(validation.OperationLifecyclePreflight) {
 		return memory.executePreflightLocked(call, authorization)
@@ -79,14 +74,20 @@ func (memory *Memory) Execute(call CallRequest) Result {
 
 func (memory *Memory) executePreflightLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	var payload struct {
-		Operation      validation.Operation `json:"operation"`
-		ResolutionKind string               `json:"resolution_kind"`
-		ChangeSetID    string               `json:"change_set_id"`
+		Operation validation.Operation `json:"operation"`
+		validation.Payload
 	}
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
-	item, exists := memory.workItems[call.WorkItemID]
+	if call.HumanApprovalID != "" {
+		payload.HumanApprovalID = call.HumanApprovalID
+	}
+	workItemID := call.WorkItemID
+	if payload.Operation == validation.OperationMaterialize && workItemID == "" && payload.WorkItem != nil {
+		workItemID = payload.WorkItem.ID
+	}
+	item, exists := memory.workItems[workItemID]
 	var current *validation.WorkItem
 	if exists {
 		copy := cloneWorkItem(item)
@@ -95,14 +96,13 @@ func (memory *Memory) executePreflightLocked(call CallRequest, authorization val
 	request := validation.Request{
 		Operation:               payload.Operation,
 		ProjectID:               memory.projectID,
-		WorkItemID:              call.WorkItemID,
+		WorkItemID:              workItemID,
+		MaterializationKey:      requestMaterializationKey(call, payload.Payload),
 		ExpectedState:           call.ExpectedState,
 		ExpectedContractVersion: call.ExpectedContractVersion,
-		Payload: validation.Payload{
-			ResolutionKind: payload.ResolutionKind,
-			ChangeSetID:    payload.ChangeSetID,
-		},
-		Authorization: authorization,
+		FencingToken:            call.FencingToken,
+		Payload:                 payload.Payload,
+		Authorization:           authorization,
 	}
 	preview := &validation.ResolutionPreview{
 		Kind:        payload.ResolutionKind,
@@ -121,13 +121,13 @@ func (memory *Memory) executePreflightLocked(call CallRequest, authorization val
 		validation.AuthorizePreflight(
 			authorization,
 			memory.projectID,
-			call.WorkItemID,
+			workItemID,
 			payload.ChangeSetID,
 			[]string{"project:" + memory.projectID},
 			evaluation.EvaluationTime,
 		) == nil {
 		decision = validation.RejectionDecision(request, validation.AuthorityPreflight,
-			unauthorizedRejection(string(payload.Operation), call.WorkItemID, authorization.PolicyVersion))
+			unauthorizedRejection(string(payload.Operation), workItemID, authorization.PolicyVersion))
 	}
 	return resultFromDecision(call.Operation, decision)
 }
@@ -198,6 +198,10 @@ func (memory *Memory) executeLifecycleLocked(call CallRequest, authorization val
 	if result, handled := memory.replayLifecycleRequest(call, request, fingerprint); handled {
 		return result
 	}
+	if request.Operation == validation.OperationRefreshDependencies {
+		dependencies := memory.liveDependenciesLocked(*current)
+		evaluation.RefreshDependencies = &dependencies
+	}
 	return memory.applyLifecycleRequest(call.Operation, request, current, authorization, fingerprint, evaluation)
 }
 
@@ -226,7 +230,7 @@ func (memory *Memory) normalizeLifecycleRequest(call CallRequest, authorization 
 		IdempotencyKey:          call.IdempotencyKey,
 		ExpectedState:           call.ExpectedState,
 		ExpectedContractVersion: call.ExpectedContractVersion,
-		FencingToken:            callFencingToken(payload, call),
+		FencingToken:            call.FencingToken,
 		Payload:                 payload,
 		Authorization:           authorization,
 	}
@@ -267,14 +271,10 @@ func (memory *Memory) applyLifecycleRequest(
 	switch decision.Outcome {
 	case validation.OutcomeAllowed:
 		if request.Operation == validation.OperationMaterialize {
-			item := cloneWorkItem(*request.Payload.WorkItem)
+			item := cloneWorkItem(validation.CanonicalMaterializationSource(*request.Payload.WorkItem, request.Payload.ChangeType))
 			item.State = decision.After.State
 			item.ContractVersion = decision.After.ContractVersion
 			item.MaterializationKey = request.MaterializationKey
-			item.ChangeType = request.Payload.WorkItem.ChangeType
-			if item.ChangeType == "" {
-				item.ChangeType = request.Payload.ChangeType
-			}
 			item.Owner = ""
 			item.Lease = nil
 			memory.workItems[item.ID] = item
@@ -368,10 +368,6 @@ func requestMaterializationKey(call CallRequest, payload validation.Payload) str
 	return ""
 }
 
-func callFencingToken(_ validation.Payload, call CallRequest) string {
-	return call.FencingToken
-}
-
 func (memory *Memory) plannedDependencyComplete(changeSetID string) bool {
 	changeSet, exists := memory.changeSets[changeSetID]
 	if !exists || changeSet.BuildWorkItemID == "" {
@@ -379,6 +375,18 @@ func (memory *Memory) plannedDependencyComplete(changeSetID string) bool {
 	}
 	workItem, exists := memory.workItems[changeSet.BuildWorkItemID]
 	return exists && workItem.State == validation.StateCompleted
+}
+
+func (memory *Memory) liveDependenciesLocked(item validation.WorkItem) []validation.Dependency {
+	dependencies := make([]validation.Dependency, 0, len(item.Dependencies))
+	for _, dependency := range item.Dependencies {
+		state := validation.StateInitial
+		if observed, exists := memory.workItems[dependency.ID]; exists && observed.ProjectID == memory.projectID {
+			state = observed.State
+		}
+		dependencies = append(dependencies, validation.Dependency{ID: dependency.ID, State: state})
+	}
+	return dependencies
 }
 
 func decodePayload(data []byte, target any) error {
@@ -533,7 +541,8 @@ func (memory *Memory) checkMaterializationLocked(request validation.Request) (*R
 	if !exists {
 		return nil, nil
 	}
-	fingerprint := validation.SourceFingerprint(*request.Payload.WorkItem)
+	source := validation.CanonicalMaterializationSource(*request.Payload.WorkItem, request.Payload.ChangeType)
+	fingerprint := validation.SourceFingerprint(source)
 	if fingerprint != entry.fingerprint {
 		return nil, wmsRejection(
 			validation.CodeIdempotencyConflict,
@@ -575,7 +584,11 @@ func (memory *Memory) approvalSnapshotLocked() map[string]validation.ApprovalRec
 func (memory *Memory) resolutionSnapshotLocked() map[string]validation.ResolutionSubmission {
 	result := make(map[string]validation.ResolutionSubmission, len(memory.submissions))
 	for id, submission := range memory.submissions {
-		result[id] = submission.ResolutionSubmission
+		resolution := submission.ResolutionSubmission
+		if resolution.Kind == "add-requirement" {
+			resolution.PlannedDependencyComplete = memory.plannedDependencyComplete(resolution.ChangeSetID)
+		}
+		result[id] = resolution
 	}
 	return result
 }

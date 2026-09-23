@@ -45,6 +45,15 @@ func SourceFingerprint(item WorkItem) string {
 	return fingerprint(item)
 }
 
+// CanonicalMaterializationSource applies the payload-level change-type
+// fallback used by materialization before a source contract is fingerprinted.
+func CanonicalMaterializationSource(item WorkItem, fallbackChangeType string) WorkItem {
+	if item.ChangeType == "" {
+		item.ChangeType = fallbackChangeType
+	}
+	return item
+}
+
 func fingerprint(value any) string {
 	encoded, err := json.Marshal(value)
 	if err != nil {

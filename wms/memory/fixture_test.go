@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -157,6 +158,14 @@ func newFixtureAdapter(
 	evalTime time.Time,
 ) *Memory {
 	t.Helper()
+	// The golden fixture stores its trusted project binding once on the base
+	// state; materialize it into each Gate context before constructing StaticGate.
+	for name, context := range contexts {
+		if context.ProjectID == "" {
+			context.ProjectID = projectID
+		}
+		contexts[name] = context
+	}
 	materializer := ""
 	for _, context := range contexts {
 		if context.Role == validation.RoleMaterializer {
@@ -176,6 +185,9 @@ func newFixtureAdapter(
 	}
 	for id, approval := range approvals {
 		approval.ID = id
+		if approval.ProjectID == "" {
+			approval.ProjectID = projectID
+		}
 		if err := memory.SeedApproval(approval); err != nil {
 			t.Fatalf("seed approval %s: %v", id, err)
 		}
@@ -337,15 +349,15 @@ func assertOperationPartition(t *testing.T, fixture wmsFixtureRecord) {
 		t.Fatalf("fixture Drafting Table/Job Site intersection = %#v, want empty", fixture.Assert.DraftingTableJobSiteIntersection)
 	}
 	for _, unknown := range fixture.Assert.UnknownOperations {
-		if containsOperation(AdapterOperations(), unknown) {
+		if slices.Contains(AdapterOperations(), unknown) {
 			t.Errorf("unknown operation %q appears in the adapter API", unknown)
 		}
 	}
 	for _, operation := range fixture.DraftingTable {
-		if !containsOperation(fixture.AdapterAPI, operation) {
+		if !slices.Contains(fixture.AdapterAPI, operation) {
 			t.Errorf("Drafting Table operation %q is not in adapter API", operation)
 		}
-		if containsOperation(fixture.JobSite, operation) {
+		if slices.Contains(fixture.JobSite, operation) {
 			t.Errorf("Drafting Table operation %q overlaps Job Site execution", operation)
 		}
 	}
@@ -368,10 +380,10 @@ func assertGoldenStatus(t *testing.T, step string, actual Result, expected wmsFi
 	if expected.OK != nil && actual.OK != *expected.OK {
 		t.Errorf("%s ok = %t, want %t; result=%s", step, actual.OK, *expected.OK, marshalForTest(t, actual))
 	}
-	if expected.Outcome != "" && actual.Outcome != expected.Outcome {
+	if expected.Outcome != "" && string(actual.Outcome) != expected.Outcome {
 		t.Errorf("%s outcome = %q, want %q", step, actual.Outcome, expected.Outcome)
 	}
-	if expected.Mutation != "" && actual.Mutation != expected.Mutation {
+	if expected.Mutation != "" && string(actual.Mutation) != expected.Mutation {
 		t.Errorf("%s mutation = %q, want %q", step, actual.Mutation, expected.Mutation)
 	}
 	if expected.Error != nil {

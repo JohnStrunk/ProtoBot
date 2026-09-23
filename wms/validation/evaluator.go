@@ -372,7 +372,7 @@ func evaluateMergeTransition(request Request, current *WorkItem) (State, Outcome
 	case OperationRecordMerge:
 		if request.Authorization.Role == RoleReconciler {
 			if !reconciliationMatches(current.Reconciliation, "merge-recorded", "merged") ||
-				!mergeEnvelopeMatches(current.Reconciliation.MergeEnvelope, request.Payload.MergeEnvelope, current.ContractVersion, true) {
+				!mergeEnvelopeMatches(current.ExpectedMerge, current.Reconciliation.MergeEnvelope, current.ContractVersion, false) {
 				return "", OutcomeRejected, nil, preconditionFailed("the WMS merge observation does not match the work-item contract", "reconciliation-merge-envelope")
 			}
 		} else if !mergeEnvelopeMatches(current.ExpectedMerge, request.Payload.MergeEnvelope, current.ContractVersion, false) {
@@ -412,10 +412,8 @@ func evaluateMaterialization(request Request) (State, Outcome, *MaterializationR
 	if item == nil || item.ID == "" || item.ID != request.WorkItemID || item.ProjectID != request.ProjectID {
 		return "", OutcomeRejected, nil, preconditionFailed("a complete work-item contract for the trusted project is required", "complete-work-item-contract")
 	}
-	changeType := item.ChangeType
-	if changeType == "" {
-		changeType = request.Payload.ChangeType
-	}
+	candidate := CanonicalMaterializationSource(*item, request.Payload.ChangeType)
+	changeType := candidate.ChangeType
 	if !validChangeType(changeType) {
 		return "", OutcomeRejected, nil, &Rejection{
 			Code:    CodeInvalidChangeType,
@@ -427,8 +425,6 @@ func evaluateMaterialization(request Request) (State, Outcome, *MaterializationR
 			Retry: RetryNewKey,
 		}
 	}
-	candidate := *item
-	candidate.ChangeType = changeType
 	if reason := readinessContractFailure(candidate.Readiness); reason != "" {
 		return "", OutcomeRejected, nil, preconditionFailed(reason, "complete-work-item-contract")
 	}
@@ -438,27 +434,27 @@ func evaluateMaterialization(request Request) (State, Outcome, *MaterializationR
 		return "", OutcomeOmitted, &MaterializationReservation{
 			Key:               request.MaterializationKey,
 			SourceFingerprint: fingerprint,
-			Outcome:           string(OutcomeOmitted),
+			Outcome:           MaterializationOutcomeOmitted,
 		}, nil
 	}
 	if reason := readinessBlocker(candidate.Readiness); reason != "" {
 		return StateBlocked, OutcomeAllowed, &MaterializationReservation{
 			Key:               request.MaterializationKey,
 			SourceFingerprint: fingerprint,
-			Outcome:           string(StateBlocked),
+			Outcome:           MaterializationOutcomeBlocked,
 		}, nil
 	}
 	if dependency := firstIncompleteDependency(candidate.Dependencies); dependency != "" {
 		return StateWaiting, OutcomeAllowed, &MaterializationReservation{
 			Key:               request.MaterializationKey,
 			SourceFingerprint: fingerprint,
-			Outcome:           string(StateWaiting),
+			Outcome:           MaterializationOutcomeWaiting,
 		}, nil
 	}
 	return StateReadyForBuilding, OutcomeAllowed, &MaterializationReservation{
 		Key:               request.MaterializationKey,
 		SourceFingerprint: fingerprint,
-		Outcome:           string(StateReadyForBuilding),
+		Outcome:           MaterializationOutcomeReadyForBuilding,
 	}, nil
 }
 

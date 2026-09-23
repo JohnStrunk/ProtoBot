@@ -182,6 +182,7 @@ func (memory *Memory) refineRequestLocked(call CallRequest, authorization valida
 	requirement := validation.ApprovalRequirement{
 		Action:             validation.Operation("request.refine"),
 		DelegatedPrincipal: authorization.Subject,
+		ProjectID:          memory.projectID,
 		RequestID:          request.ID,
 		Digest:             payload.ApprovalRefinementDigest,
 		PolicyVersion:      authorization.PolicyVersion,
@@ -516,12 +517,10 @@ func requestFingerprint(call CallRequest, authorization validation.Authorization
 	}
 	call.Payload = nil
 	authorization.ExpiresAt = time.Time{}
-	authorization.AllowedActions = append([]validation.Operation(nil), authorization.AllowedActions...)
-	sort.Slice(authorization.AllowedActions, func(i, j int) bool {
-		return authorization.AllowedActions[i] < authorization.AllowedActions[j]
-	})
-	authorization.AllowedRefs = append([]string(nil), authorization.AllowedRefs...)
-	sort.Strings(authorization.AllowedRefs)
+	authorization.AllowedActions = slices.Clone(authorization.AllowedActions)
+	slices.Sort(authorization.AllowedActions)
+	authorization.AllowedRefs = slices.Clone(authorization.AllowedRefs)
+	slices.Sort(authorization.AllowedRefs)
 	canonical := struct {
 		Request       CallRequest
 		Payload       any
@@ -553,10 +552,10 @@ func matchesRequestQuery(request RequestRecord, query requestQueryPayload) bool 
 	if query.BusinessPriority != "" && request.BusinessPriority != query.BusinessPriority {
 		return false
 	}
-	if query.Interface != "" && !containsString(request.AffectedInterfaces, query.Interface) {
+	if query.Interface != "" && !slices.Contains(request.AffectedInterfaces, query.Interface) {
 		return false
 	}
-	if query.Scope != "" && !containsString(request.AffectedScopes, query.Scope) {
+	if query.Scope != "" && !slices.Contains(request.AffectedScopes, query.Scope) {
 		return false
 	}
 	if query.Relationship != "" && !containsRelationship(request.Relationships, query.Relationship) {
@@ -572,7 +571,7 @@ func matchesWorkItemQuery(item WorkItemProjection, query workItemQueryPayload) b
 	if query.Owner != "" && item.Owner != query.Owner {
 		return false
 	}
-	if query.Dependency != "" && !containsString(item.Dependencies, query.Dependency) {
+	if query.Dependency != "" && !slices.Contains(item.Dependencies, query.Dependency) {
 		return false
 	}
 	return query.Priority == "" || item.Priority == query.Priority
@@ -680,10 +679,6 @@ func sortedUnique(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
-}
-
-func containsString(values []string, wanted string) bool {
-	return slices.Contains(values, wanted)
 }
 
 func approvalRejected(action string, authorization validation.AuthorizationContext, targetType string) *validation.Rejection {

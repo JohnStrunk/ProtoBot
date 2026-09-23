@@ -92,15 +92,14 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 	submissionID := memory.nextSubmissionIDLocked(false)
 	submission := Submission{
 		ResolutionSubmission: validation.ResolutionSubmission{
-			ID:                        submissionID,
-			WorkItemID:                item.ID,
-			Kind:                      payload.ResolutionKind,
-			ChangeSetID:               payload.ChangeSetID,
-			ApprovalID:                call.HumanApprovalID,
-			ApprovalDigest:            payload.ApprovalResolutionDigest,
-			ApprovedHumanSubject:      approval.ApprovedSubject,
-			Status:                    "pending",
-			PlannedDependencyComplete: payload.ResolutionKind == "add-requirement" && memory.plannedDependencyComplete(payload.ChangeSetID),
+			ID:                   submissionID,
+			WorkItemID:           item.ID,
+			Kind:                 payload.ResolutionKind,
+			ChangeSetID:          payload.ChangeSetID,
+			ApprovalID:           call.HumanApprovalID,
+			ApprovalDigest:       payload.ApprovalResolutionDigest,
+			ApprovedHumanSubject: approval.ApprovedSubject,
+			Status:               "pending",
 		},
 		Revision: revision,
 	}

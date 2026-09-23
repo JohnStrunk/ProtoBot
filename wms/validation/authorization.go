@@ -82,13 +82,13 @@ func AuthorizeContext(auth AuthorizationContext, action Operation, projectID, wo
 	if rejection := ValidateAuthorizationContext(auth, action, projectID, workItemID, changeSetID, now); rejection != nil {
 		return rejection
 	}
-	if !containsOperation(auth.AllowedActions, action) {
+	if !slices.Contains(auth.AllowedActions, action) {
 		return unauthorizedFor(auth, action, workItemID)
 	}
 
 	requiredRefs := append([]string{"project:" + projectID}, refs...)
 	for _, ref := range requiredRefs {
-		if !containsString(auth.AllowedRefs, ref) {
+		if !slices.Contains(auth.AllowedRefs, ref) {
 			return unauthorizedFor(auth, action, workItemID)
 		}
 	}
@@ -150,20 +150,20 @@ func ValidateApproval(approval ApprovalRecord, requirement ApprovalRequirement, 
 }
 
 func approvalBindingMatches(approval ApprovalRecord, requirement ApprovalRequirement) bool {
-	return matchesOptionalBinding(approval.ProjectID, requirement.ProjectID, true) &&
-		matchesOptionalBinding(approval.WorkItemID, requirement.WorkItemID, false) &&
-		matchesOptionalBinding(approval.RequestID, requirement.RequestID, false) &&
-		matchesOptionalBinding(approval.ResolutionKind, requirement.ResolutionKind, false) &&
-		matchesOptionalBinding(string(approval.ExpectedState), string(requirement.ExpectedState), false) &&
+	return matchesOptionalBinding(approval.ProjectID, requirement.ProjectID) &&
+		matchesOptionalBinding(approval.WorkItemID, requirement.WorkItemID) &&
+		matchesOptionalBinding(approval.RequestID, requirement.RequestID) &&
+		matchesOptionalBinding(approval.ResolutionKind, requirement.ResolutionKind) &&
+		matchesOptionalBinding(string(approval.ExpectedState), string(requirement.ExpectedState)) &&
 		matchesApprovalVersion(approval.ExpectedContractVersion, requirement.ExpectedContractVersion) &&
-		matchesOptionalBinding(approval.PolicyVersion, requirement.PolicyVersion, false)
+		matchesOptionalBinding(approval.PolicyVersion, requirement.PolicyVersion)
 }
 
-func matchesOptionalBinding(actual, required string, allowMissing bool) bool {
+func matchesOptionalBinding(actual, required string) bool {
 	if required == "" {
 		return true
 	}
-	return actual == required || allowMissing && actual == ""
+	return actual == required
 }
 
 func matchesApprovalVersion(actual, required *uint64) bool {
@@ -214,12 +214,4 @@ func isWildcard(value string) bool {
 	default:
 		return false
 	}
-}
-
-func containsOperation(values []Operation, wanted Operation) bool {
-	return slices.Contains(values, wanted)
-}
-
-func containsString(values []string, wanted string) bool {
-	return slices.Contains(values, wanted)
 }
