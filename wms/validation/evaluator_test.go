@@ -213,7 +213,7 @@ func validTransitionCases() []matrixCase {
 			ExpectedContractVersion: &version,
 			PolicyVersion:           "policy/v1",
 			ExpiresAt:               evaluationTime.Add(time.Hour),
-			Status:                  "unused",
+			Status:                  ApprovalStatusUnused,
 		},
 	}
 	context.ResolutionSubmissions = map[string]ResolutionSubmission{
@@ -224,7 +224,7 @@ func validTransitionCases() []matrixCase {
 			ApprovalID:                "approval-1",
 			ApprovalDigest:            "digest-1",
 			ApprovedHumanSubject:      "human-1",
-			Status:                    "pending",
+			Status:                    ResolutionSubmissionStatusPending,
 			PlannedDependencyComplete: true,
 		},
 	}

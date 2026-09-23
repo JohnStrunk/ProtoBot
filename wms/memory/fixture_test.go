@@ -265,11 +265,11 @@ func assertFixtureFinalState(t *testing.T, memory *Memory) {
 		t.Fatalf("final request state = %#v, want revision 6 with linked priority and work item", request)
 	}
 	superseded, exists := memory.Submission("resolution-submission-001")
-	if !exists || superseded.Status != "superseded" {
+	if !exists || superseded.Status != validation.ResolutionSubmissionStatusSuperseded {
 		t.Fatalf("superseded resolution = %#v, want superseded", superseded)
 	}
 	acknowledgement, exists := memory.Submission("acknowledgement-001")
-	if !exists || acknowledgement.Status != "consumed" {
+	if !exists || acknowledgement.Status != validation.ResolutionSubmissionStatusConsumed {
 		t.Fatalf("acknowledgement = %#v, want consumed", acknowledgement)
 	}
 	for id, want := range map[string]string{
@@ -278,7 +278,7 @@ func assertFixtureFinalState(t *testing.T, memory *Memory) {
 		"ack-approval-001":        "consumed",
 	} {
 		approval, exists := memory.Approval(id)
-		if !exists || approval.Status != want {
+		if !exists || string(approval.Status) != want {
 			t.Errorf("approval %s = %#v, want status %q", id, approval, want)
 		}
 	}
@@ -399,7 +399,7 @@ func assertGoldenFields(t *testing.T, step string, actual Result, expected wmsFi
 	t.Helper()
 	checkGoldenString(t, step, "request_id", expected.RequestID, actual.RequestID)
 	checkGoldenUint(t, step, "request_revision", expected.RequestRevision, actual.RequestRevision)
-	checkGoldenString(t, step, "approval_status", expected.ApprovalStatus, actual.ApprovalStatus)
+	checkGoldenString(t, step, "approval_status", expected.ApprovalStatus, string(actual.ApprovalStatus))
 	checkGoldenString(t, step, "audit_event", expected.AuditEvent, actual.AuditEvent)
 	checkGoldenString(t, step, "linked_change_set_priority", expected.LinkedChangeSetPriority, actual.LinkedChangeSetPriority)
 	checkGoldenString(t, step, "linked_work_item_priority", expected.LinkedWorkItemPriority, actual.LinkedWorkItemPriority)
@@ -407,8 +407,8 @@ func assertGoldenFields(t *testing.T, step string, actual Result, expected wmsFi
 	checkGoldenString(t, step, "resolution_submission_id", expected.ResolutionSubmissionID, actual.ResolutionSubmissionID)
 	checkGoldenUint(t, step, "resolution_submission_revision", expected.ResolutionSubmissionRevision, actual.ResolutionSubmissionRevision)
 	checkGoldenString(t, step, "prior_resolution_submission_id", expected.PriorResolutionSubmissionID, actual.PriorResolutionSubmissionID)
-	checkGoldenString(t, step, "prior_submission_status", expected.PriorSubmissionStatus, actual.PriorSubmissionStatus)
-	checkGoldenString(t, step, "prior_approval_status", expected.PriorApprovalStatus, actual.PriorApprovalStatus)
+	checkGoldenString(t, step, "prior_submission_status", expected.PriorSubmissionStatus, string(actual.PriorSubmissionStatus))
+	checkGoldenString(t, step, "prior_approval_status", expected.PriorApprovalStatus, string(actual.PriorApprovalStatus))
 	if expected.WorkItemState != "" && actual.WorkItemState != expected.WorkItemState {
 		t.Errorf("%s work_item_state = %q, want %q", step, actual.WorkItemState, expected.WorkItemState)
 	}
