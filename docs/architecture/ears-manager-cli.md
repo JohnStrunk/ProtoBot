@@ -116,10 +116,12 @@ does not commit, push, open, or merge a pull request. The Git integration
 contract owns those operations. The
 [Source Control Manager](source-control-manager.md) performs the commit,
 the push, and the pull-request operations; a person merges.
-`change-set create` is the governed seam at
+In the target Git integration, `change-set create` is the governed seam at
 which the Drafting Table requests a change-set branch; branch naming and
 branch lifecycle still follow [Git and Project-Repository
-Integration](git-integration.md#change-set-branches).
+Integration](git-integration.md#change-set-branches). The EM-04 first release
+only records the manifest and does not request or create a branch (see
+[first-release scope](#em-04-first-release-scope)).
 
 The write destination allowlist is independent of Git staging. A write may
 target a registered specification artifact, the registered requirement or
@@ -559,8 +561,8 @@ An interface record is not a lifecycle work item. Setting its record status to
 | `requirement add` | Change set plus ID, EARS type/text, applicability selectors, verification, provenance, timestamp, and optional relationships | The complete new record and the `add` operation | `requirement.duplicate_id`, `requirement.invalid_id`, `requirement.invalid_applicability`, EARS diagnostics, or relationship diagnostics |
 | `requirement list` | Optional interface, scope, type, status, relationship, and `--at` filters | Matching records sorted by stable requirement ID | `requirement.read_failed` |
 | `requirement show` | Requirement ID and optional `--at` | The complete requirement record | `requirement.not_found` |
-| `requirement update` | Change set, stable ID, and replacement fields | Before/after record summary and the `revise` operation | `requirement.not_found`, `requirement.immutable_field`, or validation diagnostics |
-| `requirement retire` | Change set and stable ID | Before/after status and the `retire` operation | `requirement.not_found`, `requirement.already_retired`, or impact/reference diagnostics |
+| `requirement update` | Change set, stable ID, and replacement fields | Complete before/after records and the `revise` operation | `requirement.not_found`, `requirement.immutable_field`, or validation diagnostics |
+| `requirement retire` | Change set and stable ID | Complete before/after records and the `retire` operation | `requirement.not_found`, `requirement.already_retired`, or impact/reference diagnostics |
 
 All requirement mutations validate the complete affected relationship graph
 before writing. Retirement preserves the record and its historical ID.
@@ -572,7 +574,7 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Allocated `CS-<NNNNN>` ID, full base commit, manifest path, and empty proposed manifest | `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
 | `change-set list` | Optional status, interface, scope, and `--at` filters | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found` |
 | `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |

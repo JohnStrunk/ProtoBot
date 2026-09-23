@@ -379,11 +379,15 @@ the CLI contract leaves open:
   output, so a result can be replayed byte for byte. The recording
   stub in the [fixture](#fixture-session) answers with the envelopes
   of #30's golden fixture.
-- **The branch cut.** `change-set create` cuts and checks out the
-  change-set branch, and a failed creation leaves neither a manifest
-  nor a branch, so the role never creates a branch itself. The one
-  exception is the initialization branch that #34 needs before
-  `project init`, which the SCM's `branch_init` cuts.
+- **The branch cut.** In the target #30 contract, `change-set create`
+  cuts and checks out the change-set branch, and a failed creation leaves
+  neither a manifest nor a branch, so the role never creates a branch
+  itself. EM-04 first release writes the manifest but does not create or
+  check out a branch; branch creation and reuse are follow-on Git
+  integration ([`ears-manager` CLI first-release
+  scope](../ears-manager-cli.md#em-04-first-release-scope)). The target
+  initialization branch that #34 needs before `project init` is cut by
+  the SCM's `branch_init`.
 - **A read of the project fields.** No #30 read command returns the
   Git-facing fields of `project.yaml`, such as
   `repository.canonical_remote`, `repository.default_branch`, and
@@ -516,13 +520,17 @@ The guard always binds the real values. The binding also allows the
 `scm` tools that the manifest lists, in the role only.
 
 A harness sandbox may refuse a shell operation before the guard's
-answer matters, for example `ears-manager change-set create`, which
-cuts a branch, when the sandbox keeps `.git/` read-only. The role then
-reports the refusal and names the command, and the user runs it, as for
-a discard and a merge ([Stricter than #34](#stricter-than-34)). The
-binding document says which operations that covers; in the
-[Codex binding](codex.md#what-the-user-runs-in-codex) it is
-`change-set create` and registration. The `scm` server runs as its own
+answer matters. In the target #30 contract, the branch-cutting form of
+`ears-manager change-set create` writes `.git/` and a sandbox that keeps
+it read-only may refuse it. The EM-04 first-release command writes only
+the manifest, so `.git/` read-only does not itself refuse that command;
+it also does not establish the branch required by the target workflow
+(see the [`ears-manager` CLI first-release
+scope](../ears-manager-cli.md#em-04-first-release-scope)). Registration
+still needs the network and is refused in Codex. The role reports any
+refusal and names the command for the user to run, as for a discard and
+a merge ([Stricter than #34](#stricter-than-34)). The binding document
+says which operations that covers. The `scm` server runs as its own
 process, outside a tool sandbox, so its tools are not refused there.
 
 #### Stricter than #34
@@ -541,7 +549,7 @@ performs them:
 | #34 names | Drafting Table role | Why |
 | --- | --- | --- |
 | Reading state with `log`, `diff`, `show`, and `ls-files` | Not an operation; `repo_state` reports what a step needs | No step needs them. `ears-manager change-set compare` shows the change, and `show` and `diff` print store files under `.protobot/`, which the role does not read. |
-| Creating a change-set branch | Not an operation, except `cs/00001-project-init`, which the SCM's `branch_init` cuts | `ears-manager change-set create` cuts and checks out the branch (#30). Initialization is the one case where the branch must exist first, and guard rule 1 lets the role run `project init` on it before `.protobot/` exists. |
+| Creating a change-set branch | Not an operation, except `cs/00001-project-init`, which the SCM's `branch_init` cuts | Target #30 behavior: `ears-manager change-set create` cuts and checks out the branch. EM-04 first release only writes the manifest and defers branch creation and reuse (see the [`ears-manager` CLI first-release scope](../ears-manager-cli.md#em-04-first-release-scope)). Initialization is the target case where the branch must exist first, and guard rule 1 lets the role run `project init` on it before `.protobot/` exists. |
 | Amending an unpushed commit on explicit request | Refused. `commit` has no amend | History stays append-only, the rule for every pushed commit, so no second rule is needed for an unpushed one. |
 | Merging one's own pull request, in single-player mode | Refused. The user merges on the Git host, then asks the role to register. | The merge is the approval event ([Registration](../git-integration.md#registration)), so a person makes it, never an agent tool call ([Compliance](../components.md#compliance-ess--aia)). |
 | Deleting a merged change-set branch | Refused. The host deletes merged head branches, or the user does. | Drafting needs no deleted ref, and a wrong delete can remove a colleague's branch. |
@@ -995,7 +1003,7 @@ meet one records the gap, and the later layers still hold.
 | --- | --- | --- |
 | OpenCode | [OpenCode Harness Binding](opencode.md) | Designed against OpenCode 1.18.30, with skill discovery and visibility, tool hiding, rule order, pattern matching, the plugin hook, export, and the replay provider observed against a stub model; the fixture runs in #77, so no H1 to H11 obligation is marked met; H12 is met; H13 not checked |
 | Claude Code | [Claude Code Harness Binding](claude-code.md) | Designed against Claude Code 2.1.273; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met |
-| Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met. The Codex sandbox stays on, so `change-set create` and registration are the user's there; Git and the Git host go through the `scm` server, which runs outside it |
+| Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met. The Codex sandbox stays on. EM-04 `change-set create` only writes a manifest and does not cut a branch; registration requires network, and target branch creation remains follow-on scope. Git and the Git host go through the `scm` server, which runs outside the sandbox |
 
 ---
 
@@ -1042,7 +1050,7 @@ yet known. Each binding verifies its column against the version it pins.
 | Drafting Table role (H3) | A primary agent file | An agent file, run as the main session with `--agent` | A profile, `$CODEX_HOME/<name>.config.toml`, started by the `drafting-table` launcher with `--profile`; agent roles are for subagents only |
 | Enter the role from a running session (H3) | The `/drafting-table` command runs the turn on the agent | Not in-session; relaunch with `--continue --agent drafting-table`, which keeps the conversation | Not in-session; the launcher with `resume` continues the session |
 | The `scm` MCP server, for Git and the Git host (H2) | `mcp` in `opencode.json`; tools named `scm_<tool>` | `--mcp-config` with `--strict-mcp-config` at launch; tools named `mcp__scm__<tool>` | `[mcp_servers.scm]` in the role profile; tools named `mcp__scm__<tool>`; the server runs as its own process, outside the tool sandbox, as Codex documents; the fixture has not confirmed it yet ([Codex open point 8](codex.md#open-points)). If it holds, Git writes and the host reach the role through it |
-| Shell operations the sandbox refuses | None | None | `ears-manager change-set create`, which cuts a branch, and registration, which needs the network; the user runs them |
+| Shell operations the sandbox refuses | None | None | Registration, which needs the network; the target branch-cutting form of `ears-manager change-set create` would also be refused because `.git/` is read-only. EM-04's manifest-only command is not refused for that reason and does not create a branch |
 | Remote `wms` server with OAuth 2.1 (H13) | Open | An HTTP MCP server with OAuth through `/mcp`; candidate | A streamable HTTP MCP server with `codex mcp login`; candidate |
 | Hide tools from the role (H9) | `"*": deny` in the agent | The agent's `tools` list and deny rules | `web_search = "disabled"` and `multi_agent = false`, observed; no setting hides `apply_patch` |
 | Restrict skills (H10) | `permission.skill` with `"*": deny` first hides every other skill from the model's list and refuses it; observed | `skillOverrides` with `off` hides and refuses a named skill; `Skill(<name>)` rules never change the list; a skill in another user's scope cannot be named in advance; observed | `include_instructions = false` removes the skill catalog, and the profile names the Toolkit skills; `[[skills.config]]` hides a named skill; observed. No skill tool: the guard refuses a read of another `SKILL.md` |
@@ -1110,6 +1118,12 @@ SCM's operations and refusals by the same fixture run against the SCM
 ([Repository fixture against the SCM][scm-fixture]).
 
 ### Setup
+
+This fixture exercises the target combined Git/CLI workflow after branch
+creation is integrated. Its recording stub models the target branch cut;
+the EM-04 first-release CLI itself only writes the manifest (see the
+[`ears-manager` CLI first-release
+scope](../ears-manager-cli.md#em-04-first-release-scope)).
 
 - A bare repository as `origin`, and one clone in the state after step
   8 of the [repository fixture](../git-integration.md#repository-fixture):

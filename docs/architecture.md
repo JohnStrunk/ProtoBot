@@ -213,9 +213,12 @@ prompt loading; no harness-specific APIs beyond those.
 
 **Runtime dependencies:** The WMS Adapter API (for work-item
 lifecycle state), the `ears-manager` binary (for all
-specification reads and writes, and change-set branches), the Source
-Control Manager (for commits, pushes, PRs, refresh merges, and the
-initialization branch), and a Git working tree.
+specification reads and writes, and, in the target contract, change-set
+branches), the Source Control Manager (for commits, pushes, PRs, refresh
+merges, and the initialization branch), and a Git working tree. The EM-04
+first release writes change-set manifests but does not cut branches; see
+the [`ears-manager` CLI first-release
+scope](architecture/ears-manager-cli.md#em-04-first-release-scope).
 
 See [System Components — Specification
 Toolkit](architecture/components.md#specification-toolkit) for design details.
@@ -228,6 +231,12 @@ Toolkit](architecture/components.md#specification-toolkit) for design details.
 specification store. It abstracts the underlying file format,
 manages change sets, and enforces EARS methodology rules
 deterministically.
+
+This section describes the target CLI surface. The EM-04 first release
+implements a subset, and its `change-set create` command records a manifest
+without creating a branch; see the
+[`ears-manager` CLI first-release
+scope](architecture/ears-manager-cli.md#em-04-first-release-scope).
 
 **Interface type:** CLI — a statically linked Go binary with a
 stable subcommand surface.
@@ -370,9 +379,14 @@ in the
 The Source Control Manager (SCM) is the governed boundary between
 ProtoBot and Git and the Git host. It turns the user's decision about a
 proposed change set into commits, pushes, PRs, and refresh merges, cuts
-the initialization branch, and reports that state back. `ears-manager
-change-set create` cuts every other change-set branch. The agent
-decides _when_; the SCM decides _how_.
+the initialization branch, and reports that state back. In the target
+architecture `ears-manager change-set create` cuts every other change-set
+branch. The EM-04 first release only writes the manifest; branch creation
+is deferred as described in the
+[EM-04 first-release scope][ears-manager-first-release].
+The agent decides _when_; the SCM decides _how_.
+
+[ears-manager-first-release]: architecture/ears-manager-cli.md#em-04-first-release-scope
 
 **Interface type:** MCP tool surface + CLI — one executable,
 `source-control-manager`, with one narrow face per role. The MCP face

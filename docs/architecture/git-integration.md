@@ -77,7 +77,10 @@ Git history_. Adjacent contracts define the surfaces around it:
   command and result boundary for specification reads and writes.
   This document names `ears-manager` operations; #30 defines their
   request and result shapes in the
-  [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
+  [`ears-manager` CLI Integration Contract](ears-manager-cli.md). The
+  EM-04 first release records a change-set manifest but defers branch
+  creation; this document defines the target Git workflow for that
+  follow-on behavior.
 - **#33** ([Agent Harness Adapter Contract](agent-harness/adapter-contract.md),
   with the [OpenCode](agent-harness/opencode.md),
   [Claude Code](agent-harness/claude-code.md), and

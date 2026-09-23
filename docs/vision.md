@@ -199,7 +199,10 @@ to function:
 6. **Source Control Manager** — the deterministic component that
    turns a proposed change set into commits, pushes, and PRs on the
    user's request, so that no agent runs Git itself. `ears-manager`
-   cuts every change-set branch except the initialization branch.
+   is intended to cut every change-set branch except the initialization
+   branch. The EM-04 first release records change-set manifests but does
+   not cut branches; see the [`ears-manager` CLI first-release
+   scope](architecture/ears-manager-cli.md#em-04-first-release-scope).
 
 The interactive work starts locally in OpenCode with draft
 Specification Toolkit skills. The first Job Site implementation is

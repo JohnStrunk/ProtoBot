@@ -262,6 +262,12 @@ The protocol enforces six non-negotiable invariants:
 The user starts a new project by providing an initial description or IdeaBot
 artifacts. The Drafting Table:
 
+This is the target end-to-end workflow. The EM-04 first release defers project
+initialization and branch automation; its `change-set create` command records
+the manifest but does not create or check out a branch. See the
+[`ears-manager` CLI first-release
+scope](ears-manager-cli.md#em-04-first-release-scope).
+
 1. Creates and checks out `cs/00001-project-init` from the default branch.
 2. Runs `ears-manager project init` and `change-set create` on that branch.
    See the [project initialization grammar][project-init-grammar].
@@ -363,6 +369,13 @@ review boundary
 
 Every Dimensioning session operates on a **change set** — a proposed
 specification transaction:
+
+The sequence below describes the target workflow. In the EM-04 first release,
+`ears-manager change-set create` records the manifest but does not create or
+check out the change-set branch; branch creation and reuse are deferred to
+follow-on Git integration (see the
+[`ears-manager` CLI first-release
+scope](ears-manager-cli.md#em-04-first-release-scope)).
 
 1. **Open a change set:** The agent creates a change set via
    `ears-manager change-set create`, recording base commit, intent, and scope.
