@@ -27,22 +27,22 @@ const (
 
 // Execute runs one operation against the in-memory WMS. Gate identity comes
 // from actorContextRef; authorization claims are never accepted from call.
-func (memory *Memory) Execute(call CallRequest) Result {
-	memory.mu.Lock()
-	defer memory.mu.Unlock()
+func (m *Memory) Execute(call CallRequest) Result {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	if !slices.Contains(adapterOperations, call.Operation) {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
 	}
-	authorization, ok := memory.gate.Resolve(call.ActorContextRef)
+	authorization, ok := m.gate.Resolve(call.ActorContextRef)
 	if !ok {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
 	}
 	if call.Operation == string(validation.OperationLifecyclePreflight) {
-		return memory.executePreflightLocked(call, authorization)
+		return m.executePreflightLocked(call, authorization)
 	}
 	if isLifecycleOperation(call.Operation) {
-		return memory.executeLifecycleLocked(call, authorization)
+		return m.executeLifecycleLocked(call, authorization)
 	}
 	if !roleHasWMSOperation(authorization.Role, call.Operation) {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, authorization.PolicyVersion))
@@ -50,11 +50,11 @@ func (memory *Memory) Execute(call CallRequest) Result {
 	if rejection := validation.AuthorizeContext(
 		authorization,
 		validation.Operation(call.Operation),
-		memory.projectID,
+		m.projectID,
 		call.WorkItemID,
 		"",
-		[]string{"project:" + memory.projectID},
-		memory.now(),
+		[]string{"project:" + m.projectID},
+		m.now(),
 	); rejection != nil {
 		return rejectedResult(call.Operation, rejection)
 	}
@@ -69,22 +69,22 @@ func (memory *Memory) Execute(call CallRequest) Result {
 			validation.RetryRefresh,
 		))
 	}
-	return memory.executeRequestLocked(call, authorization)
+	return m.executeRequestLocked(call, authorization)
 }
 
 // ObserveIndependentInspectorConfirmation records a confirmation event that
 // the trusted WMS Finding Ledger has already validated. This fixture hook is
 // separate from CallRequest so a caller cannot assert Inspector confirmation
 // in a lifecycle payload.
-func (memory *Memory) ObserveIndependentInspectorConfirmation(submissionID, confirmationID string) error {
+func (m *Memory) ObserveIndependentInspectorConfirmation(submissionID, confirmationID string) error {
 	if isBlank(submissionID) || isBlank(confirmationID) {
 		return errors.New("resolution submission and confirmation IDs must not be empty")
 	}
 
-	memory.mu.Lock()
-	defer memory.mu.Unlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	submission, exists := memory.submissions[submissionID]
+	submission, exists := m.submissions[submissionID]
 	if !exists {
 		return errors.New("resolution submission does not exist")
 	}
@@ -92,7 +92,7 @@ func (memory *Memory) ObserveIndependentInspectorConfirmation(submissionID, conf
 		return nil
 	}
 	if submission.Kind != "out-of-scope" || submission.Status != validation.ResolutionSubmissionStatusPending ||
-		memory.activeSubmissions[submission.WorkItemID] != submissionID {
+		m.activeSubmissions[submission.WorkItemID] != submissionID {
 		return errors.New("confirmation requires the active out-of-scope resolution submission")
 	}
 	if submission.IndependentInspectorConfirmationID != "" {
@@ -101,13 +101,13 @@ func (memory *Memory) ObserveIndependentInspectorConfirmation(submissionID, conf
 
 	submission.IndependentInspectorConfirmationID = confirmationID
 	submission.IndependentInspectorConfirmed = true
-	memory.resolutionRevisions[submission.WorkItemID]++
-	submission.Revision = memory.resolutionRevisions[submission.WorkItemID]
-	memory.submissions[submissionID] = submission
+	m.resolutionRevisions[submission.WorkItemID]++
+	submission.Revision = m.resolutionRevisions[submission.WorkItemID]
+	m.submissions[submissionID] = submission
 	return nil
 }
 
-func (memory *Memory) executePreflightLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+func (m *Memory) executePreflightLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	var payload struct {
 		Operation validation.Operation `json:"operation"`
 		validation.Payload
@@ -122,7 +122,7 @@ func (memory *Memory) executePreflightLocked(call CallRequest, authorization val
 	if payload.Operation == validation.OperationMaterialize && workItemID == "" && payload.WorkItem != nil {
 		workItemID = payload.WorkItem.ID
 	}
-	item, exists := memory.workItems[workItemID]
+	item, exists := m.workItems[workItemID]
 	var current *validation.WorkItem
 	if exists {
 		copy := cloneWorkItem(item)
@@ -130,9 +130,10 @@ func (memory *Memory) executePreflightLocked(call CallRequest, authorization val
 	}
 	request := validation.Request{
 		Operation:               payload.Operation,
-		ProjectID:               memory.projectID,
+		ProjectID:               m.projectID,
 		WorkItemID:              workItemID,
 		MaterializationKey:      requestMaterializationKey(call, payload.Payload),
+		References:              lifecycleReferences(payload.Operation, authorization.Role, payload.Payload),
 		ExpectedState:           call.ExpectedState,
 		ExpectedContractVersion: call.ExpectedContractVersion,
 		FencingToken:            call.FencingToken,
@@ -143,33 +144,33 @@ func (memory *Memory) executePreflightLocked(call CallRequest, authorization val
 		Kind:        payload.ResolutionKind,
 		ChangeSetID: payload.ChangeSetID,
 	}
-	if submission, exists := memory.submissions[payload.ResolutionSubmissionID]; payload.ResolutionSubmissionID != "" && exists &&
+	if submission, exists := m.submissions[payload.ResolutionSubmissionID]; payload.ResolutionSubmissionID != "" && exists &&
 		submission.WorkItemID == workItemID && submission.Status == validation.ResolutionSubmissionStatusPending &&
-		memory.activeSubmissions[workItemID] == payload.ResolutionSubmissionID {
+		m.activeSubmissions[workItemID] == payload.ResolutionSubmissionID {
 		preview.Kind = submission.Kind
 		preview.ChangeSetID = submission.ChangeSetID
 		preview.InspectorConfirmed = submission.IndependentInspectorConfirmationID != ""
 	}
 	if preview.Kind == "add-requirement" {
-		preview.PlannedDependencyComplete = memory.plannedDependencyComplete(preview.ChangeSetID)
+		preview.PlannedDependencyComplete = m.plannedDependencyComplete(preview.ChangeSetID)
 	}
 	evaluation := validation.EvaluationContext{
 		Authority:         validation.AuthorityPreflight,
-		EvaluationTime:    memory.now(),
+		EvaluationTime:    m.now(),
 		PreviewResolution: preview,
 	}
 	if current != nil && (payload.Operation == validation.OperationRefreshDependencies || payload.Operation == validation.OperationResolveBlock) {
-		dependencies := memory.liveDependenciesLocked(*current)
+		dependencies := m.liveDependenciesLocked(*current)
 		evaluation.RefreshDependencies = &dependencies
 	}
 	decision := validation.Evaluate(request, current, evaluation)
 	if call.PolicyVersion != "" && call.PolicyVersion != authorization.PolicyVersion &&
 		validation.AuthorizePreflight(
 			authorization,
-			memory.projectID,
+			m.projectID,
 			workItemID,
 			payload.ChangeSetID,
-			[]string{"project:" + memory.projectID},
+			request.References,
 			evaluation.EvaluationTime,
 		) == nil {
 		decision = validation.RejectionDecision(request, validation.AuthorityPreflight,
@@ -178,18 +179,18 @@ func (memory *Memory) executePreflightLocked(call CallRequest, authorization val
 	return resultFromDecision(call.Operation, decision)
 }
 
-func (memory *Memory) executeLifecycleLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	request, rejection := memory.normalizeLifecycleRequest(call, authorization)
+func (m *Memory) executeLifecycleLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+	request, rejection := m.normalizeLifecycleRequest(call, authorization)
 	if rejection != nil {
 		return rejectedResult(call.Operation, rejection)
 	}
 	evaluation := validation.EvaluationContext{
 		Authority:             validation.AuthorityAuthoritative,
-		EvaluationTime:        memory.now(),
-		LeaseDuration:         memory.leaseDuration,
-		NextFencingToken:      fmt.Sprintf("fence-%d", memory.nextFencingToken+1),
-		Approvals:             memory.approvalSnapshotLocked(),
-		ResolutionSubmissions: memory.resolutionSnapshotLocked(),
+		EvaluationTime:        m.now(),
+		LeaseDuration:         m.leaseDuration,
+		NextFencingToken:      fmt.Sprintf("fence-%d", m.nextFencingToken+1),
+		Approvals:             m.approvalSnapshotLocked(),
+		ResolutionSubmissions: m.resolutionSnapshotLocked(),
 	}
 	if validation.ValidateAuthorizationContext(
 		request.Authorization,
@@ -202,7 +203,7 @@ func (memory *Memory) executeLifecycleLocked(call CallRequest, authorization val
 		return resultFromDecision(call.Operation, validation.Evaluate(request, nil, evaluation))
 	}
 	var current *validation.WorkItem
-	item, exists := memory.workItems[request.WorkItemID]
+	item, exists := m.workItems[request.WorkItemID]
 	if request.Operation == validation.OperationMaterialize {
 		if exists {
 			copy := cloneWorkItem(item)
@@ -213,12 +214,12 @@ func (memory *Memory) executeLifecycleLocked(call CallRequest, authorization val
 			decision := validation.Evaluate(request, nil, evaluation)
 			result := resultFromDecision(call.Operation, decision)
 			if request.IdempotencyKey != "" {
-				memory.rememberIdempotencyLocked(request.IdempotencyKey, validation.RequestFingerprint(request), result)
+				m.rememberIdempotencyLocked(request.IdempotencyKey, validation.RequestFingerprint(request), result)
 			}
 			return result
 		}
 		copy := cloneWorkItem(item)
-		copy.ActiveResolutionSubmissionID = memory.activeSubmissions[request.WorkItemID]
+		copy.ActiveResolutionSubmissionID = m.activeSubmissions[request.WorkItemID]
 		current = &copy
 	}
 	if validation.AuthorizeLifecycle(
@@ -241,17 +242,17 @@ func (memory *Memory) executeLifecycleLocked(call CallRequest, authorization val
 		return rejectedResult(call.Operation, invalidRequest("idempotency_key", "authoritative mutations require an idempotency key"))
 	}
 	fingerprint := validation.RequestFingerprint(request)
-	if result, handled := memory.replayLifecycleRequest(call, request, fingerprint); handled {
+	if result, handled := m.replayLifecycleRequest(call, request, fingerprint); handled {
 		return result
 	}
 	if current != nil && (request.Operation == validation.OperationRefreshDependencies || request.Operation == validation.OperationResolveBlock) {
-		dependencies := memory.liveDependenciesLocked(*current)
+		dependencies := m.liveDependenciesLocked(*current)
 		evaluation.RefreshDependencies = &dependencies
 	}
-	return memory.applyLifecycleRequest(call.Operation, request, current, authorization, fingerprint, evaluation)
+	return m.applyLifecycleRequest(call.Operation, request, current, authorization, fingerprint, evaluation)
 }
 
-func (memory *Memory) normalizeLifecycleRequest(call CallRequest, authorization validation.AuthorizationContext) (validation.Request, *validation.Rejection) {
+func (m *Memory) normalizeLifecycleRequest(call CallRequest, authorization validation.AuthorizationContext) (validation.Request, *validation.Rejection) {
 	var payload validation.Payload
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return validation.Request{}, invalidRequest("payload", err.Error())
@@ -261,7 +262,7 @@ func (memory *Memory) normalizeLifecycleRequest(call CallRequest, authorization 
 		workItemID = payload.WorkItem.ID
 	}
 	if payload.ResolutionSubmissionID != "" && payload.ChangeSetID == "" {
-		if submission, exists := memory.submissions[payload.ResolutionSubmissionID]; exists {
+		if submission, exists := m.submissions[payload.ResolutionSubmissionID]; exists {
 			payload.ChangeSetID = submission.ChangeSetID
 		}
 	}
@@ -270,41 +271,69 @@ func (memory *Memory) normalizeLifecycleRequest(call CallRequest, authorization 
 	}
 	request := validation.Request{
 		Operation:               validation.Operation(call.Operation),
-		ProjectID:               memory.projectID,
+		ProjectID:               m.projectID,
 		WorkItemID:              workItemID,
 		MaterializationKey:      requestMaterializationKey(call, payload),
 		IdempotencyKey:          call.IdempotencyKey,
 		ExpectedState:           call.ExpectedState,
 		ExpectedContractVersion: call.ExpectedContractVersion,
 		FencingToken:            call.FencingToken,
+		References:              lifecycleReferences(validation.Operation(call.Operation), authorization.Role, payload),
 		Payload:                 payload,
 		Authorization:           authorization,
 	}
 	return request, nil
 }
 
-func (memory *Memory) replayLifecycleRequest(call CallRequest, request validation.Request, fingerprint string) (Result, bool) {
-	if replay, conflict := memory.checkIdempotencyLocked(call.Operation, request.IdempotencyKey, fingerprint); replay != nil {
+// lifecycleReferences returns the Git/resource references consumed from this
+// operation's caller payload. Reconciler record-merge uses WMS-observed evidence.
+func lifecycleReferences(operation validation.Operation, role validation.Role, payload validation.Payload) []string {
+	var envelope *validation.MergeEnvelope
+	switch operation {
+	case validation.OperationMaterialize:
+		if payload.WorkItem != nil {
+			envelope = payload.WorkItem.ExpectedMerge
+		}
+	case validation.OperationRecordMerge:
+		if role != validation.RoleReconciler {
+			envelope = payload.MergeEnvelope
+		}
+	}
+	if envelope == nil {
+		return nil
+	}
+
+	refs := make([]string, 0, 4)
+	for _, ref := range []string{envelope.Target, envelope.IntegrationHead, envelope.MergeCommit, envelope.InspectionRunID} {
+		if ref != "" {
+			refs = append(refs, ref)
+		}
+	}
+	return refs
+}
+
+func (m *Memory) replayLifecycleRequest(call CallRequest, request validation.Request, fingerprint string) (Result, bool) {
+	if replay, conflict := m.checkIdempotencyLocked(call.Operation, request.IdempotencyKey, fingerprint); replay != nil {
 		return *replay, true
 	} else if conflict != nil {
 		decision := validation.RejectionDecision(request, validation.AuthorityAuthoritative, conflict)
 		return resultFromDecision(call.Operation, decision), true
 	}
 	if call.Operation == string(validation.OperationMaterialize) {
-		if replay, conflict := memory.checkMaterializationLocked(request); replay != nil {
-			memory.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, *replay)
+		if replay, conflict := m.checkMaterializationLocked(request); replay != nil {
+			m.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, *replay)
 			return *replay, true
 		} else if conflict != nil {
 			decision := validation.RejectionDecision(request, validation.AuthorityAuthoritative, conflict)
 			result := resultFromDecision(call.Operation, decision)
-			memory.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, result)
+			m.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, result)
 			return result, true
 		}
 	}
 	return Result{}, false
 }
 
-func (memory *Memory) applyLifecycleRequest(
+func (m *Memory) applyLifecycleRequest(
 	operation string,
 	request validation.Request,
 	current *validation.WorkItem,
@@ -323,24 +352,24 @@ func (memory *Memory) applyLifecycleRequest(
 			item.MaterializationKey = request.MaterializationKey
 			item.Owner = ""
 			item.Lease = nil
-			memory.workItems[item.ID] = item
+			m.workItems[item.ID] = item
 			result.WorkItemID = item.ID
 			result.WorkItemState = item.State
 			result.ContractVersion = item.ContractVersion
 			result.Resource = cloneWorkItem(item)
 		} else {
 			updated := cloneWorkItem(*current)
-			memory.applyLifecycleMutationLocked(&updated, request, authorization, decision, evaluation)
-			memory.workItems[updated.ID] = updated
+			m.applyLifecycleMutationLocked(&updated, request, authorization, decision, evaluation)
+			m.workItems[updated.ID] = updated
 			result.WorkItemID = updated.ID
 			result.WorkItemState = updated.State
 			result.ContractVersion = updated.ContractVersion
 		}
-		memory.nextFencingToken += boolToUint64(decision.FencingTokenIssued != "")
-		memory.events = append(memory.events, AuditEvent{
+		m.nextFencingToken += boolToUint64(decision.FencingTokenIssued != "")
+		m.events = append(m.events, AuditEvent{
 			Operation:              string(request.Operation),
 			Subject:                authorization.Subject,
-			AuthorizedHumanSubject: memory.approvalSubject(request.Payload.HumanApprovalID, request.Operation),
+			AuthorizedHumanSubject: m.approvalSubject(request.Payload.HumanApprovalID, request.Operation),
 			WorkItemID:             request.WorkItemID,
 			RuleVersion:            decision.RuleVersion,
 			PolicyVersion:          decision.PolicyVersion,
@@ -349,30 +378,30 @@ func (memory *Memory) applyLifecycleRequest(
 		})
 	case validation.OutcomeOmitted:
 		result.Submission = "omitted"
-		memory.events = append(memory.events, AuditEvent{
+		m.events = append(m.events, AuditEvent{
 			Operation:              string(request.Operation),
 			Subject:                authorization.Subject,
-			AuthorizedHumanSubject: memory.approvalSubject(request.Payload.HumanApprovalID, request.Operation),
+			AuthorizedHumanSubject: m.approvalSubject(request.Payload.HumanApprovalID, request.Operation),
 			RuleVersion:            decision.RuleVersion,
 			PolicyVersion:          decision.PolicyVersion,
 			Before:                 cloneStateVersion(decision.Before),
 		})
 	}
 	if request.Operation == validation.OperationResolveBlock && decision.Outcome == validation.OutcomeAllowed {
-		memory.consumeResolutionApprovalLocked(request)
+		m.consumeResolutionApprovalLocked(request)
 		result.ApprovalStatus = validation.ApprovalStatusConsumed
 	} else if request.Operation == validation.OperationResolveBlock && request.Payload.HumanApprovalID != "" {
-		if approval, exists := memory.approvals[request.Payload.HumanApprovalID]; exists {
+		if approval, exists := m.approvals[request.Payload.HumanApprovalID]; exists {
 			result.ApprovalStatus = approval.Status
 		}
 	}
 	if request.Operation == validation.OperationMaterialize && decision.Outcome != validation.OutcomeRejected {
-		memory.materializations[request.MaterializationKey] = materializationEntry{
+		m.materializations[request.MaterializationKey] = materializationEntry{
 			fingerprint: decision.MaterializationReservation.SourceFingerprint,
 			result:      cloneResult(result),
 		}
 	}
-	memory.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, result)
+	m.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, result)
 	return result
 }
 
@@ -414,20 +443,20 @@ func requestMaterializationKey(call CallRequest, payload validation.Payload) str
 	return ""
 }
 
-func (memory *Memory) plannedDependencyComplete(changeSetID string) bool {
-	changeSet, exists := memory.changeSets[changeSetID]
+func (m *Memory) plannedDependencyComplete(changeSetID string) bool {
+	changeSet, exists := m.changeSets[changeSetID]
 	if !exists || changeSet.BuildWorkItemID == "" {
 		return false
 	}
-	workItem, exists := memory.workItems[changeSet.BuildWorkItemID]
+	workItem, exists := m.workItems[changeSet.BuildWorkItemID]
 	return exists && workItem.State == validation.StateCompleted
 }
 
-func (memory *Memory) liveDependenciesLocked(item validation.WorkItem) []validation.Dependency {
+func (m *Memory) liveDependenciesLocked(item validation.WorkItem) []validation.Dependency {
 	dependencies := make([]validation.Dependency, 0, len(item.Dependencies))
 	for _, dependency := range item.Dependencies {
 		state := validation.StateInitial
-		if observed, exists := memory.workItems[dependency.ID]; exists && observed.ProjectID == memory.projectID {
+		if observed, exists := m.workItems[dependency.ID]; exists && observed.ProjectID == m.projectID {
 			state = observed.State
 		}
 		dependencies = append(dependencies, validation.Dependency{ID: dependency.ID, State: state})
@@ -498,10 +527,10 @@ func resultFromDecision(operation string, decision validation.Decision) Result {
 	return result
 }
 
-func (memory *Memory) approvalSubject(approvalID string, operation validation.Operation) string {
+func (m *Memory) approvalSubject(approvalID string, operation validation.Operation) string {
 	switch operation {
 	case validation.OperationResolveBlock, "blocked-work.submit-resolution", "blocked-work.acknowledge", "request.refine":
-		if approval, exists := memory.approvals[approvalID]; exists {
+		if approval, exists := m.approvals[approvalID]; exists {
 			return approval.ApprovedSubject
 		}
 	}
@@ -547,12 +576,12 @@ func validationNotFound(targetType string) *validation.Rejection {
 	)
 }
 
-func (memory *Memory) idempotencyScope(key string) string {
-	return memory.projectID + "\x00" + key
+func (m *Memory) idempotencyScope(key string) string {
+	return m.projectID + "\x00" + key
 }
 
-func (memory *Memory) checkIdempotencyLocked(operation, key, fingerprint string) (*Result, *validation.Rejection) {
-	entry, exists := memory.idempotency[memory.idempotencyScope(key)]
+func (m *Memory) checkIdempotencyLocked(operation, key, fingerprint string) (*Result, *validation.Rejection) {
+	entry, exists := m.idempotency[m.idempotencyScope(key)]
 	if !exists {
 		return nil, nil
 	}
@@ -579,11 +608,11 @@ func (memory *Memory) checkIdempotencyLocked(operation, key, fingerprint string)
 	return &result, nil
 }
 
-func (memory *Memory) checkMaterializationLocked(request validation.Request) (*Result, *validation.Rejection) {
+func (m *Memory) checkMaterializationLocked(request validation.Request) (*Result, *validation.Rejection) {
 	if request.Payload.WorkItem == nil {
 		return nil, nil
 	}
-	entry, exists := memory.materializations[request.MaterializationKey]
+	entry, exists := m.materializations[request.MaterializationKey]
 	if !exists {
 		return nil, nil
 	}
@@ -612,43 +641,43 @@ func (memory *Memory) checkMaterializationLocked(request validation.Request) (*R
 	return &result, nil
 }
 
-func (memory *Memory) rememberIdempotencyLocked(key, fingerprint string, result Result) {
-	memory.idempotency[memory.idempotencyScope(key)] = idempotencyEntry{
+func (m *Memory) rememberIdempotencyLocked(key, fingerprint string, result Result) {
+	m.idempotency[m.idempotencyScope(key)] = idempotencyEntry{
 		fingerprint: fingerprint,
 		result:      cloneResult(result),
 	}
 }
 
-func (memory *Memory) approvalSnapshotLocked() map[string]validation.ApprovalRecord {
-	result := make(map[string]validation.ApprovalRecord, len(memory.approvals))
-	for id, approval := range memory.approvals {
+func (m *Memory) approvalSnapshotLocked() map[string]validation.ApprovalRecord {
+	result := make(map[string]validation.ApprovalRecord, len(m.approvals))
+	for id, approval := range m.approvals {
 		result[id] = cloneApproval(approval)
 	}
 	return result
 }
 
-func (memory *Memory) resolutionSnapshotLocked() map[string]validation.ResolutionSubmission {
-	result := make(map[string]validation.ResolutionSubmission, len(memory.submissions))
-	for id, submission := range memory.submissions {
+func (m *Memory) resolutionSnapshotLocked() map[string]validation.ResolutionSubmission {
+	result := make(map[string]validation.ResolutionSubmission, len(m.submissions))
+	for id, submission := range m.submissions {
 		resolution := submission.ResolutionSubmission
 		resolution.IndependentInspectorConfirmed = resolution.IndependentInspectorConfirmationID != ""
 		if resolution.Kind == "add-requirement" {
-			resolution.PlannedDependencyComplete = memory.plannedDependencyComplete(resolution.ChangeSetID)
+			resolution.PlannedDependencyComplete = m.plannedDependencyComplete(resolution.ChangeSetID)
 		}
 		result[id] = resolution
 	}
 	return result
 }
 
-func (memory *Memory) consumeResolutionApprovalLocked(request validation.Request) {
-	approval := memory.approvals[request.Payload.HumanApprovalID]
+func (m *Memory) consumeResolutionApprovalLocked(request validation.Request) {
+	approval := m.approvals[request.Payload.HumanApprovalID]
 	approval.ID = request.Payload.HumanApprovalID
 	approval.Status = validation.ApprovalStatusConsumed
-	memory.approvals[approval.ID] = approval
-	submission := memory.submissions[request.Payload.ResolutionSubmissionID]
+	m.approvals[approval.ID] = approval
+	submission := m.submissions[request.Payload.ResolutionSubmissionID]
 	submission.Status = validation.ResolutionSubmissionStatusConsumed
-	memory.submissions[submission.ID] = submission
-	memory.activeSubmissions[request.WorkItemID] = ""
+	m.submissions[submission.ID] = submission
+	m.activeSubmissions[request.WorkItemID] = ""
 }
 
 func cloneWorkItem(item validation.WorkItem) validation.WorkItem {
@@ -717,20 +746,20 @@ func boolToUint64(value bool) uint64 {
 	return 0
 }
 
-func (memory *Memory) nextRequestIDLocked() string {
-	memory.nextRequestID++
-	return fmt.Sprintf("request-%03d", memory.nextRequestID)
+func (m *Memory) nextRequestIDLocked() string {
+	m.nextRequestID++
+	return fmt.Sprintf("request-%03d", m.nextRequestID)
 }
 
-func (memory *Memory) nextSubmissionIDLocked(acknowledgement bool) string {
+func (m *Memory) nextSubmissionIDLocked(acknowledgement bool) string {
 	prefix := "resolution-submission"
 	if acknowledgement {
 		prefix = "acknowledgement"
-		memory.nextAcknowledgementID++
-		return fmt.Sprintf("%s-%03d", prefix, memory.nextAcknowledgementID)
+		m.nextAcknowledgementID++
+		return fmt.Sprintf("%s-%03d", prefix, m.nextAcknowledgementID)
 	}
-	memory.nextResolutionSubmissionID++
-	return fmt.Sprintf("%s-%03d", prefix, memory.nextResolutionSubmissionID)
+	m.nextResolutionSubmissionID++
+	return fmt.Sprintf("%s-%03d", prefix, m.nextResolutionSubmissionID)
 }
 
 func isBlank(value string) bool {

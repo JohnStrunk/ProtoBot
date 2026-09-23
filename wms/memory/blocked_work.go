@@ -11,8 +11,8 @@ type blockedResolutionPayload struct {
 	Reason                   string `json:"reason,omitempty"`
 }
 
-func (memory *Memory) submitResolutionLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	item, exists := memory.workItems[call.WorkItemID]
+func (m *Memory) submitResolutionLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+	item, exists := m.workItems[call.WorkItemID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("work-item"))
 	}
@@ -30,18 +30,18 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "work-item"))
 	}
 	if payload.ResolutionKind == "add-requirement" || payload.ResolutionKind == "impact-amendment" {
-		if _, exists := memory.changeSets[payload.ChangeSetID]; !exists {
+		if _, exists := m.changeSets[payload.ChangeSetID]; !exists {
 			return rejectedResult(call.Operation, validationNotFound("change-set"))
 		}
 	}
-	approval, exists := memory.approvals[call.HumanApprovalID]
-	if !exists || memory.materializerSubject == "" {
+	approval, exists := m.approvals[call.HumanApprovalID]
+	if !exists || m.materializerSubject == "" {
 		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "work-item"))
 	}
 	requirement := validation.ApprovalRequirement{
 		Action:                  validation.OperationResolveBlock,
-		DelegatedPrincipal:      memory.materializerSubject,
-		ProjectID:               memory.projectID,
+		DelegatedPrincipal:      m.materializerSubject,
+		ProjectID:               m.projectID,
 		WorkItemID:              call.WorkItemID,
 		ResolutionKind:          payload.ResolutionKind,
 		Digest:                  payload.ApprovalResolutionDigest,
@@ -49,7 +49,7 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 		ExpectedContractVersion: call.ExpectedContractVersion,
 		PolicyVersion:           authorization.PolicyVersion,
 	}
-	if rejection := validation.ValidateApproval(approval, requirement, memory.now()); rejection != nil {
+	if rejection := validation.ValidateApproval(approval, requirement, m.now()); rejection != nil {
 		return rejectedResult(call.Operation, rejection)
 	}
 
@@ -64,32 +64,32 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 	result.ContractVersion = item.ContractVersion
 	if payload.ResolutionKind == "add-requirement" {
 		dependencyStatus := "incomplete"
-		if memory.plannedDependencyComplete(payload.ChangeSetID) {
+		if m.plannedDependencyComplete(payload.ChangeSetID) {
 			dependencyStatus = "complete"
 		}
 		result.PlannedDependency = &PlannedDependency{ChangeSetID: payload.ChangeSetID, Status: dependencyStatus}
 	}
-	if priorID := memory.activeSubmissions[item.ID]; priorID != "" {
-		prior := memory.submissions[priorID]
+	if priorID := m.activeSubmissions[item.ID]; priorID != "" {
+		prior := m.submissions[priorID]
 		if prior.Status == validation.ResolutionSubmissionStatusPending {
 			prior.Status = validation.ResolutionSubmissionStatusSuperseded
-			memory.submissions[priorID] = prior
+			m.submissions[priorID] = prior
 			result.PriorResolutionSubmissionID = priorID
 			result.PriorSubmissionStatus = validation.ResolutionSubmissionStatusSuperseded
 			if prior.ApprovalID == call.HumanApprovalID {
-				result.PriorApprovalStatus = memory.approvals[prior.ApprovalID].Status
+				result.PriorApprovalStatus = m.approvals[prior.ApprovalID].Status
 			} else {
-				priorApproval := memory.approvals[prior.ApprovalID]
+				priorApproval := m.approvals[prior.ApprovalID]
 				priorApproval.ID = prior.ApprovalID
 				priorApproval.Status = validation.ApprovalStatusRevoked
-				memory.approvals[prior.ApprovalID] = priorApproval
+				m.approvals[prior.ApprovalID] = priorApproval
 				result.PriorApprovalStatus = validation.ApprovalStatusRevoked
 			}
 		}
 	}
-	memory.resolutionRevisions[item.ID]++
-	revision := memory.resolutionRevisions[item.ID]
-	submissionID := memory.nextSubmissionIDLocked(false)
+	m.resolutionRevisions[item.ID]++
+	revision := m.resolutionRevisions[item.ID]
+	submissionID := m.nextSubmissionIDLocked(false)
 	submission := Submission{
 		ResolutionSubmission: validation.ResolutionSubmission{
 			ID:                   submissionID,
@@ -103,11 +103,11 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 		},
 		Revision: revision,
 	}
-	memory.submissions[submissionID] = submission
-	memory.activeSubmissions[item.ID] = submissionID
+	m.submissions[submissionID] = submission
+	m.activeSubmissions[item.ID] = submissionID
 	result.ResolutionSubmissionID = submissionID
 	result.ResolutionSubmissionRevision = revision
-	memory.events = append(memory.events, AuditEvent{
+	m.events = append(m.events, AuditEvent{
 		Operation:              call.Operation,
 		Subject:                authorization.Subject,
 		AuthorizedHumanSubject: approval.ApprovedSubject,
@@ -117,8 +117,8 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 	return result
 }
 
-func (memory *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	item, exists := memory.workItems[call.WorkItemID]
+func (m *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+	item, exists := m.workItems[call.WorkItemID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("work-item"))
 	}
@@ -132,27 +132,27 @@ func (memory *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorizati
 	if isBlank(payload.Reason) || payload.ApprovalResolutionDigest == "" || call.HumanApprovalID == "" {
 		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "work-item"))
 	}
-	approval, exists := memory.approvals[call.HumanApprovalID]
+	approval, exists := m.approvals[call.HumanApprovalID]
 	if !exists {
 		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "work-item"))
 	}
 	requirement := validation.ApprovalRequirement{
 		Action:                  validation.Operation("blocked-work.acknowledge"),
 		DelegatedPrincipal:      authorization.Subject,
-		ProjectID:               memory.projectID,
+		ProjectID:               m.projectID,
 		WorkItemID:              call.WorkItemID,
 		Digest:                  payload.ApprovalResolutionDigest,
 		ExpectedState:           call.ExpectedState,
 		ExpectedContractVersion: call.ExpectedContractVersion,
 		PolicyVersion:           authorization.PolicyVersion,
 	}
-	if rejection := validation.ValidateApproval(approval, requirement, memory.now()); rejection != nil {
+	if rejection := validation.ValidateApproval(approval, requirement, m.now()); rejection != nil {
 		return rejectedResult(call.Operation, rejection)
 	}
 	approval.ID = call.HumanApprovalID
 	approval.Status = validation.ApprovalStatusConsumed
-	memory.approvals[call.HumanApprovalID] = approval
-	submissionID := memory.nextSubmissionIDLocked(true)
+	m.approvals[call.HumanApprovalID] = approval
+	submissionID := m.nextSubmissionIDLocked(true)
 	submission := Submission{
 		ResolutionSubmission: validation.ResolutionSubmission{
 			ID:             submissionID,
@@ -164,8 +164,8 @@ func (memory *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorizati
 		},
 		Revision: 1,
 	}
-	memory.submissions[submissionID] = submission
-	memory.events = append(memory.events, AuditEvent{
+	m.submissions[submissionID] = submission
+	m.events = append(m.events, AuditEvent{
 		Operation:              call.Operation,
 		Subject:                authorization.Subject,
 		AuthorizedHumanSubject: approval.ApprovedSubject,

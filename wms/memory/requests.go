@@ -62,14 +62,14 @@ type workItemQueryPayload struct {
 	Priority   string           `json:"priority,omitempty"`
 }
 
-func (memory *Memory) executeRequestLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+func (m *Memory) executeRequestLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	mutating := isRequestMutation(call.Operation)
 	if mutating && call.IdempotencyKey == "" {
 		return rejectedResult(call.Operation, invalidRequest("idempotency_key", "request mutations require an idempotency key"))
 	}
 	fingerprint := requestFingerprint(call, authorization)
 	if mutating {
-		if replay, conflict := memory.checkIdempotencyLocked(call.Operation, call.IdempotencyKey, fingerprint); replay != nil {
+		if replay, conflict := m.checkIdempotencyLocked(call.Operation, call.IdempotencyKey, fingerprint); replay != nil {
 			return *replay
 		} else if conflict != nil {
 			return rejectedResult(call.Operation, conflict)
@@ -79,39 +79,39 @@ func (memory *Memory) executeRequestLocked(call CallRequest, authorization valid
 	var result Result
 	switch call.Operation {
 	case "request.create":
-		result = memory.createRequestLocked(call, authorization)
+		result = m.createRequestLocked(call, authorization)
 	case "request.refine":
-		result = memory.refineRequestLocked(call, authorization)
+		result = m.refineRequestLocked(call, authorization)
 	case "request.update-priority":
-		result = memory.updatePriorityLocked(call, authorization)
+		result = m.updatePriorityLocked(call, authorization)
 	case "request.link-change-set":
-		result = memory.linkChangeSetLocked(call, authorization)
+		result = m.linkChangeSetLocked(call, authorization)
 	case "request.link-build-work-item":
-		result = memory.linkWorkItemLocked(call, authorization)
+		result = m.linkWorkItemLocked(call, authorization)
 	case "request.get":
-		result = memory.getRequestLocked(call)
+		result = m.getRequestLocked(call)
 	case "request.query":
-		result = memory.queryRequestsLocked(call)
+		result = m.queryRequestsLocked(call)
 	case "work-item.get":
-		result = memory.getWorkItemLocked(call)
+		result = m.getWorkItemLocked(call)
 	case "work-item.query":
-		result = memory.queryWorkItemsLocked(call)
+		result = m.queryWorkItemsLocked(call)
 	case "blocked-work.query":
-		result = memory.queryBlockedWorkLocked(call)
+		result = m.queryBlockedWorkLocked(call)
 	case "blocked-work.submit-resolution":
-		result = memory.submitResolutionLocked(call, authorization)
+		result = m.submitResolutionLocked(call, authorization)
 	case "blocked-work.acknowledge":
-		result = memory.acknowledgeBlockedWorkLocked(call, authorization)
+		result = m.acknowledgeBlockedWorkLocked(call, authorization)
 	default:
 		result = rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, authorization.PolicyVersion))
 	}
 	if mutating {
-		memory.rememberIdempotencyLocked(call.IdempotencyKey, fingerprint, result)
+		m.rememberIdempotencyLocked(call.IdempotencyKey, fingerprint, result)
 	}
 	return result
 }
 
-func (memory *Memory) createRequestLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+func (m *Memory) createRequestLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	var payload createRequestPayload
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
@@ -120,16 +120,16 @@ func (memory *Memory) createRequestLocked(call CallRequest, authorization valida
 		return rejectedResult(call.Operation, invalidRequest("intent/rationale", "intent and rationale are required"))
 	}
 	semanticKey := requestSemanticKey(payload)
-	if _, exists := memory.semanticRequests[semanticKey]; exists {
+	if _, exists := m.semanticRequests[semanticKey]; exists {
 		return rejectedResult(call.Operation, wmsRejection(
 			CodeDuplicateRequest,
 			"A semantically equivalent request already exists.",
-			map[string]any{"request_id": memory.semanticRequests[semanticKey]},
+			map[string]any{"request_id": m.semanticRequests[semanticKey]},
 			validation.RetryQuery,
 		))
 	}
 	request := RequestRecord{
-		ID:                 memory.nextRequestIDLocked(),
+		ID:                 m.nextRequestIDLocked(),
 		Intent:             strings.TrimSpace(payload.Intent),
 		Rationale:          strings.TrimSpace(payload.Rationale),
 		CreatedBy:          authorization.Subject,
@@ -138,9 +138,9 @@ func (memory *Memory) createRequestLocked(call CallRequest, authorization valida
 		RefinementState:    "unrefined",
 		Revision:           1,
 	}
-	memory.requests[request.ID] = request
-	memory.semanticRequests[semanticKey] = request.ID
-	memory.events = append(memory.events, AuditEvent{
+	m.requests[request.ID] = request
+	m.semanticRequests[semanticKey] = request.ID
+	m.events = append(m.events, AuditEvent{
 		Operation:     call.Operation,
 		Subject:       authorization.Subject,
 		RequestID:     request.ID,
@@ -156,8 +156,8 @@ func (memory *Memory) createRequestLocked(call CallRequest, authorization valida
 	return result
 }
 
-func (memory *Memory) refineRequestLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	request, exists := memory.requests[call.RequestID]
+func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+	request, exists := m.requests[call.RequestID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("request"))
 	}
@@ -175,19 +175,19 @@ func (memory *Memory) refineRequestLocked(call CallRequest, authorization valida
 	if call.HumanApprovalID != "" {
 		approvalID = call.HumanApprovalID
 	}
-	approval, exists := memory.approvals[approvalID]
+	approval, exists := m.approvals[approvalID]
 	if !exists {
 		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "request"))
 	}
 	requirement := validation.ApprovalRequirement{
 		Action:             validation.Operation("request.refine"),
 		DelegatedPrincipal: authorization.Subject,
-		ProjectID:          memory.projectID,
+		ProjectID:          m.projectID,
 		RequestID:          request.ID,
 		Digest:             payload.ApprovalRefinementDigest,
 		PolicyVersion:      authorization.PolicyVersion,
 	}
-	if rejection := validation.ValidateApproval(approval, requirement, memory.now()); rejection != nil {
+	if rejection := validation.ValidateApproval(approval, requirement, m.now()); rejection != nil {
 		return rejectedResult(call.Operation, rejection)
 	}
 	if payload.Intent != "" {
@@ -206,7 +206,7 @@ func (memory *Memory) refineRequestLocked(call CallRequest, authorization valida
 		request.AffectedScopes = sortedUnique(payload.AffectedScopes)
 	}
 	if payload.Relationships != nil {
-		if rejection := validateRelationships(payload.Relationships, memory.requests, request.ID); rejection != nil {
+		if rejection := validateRelationships(payload.Relationships, m.requests, request.ID); rejection != nil {
 			return rejectedResult(call.Operation, rejection)
 		}
 		request.Relationships = append([]RequestRelationship(nil), payload.Relationships...)
@@ -214,10 +214,10 @@ func (memory *Memory) refineRequestLocked(call CallRequest, authorization valida
 	request.Classification = payload.Classification
 	request.RefinementState = payload.RefinementState
 	request.Revision++
-	memory.requests[request.ID] = request
+	m.requests[request.ID] = request
 	approval.Status = validation.ApprovalStatusConsumed
-	memory.approvals[approvalID] = approval
-	memory.events = append(memory.events, AuditEvent{
+	m.approvals[approvalID] = approval
+	m.events = append(m.events, AuditEvent{
 		Operation:              call.Operation,
 		Subject:                authorization.Subject,
 		AuthorizedHumanSubject: approval.ApprovedSubject,
@@ -235,8 +235,8 @@ func (memory *Memory) refineRequestLocked(call CallRequest, authorization valida
 	return result
 }
 
-func (memory *Memory) updatePriorityLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	request, exists := memory.requests[call.RequestID]
+func (m *Memory) updatePriorityLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+	request, exists := m.requests[call.RequestID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("request"))
 	}
@@ -252,31 +252,31 @@ func (memory *Memory) updatePriorityLocked(call CallRequest, authorization valid
 	}
 	var changeSetPriority, workItemPriority string
 	if request.ChangeSetID != "" {
-		if _, exists := memory.changeSets[request.ChangeSetID]; !exists {
+		if _, exists := m.changeSets[request.ChangeSetID]; !exists {
 			return rejectedResult(call.Operation, validationNotFound("change-set"))
 		}
 	}
 	if request.BuildWorkItemID != "" {
-		if _, exists := memory.workItems[request.BuildWorkItemID]; !exists {
+		if _, exists := m.workItems[request.BuildWorkItemID]; !exists {
 			return rejectedResult(call.Operation, validationNotFound("work-item"))
 		}
 	}
 	request.BusinessPriority = payload.BusinessPriority
 	request.Revision++
-	memory.requests[request.ID] = request
+	m.requests[request.ID] = request
 	if request.ChangeSetID != "" {
-		changeSet := memory.changeSets[request.ChangeSetID]
+		changeSet := m.changeSets[request.ChangeSetID]
 		changeSet.BusinessPriority = payload.BusinessPriority
-		memory.changeSets[changeSet.ID] = changeSet
+		m.changeSets[changeSet.ID] = changeSet
 		changeSetPriority = changeSet.BusinessPriority
 	}
 	if request.BuildWorkItemID != "" {
-		workItem := memory.workItems[request.BuildWorkItemID]
+		workItem := m.workItems[request.BuildWorkItemID]
 		workItem.Priority = payload.BusinessPriority
-		memory.workItems[workItem.ID] = workItem
+		m.workItems[workItem.ID] = workItem
 		workItemPriority = workItem.Priority
 	}
-	memory.events = append(memory.events, AuditEvent{
+	m.events = append(m.events, AuditEvent{
 		Operation:     call.Operation,
 		Subject:       authorization.Subject,
 		RequestID:     request.ID,
@@ -293,15 +293,15 @@ func (memory *Memory) updatePriorityLocked(call CallRequest, authorization valid
 	result.AuditEvent = "priority-updated"
 	result.LinkedChangeSetPriority = changeSetPriority
 	result.LinkedWorkItemPriority = workItemPriority
-	if workItem, exists := memory.workItems[request.BuildWorkItemID]; exists {
+	if workItem, exists := m.workItems[request.BuildWorkItemID]; exists {
 		result.WorkItemState = workItem.State
 		result.ContractVersion = workItem.ContractVersion
 	}
 	return result
 }
 
-func (memory *Memory) linkChangeSetLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	request, exists := memory.requests[call.RequestID]
+func (m *Memory) linkChangeSetLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+	request, exists := m.requests[call.RequestID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("request"))
 	}
@@ -312,7 +312,7 @@ func (memory *Memory) linkChangeSetLocked(call CallRequest, authorization valida
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
-	changeSet, exists := memory.changeSets[payload.ChangeSetID]
+	changeSet, exists := m.changeSets[payload.ChangeSetID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("change-set"))
 	}
@@ -323,8 +323,8 @@ func (memory *Memory) linkChangeSetLocked(call CallRequest, authorization valida
 	}
 	request.ChangeSetID = payload.ChangeSetID
 	request.Revision++
-	memory.requests[request.ID] = request
-	memory.events = append(memory.events, AuditEvent{
+	m.requests[request.ID] = request
+	m.events = append(m.events, AuditEvent{
 		Operation:     call.Operation,
 		Subject:       authorization.Subject,
 		RequestID:     request.ID,
@@ -341,8 +341,8 @@ func (memory *Memory) linkChangeSetLocked(call CallRequest, authorization valida
 	return result
 }
 
-func (memory *Memory) linkWorkItemLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	request, exists := memory.requests[call.RequestID]
+func (m *Memory) linkWorkItemLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
+	request, exists := m.requests[call.RequestID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("request"))
 	}
@@ -353,7 +353,7 @@ func (memory *Memory) linkWorkItemLocked(call CallRequest, authorization validat
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
-	if _, exists := memory.workItems[payload.BuildWorkItemID]; !exists {
+	if _, exists := m.workItems[payload.BuildWorkItemID]; !exists {
 		return rejectedResult(call.Operation, validationNotFound("work-item"))
 	}
 	if payload.BuildWorkItemID == "" || request.BuildWorkItemID == payload.BuildWorkItemID {
@@ -361,8 +361,8 @@ func (memory *Memory) linkWorkItemLocked(call CallRequest, authorization validat
 	}
 	request.BuildWorkItemID = payload.BuildWorkItemID
 	request.Revision++
-	memory.requests[request.ID] = request
-	memory.events = append(memory.events, AuditEvent{
+	m.requests[request.ID] = request
+	m.events = append(m.events, AuditEvent{
 		Operation:     call.Operation,
 		Subject:       authorization.Subject,
 		RequestID:     request.ID,
@@ -380,8 +380,8 @@ func (memory *Memory) linkWorkItemLocked(call CallRequest, authorization validat
 	return result
 }
 
-func (memory *Memory) getRequestLocked(call CallRequest) Result {
-	request, exists := memory.requests[call.RequestID]
+func (m *Memory) getRequestLocked(call CallRequest) Result {
+	request, exists := m.requests[call.RequestID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("request"))
 	}
@@ -392,19 +392,19 @@ func (memory *Memory) getRequestLocked(call CallRequest) Result {
 	return result
 }
 
-func (memory *Memory) queryRequestsLocked(call CallRequest) Result {
+func (m *Memory) queryRequestsLocked(call CallRequest) Result {
 	var payload requestQueryPayload
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
-	ids := make([]string, 0, len(memory.requests))
-	for id := range memory.requests {
+	ids := make([]string, 0, len(m.requests))
+	for id := range m.requests {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	result := newResult(call.Operation)
 	for _, id := range ids {
-		request := memory.requests[id]
+		request := m.requests[id]
 		if matchesRequestQuery(request, payload) {
 			result.Requests = append(result.Requests, cloneRequest(request))
 		}
@@ -413,8 +413,8 @@ func (memory *Memory) queryRequestsLocked(call CallRequest) Result {
 	return result
 }
 
-func (memory *Memory) getWorkItemLocked(call CallRequest) Result {
-	item, exists := memory.workItems[call.WorkItemID]
+func (m *Memory) getWorkItemLocked(call CallRequest) Result {
+	item, exists := m.workItems[call.WorkItemID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("work-item"))
 	}
@@ -425,19 +425,19 @@ func (memory *Memory) getWorkItemLocked(call CallRequest) Result {
 	return result
 }
 
-func (memory *Memory) queryWorkItemsLocked(call CallRequest) Result {
+func (m *Memory) queryWorkItemsLocked(call CallRequest) Result {
 	var payload workItemQueryPayload
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
-	ids := make([]string, 0, len(memory.workItems))
-	for id := range memory.workItems {
+	ids := make([]string, 0, len(m.workItems))
+	for id := range m.workItems {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	result := newResult(call.Operation)
 	for _, id := range ids {
-		item := memory.workItems[id]
+		item := m.workItems[id]
 		projection := projectWorkItem(item)
 		if matchesWorkItemQuery(projection, payload) {
 			result.Items = append(result.Items, projection)
@@ -447,15 +447,15 @@ func (memory *Memory) queryWorkItemsLocked(call CallRequest) Result {
 	return result
 }
 
-func (memory *Memory) queryBlockedWorkLocked(call CallRequest) Result {
-	ids := make([]string, 0, len(memory.workItems))
-	for id := range memory.workItems {
+func (m *Memory) queryBlockedWorkLocked(call CallRequest) Result {
+	ids := make([]string, 0, len(m.workItems))
+	for id := range m.workItems {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
 	result := newResult(call.Operation)
 	for _, id := range ids {
-		item := memory.workItems[id]
+		item := m.workItems[id]
 		if item.State != validation.StateBlocked {
 			continue
 		}
