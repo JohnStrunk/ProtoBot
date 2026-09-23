@@ -156,8 +156,13 @@ func (memory *Memory) executeLifecycleLocked(call CallRequest, authorization val
 		return resultFromDecision(call.Operation, validation.Evaluate(request, nil, evaluation))
 	}
 	var current *validation.WorkItem
-	if request.Operation != validation.OperationMaterialize {
-		item, exists := memory.workItems[request.WorkItemID]
+	item, exists := memory.workItems[request.WorkItemID]
+	if request.Operation == validation.OperationMaterialize {
+		if exists {
+			copy := cloneWorkItem(item)
+			current = &copy
+		}
+	} else {
 		if !exists {
 			decision := validation.Evaluate(request, nil, evaluation)
 			result := resultFromDecision(call.Operation, decision)

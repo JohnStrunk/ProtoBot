@@ -175,6 +175,125 @@ func TestMaterializationReplaysOriginalResultAndRejectsSourceConflict(t *testing
 	}
 }
 
+func TestMaterializationCannotReplaceExistingWorkItemID(t *testing.T) {
+	for _, state := range []validation.State{validation.StateBuilding, validation.StateCompleted} {
+		t.Run(string(state), func(t *testing.T) {
+			gate := StaticGate{
+				"materializer": testAuthorization("materializer", validation.RoleMaterializer, validation.OperationMaterialize),
+			}
+			memory := newTestMemory(t, gate, "materializer")
+			existing := testWorkItem("wi-existing", state, 12)
+			if state == validation.StateBuilding {
+				setConformanceLease(&existing, "job-site", "fence-existing", memoryTestTime.Add(time.Hour))
+			}
+			if err := memory.SeedWorkItem(existing); err != nil {
+				t.Fatal(err)
+			}
+
+			candidate := testWorkItem(existing.ID, validation.StateInitial, 0)
+			candidate.ChangeType = "undefined"
+			result := memory.Execute(materializeCall(candidate, "new-materialization-command", "new-materialization-key"))
+			assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeIdempotencyConflict)
+			assertItemUnchanged(t, memory, existing)
+			assertEventCount(t, memory, 0)
+		})
+	}
+}
+
+func TestSupersedingResolutionWithSameApprovalKeepsApprovalUsable(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	item := testWorkItem("wi-same-approval", validation.StateBlocked, 7)
+	seedConformanceItem(t, memory, item)
+	seedCompletedDependencyAndChangeSet(t, memory, "wi-same-approval-dependency", "CS-same-approval")
+	approval := conformanceApproval(item, "same-approval", "human-same", "materializer-1", "add-requirement")
+	if err := memory.SeedApproval(approval); err != nil {
+		t.Fatal(err)
+	}
+
+	first := submitConformanceResolution(t, memory, item, approval.ID, approval.Digest, "CS-same-approval", "submit-same-approval-1")
+	second := submitConformanceResolution(t, memory, item, approval.ID, approval.Digest, "CS-same-approval", "submit-same-approval-2")
+	if !first.OK || !second.OK || first.ResolutionSubmissionID == second.ResolutionSubmissionID {
+		t.Fatalf("same-approval submissions = %#v / %#v, want two accepted submissions", first, second)
+	}
+	if second.PriorSubmissionStatus != "superseded" || second.PriorApprovalStatus != "unused" {
+		t.Fatalf("supersession result = %#v, want prior submission superseded and shared approval unused", second)
+	}
+	prior, _ := memory.Submission(first.ResolutionSubmissionID)
+	current, _ := memory.Submission(second.ResolutionSubmissionID)
+	storedApproval, _ := memory.Approval(approval.ID)
+	if prior.Status != "superseded" || current.Status != "pending" || storedApproval.Status != "unused" {
+		t.Fatalf("supersession state: prior=%#v current=%#v approval=%#v", prior, current, storedApproval)
+	}
+
+	resolved := memory.Execute(conformanceResolveCall(t, item, approval.ID, second.ResolutionSubmissionID, approval.Digest, "resolve-same-approval"))
+	decision := assertAllowedDecision(t, resolved, validation.AuthorityAuthoritative)
+	if decision.After.State != validation.StateReadyForBuilding || resolved.ApprovalStatus != "consumed" {
+		t.Fatalf("same-approval resolve result = %#v, want ready and consumed", resolved)
+	}
+	assertEventCount(t, memory, 3)
+}
+
+func TestRequestLinkAuditIncludesActorAndPolicyVersion(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	if err := memory.SeedChangeSet(ChangeSet{ID: "CS-audit", Revision: "proposed"}); err != nil {
+		t.Fatal(err)
+	}
+	workItem := testWorkItem("wi-audit", validation.StateReadyForBuilding, 1)
+	if err := memory.SeedWorkItem(workItem); err != nil {
+		t.Fatal(err)
+	}
+	created := memory.Execute(CallRequest{
+		Operation:       "request.create",
+		ActorContextRef: "drafting-table",
+		IdempotencyKey:  "audit-request-create",
+		Payload:         jsonPayload(t, createRequestPayload{Intent: "Record a WMS request", Rationale: "Exercise link auditing."}),
+	})
+	if !created.OK {
+		t.Fatalf("request create result = %#v", created)
+	}
+
+	requestRevision := created.RequestRevision
+	changeSetLink := memory.Execute(CallRequest{
+		Operation:               "request.link-change-set",
+		ActorContextRef:         "drafting-table",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &requestRevision,
+		IdempotencyKey:          "audit-link-change-set",
+		Payload: jsonPayload(t, changeSetLinkPayload{
+			ChangeSetID:    "CS-audit",
+			TargetRevision: "proposed",
+		}),
+	})
+	if !changeSetLink.OK {
+		t.Fatalf("change-set link result = %#v", changeSetLink)
+	}
+	requestRevision = changeSetLink.RequestRevision
+	workItemLink := memory.Execute(CallRequest{
+		Operation:               "request.link-build-work-item",
+		ActorContextRef:         "drafting-table",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &requestRevision,
+		IdempotencyKey:          "audit-link-work-item",
+		Payload:                 jsonPayload(t, workItemLinkPayload{BuildWorkItemID: workItem.ID}),
+	})
+	if !workItemLink.OK {
+		t.Fatalf("work-item link result = %#v", workItemLink)
+	}
+
+	events := memory.Events()
+	if len(events) != 3 {
+		t.Fatalf("request and link audit events = %#v, want three events", events)
+	}
+	for _, index := range []int{1, 2} {
+		if events[index].Subject != "drafting-agent" || events[index].PolicyVersion != "wms-policy/v1" || events[index].RequestID != created.RequestID {
+			t.Errorf("link audit event %d = %#v, want subject, policy, and request identity", index, events[index])
+		}
+	}
+	if events[1].Operation != "request.link-change-set" || events[2].Operation != "request.link-build-work-item" || events[2].WorkItemID != workItem.ID {
+		t.Fatalf("link audit event identities = %#v / %#v", events[1], events[2])
+	}
+}
+
 func TestCompletionReplayReturnsOriginalResult(t *testing.T) {
 	gate := StaticGate{
 		"job-site": testAuthorization("job-site", validation.RoleJobSite, validation.OperationRecordMerge),

@@ -85,9 +85,9 @@ func (memory *Memory) executeRequestLocked(call CallRequest, authorization valid
 	case "request.update-priority":
 		result = memory.updatePriorityLocked(call, authorization)
 	case "request.link-change-set":
-		result = memory.linkChangeSetLocked(call)
+		result = memory.linkChangeSetLocked(call, authorization)
 	case "request.link-build-work-item":
-		result = memory.linkWorkItemLocked(call)
+		result = memory.linkWorkItemLocked(call, authorization)
 	case "request.get":
 		result = memory.getRequestLocked(call)
 	case "request.query":
@@ -299,7 +299,7 @@ func (memory *Memory) updatePriorityLocked(call CallRequest, authorization valid
 	return result
 }
 
-func (memory *Memory) linkChangeSetLocked(call CallRequest) Result {
+func (memory *Memory) linkChangeSetLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	request, exists := memory.requests[call.RequestID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("request"))
@@ -323,7 +323,12 @@ func (memory *Memory) linkChangeSetLocked(call CallRequest) Result {
 	request.ChangeSetID = payload.ChangeSetID
 	request.Revision++
 	memory.requests[request.ID] = request
-	memory.events = append(memory.events, AuditEvent{Operation: call.Operation, RequestID: request.ID})
+	memory.events = append(memory.events, AuditEvent{
+		Operation:     call.Operation,
+		Subject:       authorization.Subject,
+		RequestID:     request.ID,
+		PolicyVersion: authorization.PolicyVersion,
+	})
 	result := newResult(call.Operation)
 	result.Outcome = outcomeApplied
 	result.Mutation = mutationApplied
@@ -335,7 +340,7 @@ func (memory *Memory) linkChangeSetLocked(call CallRequest) Result {
 	return result
 }
 
-func (memory *Memory) linkWorkItemLocked(call CallRequest) Result {
+func (memory *Memory) linkWorkItemLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	request, exists := memory.requests[call.RequestID]
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("request"))
@@ -356,7 +361,13 @@ func (memory *Memory) linkWorkItemLocked(call CallRequest) Result {
 	request.BuildWorkItemID = payload.BuildWorkItemID
 	request.Revision++
 	memory.requests[request.ID] = request
-	memory.events = append(memory.events, AuditEvent{Operation: call.Operation, RequestID: request.ID, WorkItemID: payload.BuildWorkItemID})
+	memory.events = append(memory.events, AuditEvent{
+		Operation:     call.Operation,
+		Subject:       authorization.Subject,
+		RequestID:     request.ID,
+		WorkItemID:    payload.BuildWorkItemID,
+		PolicyVersion: authorization.PolicyVersion,
+	})
 	result := newResult(call.Operation)
 	result.Outcome = outcomeApplied
 	result.Mutation = mutationApplied
