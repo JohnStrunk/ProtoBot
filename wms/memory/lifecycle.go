@@ -112,7 +112,10 @@ func refreshedBlockReason(item *validation.WorkItem, evaluation validation.Evalu
 	if evaluation.RefreshDependencies != nil {
 		dependencies = *evaluation.RefreshDependencies
 	}
-	if dependency := firstIncompleteDependency(dependencies); dependency != "" {
+	if dependency, incomplete := firstIncompleteDependency(dependencies); incomplete {
+		if dependency == "" {
+			return "an unnamed dependency is incomplete"
+		}
 		return "dependency " + dependency + " is incomplete"
 	}
 	return "refresh found unresolved work"
@@ -146,12 +149,14 @@ func readinessFailure(readiness validation.Readiness) string {
 	return ""
 }
 
-func firstIncompleteDependency(dependencies []validation.Dependency) string {
+func firstIncompleteDependency(dependencies []validation.Dependency) (string, bool) {
 	blocking := ""
+	found := false
 	for _, dependency := range dependencies {
-		if dependency.State != validation.StateCompleted && (blocking == "" || dependency.ID < blocking) {
+		if dependency.State != validation.StateCompleted && (!found || dependency.ID < blocking) {
 			blocking = dependency.ID
+			found = true
 		}
 	}
-	return blocking
+	return blocking, found
 }
