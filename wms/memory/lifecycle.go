@@ -27,6 +27,8 @@ func (memory *Memory) applyLifecycleMutationLocked(
 		memory.releaseLease(item)
 	case validation.OperationRevalidate:
 		item.BlockReason = readinessFailure(item.Readiness)
+	case validation.OperationRefreshDependencies:
+		memory.applyRefresh(item, evaluation)
 	case validation.OperationRefreshActive:
 		memory.applyRefresh(item, evaluation)
 		if item.State == validation.StateBuilding {
@@ -54,10 +56,14 @@ func (memory *Memory) applyLifecycleMutationLocked(
 		item.BlockReason = ""
 		memory.releaseLease(item)
 	case validation.OperationRecordMerge:
+		mergeEnvelope := request.Payload.MergeEnvelope
+		if authorization.Role == validation.RoleReconciler {
+			mergeEnvelope = item.Reconciliation.MergeEnvelope
+		}
 		item.Reconciliation = validation.ReconciliationEvidence{
 			Status:        "merge-recorded",
 			GitMutation:   "merged",
-			MergeEnvelope: cloneMergeEnvelope(request.Payload.MergeEnvelope),
+			MergeEnvelope: cloneMergeEnvelope(mergeEnvelope),
 		}
 		item.BlockReason = ""
 		memory.releaseLease(item)

@@ -73,6 +73,16 @@ const (
 	OutcomeOmitted  Outcome = "omitted"
 )
 
+// MaterializationOutcome is the reserved result stored for create-or-return.
+type MaterializationOutcome string
+
+const (
+	MaterializationOutcomeWaiting          MaterializationOutcome = "waiting"
+	MaterializationOutcomeReadyForBuilding MaterializationOutcome = "ready-for-building"
+	MaterializationOutcomeBlocked          MaterializationOutcome = "blocked"
+	MaterializationOutcomeOmitted          MaterializationOutcome = "omitted"
+)
+
 const (
 	CodeUnauthorizedAction   = "UNAUTHORIZED_ACTION"
 	CodeInvalidChangeType    = "INVALID_CHANGE_TYPE"
@@ -295,9 +305,9 @@ type StateVersion struct {
 // MaterializationReservation records the create-or-return result for a
 // logical work item, including an omitted result.
 type MaterializationReservation struct {
-	Key               string `json:"materialization_key"`
-	SourceFingerprint string `json:"source_fingerprint"`
-	Outcome           string `json:"outcome"`
+	Key               string                 `json:"materialization_key"`
+	SourceFingerprint string                 `json:"source_fingerprint"`
+	Outcome           MaterializationOutcome `json:"outcome"`
 }
 
 // Decision is the stable result of preflight or authoritative evaluation.

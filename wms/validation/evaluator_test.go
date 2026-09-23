@@ -20,7 +20,7 @@ func TestLifecycleTransitionMatrix(t *testing.T) {
 				t.Fatalf("decision version metadata = (%q, %q), want (%q, %q)", decision.RuleVersion, decision.PolicyVersion, RuleVersion, "policy/v1")
 			}
 			if test.outcome == OutcomeOmitted {
-				if decision.After != nil || decision.MaterializationReservation == nil || decision.MaterializationReservation.Outcome != string(OutcomeOmitted) {
+				if decision.After != nil || decision.MaterializationReservation == nil || decision.MaterializationReservation.Outcome != MaterializationOutcomeOmitted {
 					t.Fatalf("omitted materialization result is incomplete: %#v", decision)
 				}
 				return
@@ -204,6 +204,7 @@ func validTransitionCases() []matrixCase {
 		"approval-1": {
 			ApprovedSubject:         "human-1",
 			DelegatedPrincipal:      "subject-1",
+			ProjectID:               blocked.ProjectID,
 			WorkItemID:              blocked.ID,
 			Digest:                  "digest-1",
 			Action:                  OperationResolveBlock,
@@ -333,9 +334,9 @@ func validTransitionCases() []matrixCase {
 	add(matrixCase{name: "record-merge-job-site", request: request, current: &merging, context: context, outcome: OutcomeAllowed, state: StateCompleted})
 
 	merging = readyItem(StateMerging, 9)
+	merging.ExpectedMerge = merge
 	merging.Reconciliation = ReconciliationEvidence{Status: "merge-recorded", GitMutation: "merged", MergeEnvelope: &actualMerge}
 	request, context = requestFor(OperationRecordMerge, RoleReconciler, &merging)
-	request.Payload.MergeEnvelope = &actualMerge
 	add(matrixCase{name: "record-merge-reconciler", request: request, current: &merging, context: context, outcome: OutcomeAllowed, state: StateCompleted})
 
 	for _, state := range []State{StateBuilding, StateInspecting} {

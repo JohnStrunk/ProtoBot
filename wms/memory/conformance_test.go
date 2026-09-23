@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -234,16 +235,16 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			completed := memory.Execute(completeDependency)
 			assertAllowedDecision(t, completed, validation.AuthorityAuthoritative)
 
-			// A dependency refresh is WMS-observed record state, not a separate
-			// lifecycle mutation on the item that is waiting for that dependency.
 			stored, _ := memory.WorkItem(candidate.ID)
-			stored.Dependencies[0].State = validation.StateCompleted
-			replaceObservedWorkItem(memory, stored)
 			refresh := conformanceCall(validation.OperationRefreshDependencies, "materializer", stored, "vr014-refresh")
 			refreshed := memory.Execute(refresh)
 			decision := assertAllowedDecision(t, refreshed, validation.AuthorityAuthoritative)
 			if decision.After.State != validation.StateReadyForBuilding || decision.After.ContractVersion != 2 {
 				t.Fatalf("dependency refresh decision = %#v, want ready v2", decision)
+			}
+			stored, _ = memory.WorkItem(candidate.ID)
+			if len(stored.Dependencies) != 1 || stored.Dependencies[0].State != validation.StateCompleted {
+				t.Fatalf("refreshed dependencies = %#v, want the completed WMS dependency state", stored.Dependencies)
 			}
 			assertEventCount(t, memory, 3)
 		}},
@@ -510,6 +511,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				change func(*validation.AuthorizationContext)
 			}{
 				{name: "missing subject", change: func(auth *validation.AuthorizationContext) { auth.Subject = "" }},
+				{name: "missing project", change: func(auth *validation.AuthorizationContext) { auth.ProjectID = "" }},
 				{name: "unknown role", change: func(auth *validation.AuthorizationContext) { auth.Role = "worker" }},
 				{name: "expired context", change: func(auth *validation.AuthorizationContext) { auth.ExpiresAt = memoryTestTime }},
 			} {
@@ -703,28 +705,51 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			assertEventCount(t, memory, 1)
 		}},
 		{"VR-035", func(t *testing.T) {
-			memory, _ := newConformanceMemory(t)
-			item := testWorkItem("wi-035", validation.StateMerging, 9)
-			envelope := &validation.MergeEnvelope{
-				ProductTreeDigest: "tree-035",
-				InspectionRunID:   "inspection-035",
-				IntegrationHead:   "integration-035",
-				Target:            "main",
-				ContractVersion:   9,
-				MergeCommit:       "merge-035",
+			for _, test := range []struct {
+				name    string
+				payload validation.Payload
+			}{
+				{name: "empty payload"},
+				{name: "forged payload", payload: validation.Payload{MergeEnvelope: &validation.MergeEnvelope{
+					ProductTreeDigest: "forged-tree",
+					InspectionRunID:   "forged-inspection",
+					IntegrationHead:   "forged-head",
+					Target:            "other",
+					ContractVersion:   999,
+					MergeCommit:       "forged-merge",
+				}}},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					memory, _ := newConformanceMemory(t)
+					item := testWorkItem("wi-035", validation.StateMerging, 9)
+					expected := &validation.MergeEnvelope{
+						ProductTreeDigest: "tree-035",
+						InspectionRunID:   "inspection-035",
+						IntegrationHead:   "integration-035",
+						Target:            "main",
+						ContractVersion:   9,
+					}
+					observed := *expected
+					observed.MergeCommit = "merge-035"
+					item.ExpectedMerge = expected
+					item.Reconciliation = validation.ReconciliationEvidence{Status: "merge-recorded", GitMutation: "merged", MergeEnvelope: &observed}
+					seedConformanceItem(t, memory, item)
+					call := conformanceCall(validation.OperationRecordMerge, "reconciler", item, "vr035-record-merge")
+					call.Payload = jsonPayload(t, test.payload)
+					first := memory.Execute(call)
+					firstDecision := assertAllowedDecision(t, first, validation.AuthorityAuthoritative)
+					if firstDecision.After.State != validation.StateCompleted {
+						t.Fatalf("reconciled completion state = %q, want completed", firstDecision.After.State)
+					}
+					stored, _ := memory.WorkItem(item.ID)
+					if !reflect.DeepEqual(stored.Reconciliation.MergeEnvelope, &observed) {
+						t.Fatalf("reconciler replaced observed merge evidence: %#v", stored.Reconciliation.MergeEnvelope)
+					}
+					replay := memory.Execute(call)
+					assertReplayedDecision(t, replay, validation.AuthorityAuthoritative)
+					assertEventCount(t, memory, 1)
+				})
 			}
-			item.Reconciliation = validation.ReconciliationEvidence{Status: "merge-recorded", GitMutation: "merged", MergeEnvelope: envelope}
-			seedConformanceItem(t, memory, item)
-			call := conformanceCall(validation.OperationRecordMerge, "reconciler", item, "vr035-record-merge")
-			call.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: envelope})
-			first := memory.Execute(call)
-			firstDecision := assertAllowedDecision(t, first, validation.AuthorityAuthoritative)
-			if firstDecision.After.State != validation.StateCompleted {
-				t.Fatalf("reconciled completion state = %q, want completed", firstDecision.After.State)
-			}
-			replay := memory.Execute(call)
-			assertReplayedDecision(t, replay, validation.AuthorityAuthoritative)
-			assertEventCount(t, memory, 1)
 		}},
 		{"VR-036", func(t *testing.T) {
 			for _, test := range []struct {
@@ -951,6 +976,162 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			}
 			assertEventCount(t, memory, 1)
 		}},
+		{"VR-045", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			item := testWorkItem("wi-045", validation.StateBuilding, 4)
+			setConformanceLease(&item, "job-site", "fence-045", memoryTestTime.Add(time.Hour))
+			seedConformanceItem(t, memory, item)
+
+			testsPayload := validation.Payload{BuildTestsPassed: true}
+			preflight := memory.Execute(preflightLifecycleCall(t, "job-site", item, validation.OperationTestsPass, "fence-045", testsPayload))
+			preflightDecision := assertPreflightDecision(t, preflight, validation.OutcomeAllowed)
+			testsPass := conformanceCall(validation.OperationTestsPass, "job-site", item, "vr045-tests-pass")
+			testsPass.FencingToken = "fence-045"
+			testsPass.Payload = jsonPayload(t, testsPayload)
+			passed := memory.Execute(testsPass)
+			passedDecision := assertAllowedDecision(t, passed, validation.AuthorityAuthoritative)
+			if !reflect.DeepEqual(preflightDecision.After, passedDecision.After) {
+				t.Fatalf("tests-pass preflight after = %#v, authoritative after = %#v", preflightDecision.After, passedDecision.After)
+			}
+
+			inspecting, _ := memory.WorkItem(item.ID)
+			renewPreflight := memory.Execute(preflightLifecycleCall(t, "job-site", inspecting, validation.OperationRenewLease, "fence-045", validation.Payload{}))
+			renewPreflightDecision := assertPreflightDecision(t, renewPreflight, validation.OutcomeAllowed)
+			renew := conformanceCall(validation.OperationRenewLease, "job-site", inspecting, "vr045-renew-lease")
+			renew.FencingToken = "fence-045"
+			renewed := memory.Execute(renew)
+			renewedDecision := assertAllowedDecision(t, renewed, validation.AuthorityAuthoritative)
+			if !reflect.DeepEqual(renewPreflightDecision.After, renewedDecision.After) {
+				t.Fatalf("renew-lease preflight after = %#v, authoritative after = %#v", renewPreflightDecision.After, renewedDecision.After)
+			}
+			assertEventCount(t, memory, 2)
+		}},
+		{"VR-046", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			blocked := testWorkItem("wi-046-blocked", validation.StateBlocked, 7)
+			blocked.Dependencies = []validation.Dependency{{ID: "wi-046-existing", State: validation.StateCompleted}}
+			seedConformanceItem(t, memory, blocked)
+
+			planned := testWorkItem("wi-046-planned", validation.StateMerging, 9)
+			expectedMerge := &validation.MergeEnvelope{
+				ProductTreeDigest: "tree-046",
+				InspectionRunID:   "inspection-046",
+				IntegrationHead:   "integration-046",
+				Target:            "main",
+				ContractVersion:   9,
+			}
+			observedMerge := *expectedMerge
+			observedMerge.MergeCommit = "merge-046"
+			planned.ExpectedMerge = expectedMerge
+			planned.Reconciliation = validation.ReconciliationEvidence{
+				Status:        "merge-recorded",
+				GitMutation:   "merged",
+				MergeEnvelope: &observedMerge,
+			}
+			seedConformanceItem(t, memory, planned)
+			if err := memory.SeedChangeSet(ChangeSet{ID: "CS-046", Revision: "approved", BuildWorkItemID: planned.ID}); err != nil {
+				t.Fatal(err)
+			}
+			approval := conformanceApproval(blocked, "vr046-approval", "human-046", "materializer-1", "add-requirement")
+			if err := memory.SeedApproval(approval); err != nil {
+				t.Fatal(err)
+			}
+			submitted := submitConformanceResolution(t, memory, blocked, approval.ID, approval.Digest, "CS-046", "vr046-submit")
+			if submitted.PlannedDependency == nil || submitted.PlannedDependency.Status != "incomplete" {
+				t.Fatalf("resolution planned dependency = %#v, want incomplete at submission", submitted.PlannedDependency)
+			}
+
+			firstResolve := conformanceResolveCall(t, blocked, approval.ID, submitted.ResolutionSubmissionID, approval.Digest, "vr046-resolve-before-completion")
+			firstResult := memory.Execute(firstResolve)
+			assertRejectedDecision(t, firstResult, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+			approvalAfterFailure, _ := memory.Approval(approval.ID)
+			if approvalAfterFailure.Status != "unused" {
+				t.Fatalf("failed resolve consumed approval: %#v", approvalAfterFailure)
+			}
+
+			complete := conformanceCall(validation.OperationRecordMerge, "reconciler", planned, "vr046-complete-planned-dependency")
+			complete.Payload = jsonPayload(t, validation.Payload{})
+			completed := memory.Execute(complete)
+			assertAllowedDecision(t, completed, validation.AuthorityAuthoritative)
+
+			retry := conformanceResolveCall(t, blocked, approval.ID, submitted.ResolutionSubmissionID, approval.Digest, "vr046-resolve-after-completion")
+			resolved := memory.Execute(retry)
+			decision := assertAllowedDecision(t, resolved, validation.AuthorityAuthoritative)
+			if decision.After.State != validation.StateReadyForBuilding || resolved.ApprovalStatus != "consumed" {
+				t.Fatalf("resolve retry after live dependency completion = %#v, want ready and consumed", resolved)
+			}
+			assertEventCount(t, memory, 3)
+		}},
+		{"VR-047", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			candidate := testWorkItem("wi-047", validation.StateInitial, 0)
+			call := materializeCall(candidate, "vr047-command-1", "vr047-materialization-key")
+			call.Payload = jsonPayload(t, validation.Payload{WorkItem: &candidate, ChangeType: "undefined"})
+			first := memory.Execute(call)
+			assertAllowedDecision(t, first, validation.AuthorityAuthoritative)
+
+			retry := materializeCall(candidate, "vr047-command-2", "vr047-materialization-key")
+			retry.Payload = jsonPayload(t, validation.Payload{WorkItem: &candidate, ChangeType: "undefined"})
+			replayed := memory.Execute(retry)
+			assertReplayedDecision(t, replayed, validation.AuthorityAuthoritative)
+			if replayed.WorkItemID != first.WorkItemID || replayed.ContractVersion != first.ContractVersion {
+				t.Fatalf("payload-level change-type replay = %#v, original = %#v", replayed, first)
+			}
+			assertEventCount(t, memory, 1)
+		}},
+		{"VR-048", func(t *testing.T) {
+			for _, projectID := range []string{"", "another-project"} {
+				t.Run(fmt.Sprintf("approval project %q", projectID), func(t *testing.T) {
+					memory, _ := newConformanceMemory(t)
+					created := memory.Execute(CallRequest{
+						Operation:       "request.create",
+						ActorContextRef: "drafting-table",
+						IdempotencyKey:  "vr048-create-" + projectID,
+						Payload:         jsonPayload(t, createRequestPayload{Intent: "Refine this request", Rationale: "Test strict project binding."}),
+					})
+					if !created.OK {
+						t.Fatalf("create request result = %#v", created)
+					}
+					approval := validation.ApprovalRecord{
+						ID:                 "vr048-approval-" + projectID,
+						ApprovedSubject:    "human-049",
+						DelegatedPrincipal: "drafting-agent",
+						ProjectID:          projectID,
+						RequestID:          created.RequestID,
+						Digest:             "vr048-refinement-digest",
+						Action:             validation.Operation("request.refine"),
+						PolicyVersion:      "wms-policy/v1",
+						ExpiresAt:          memoryTestTime.Add(time.Hour),
+						Status:             "unused",
+					}
+					if err := memory.SeedApproval(approval); err != nil {
+						t.Fatal(err)
+					}
+					before, _ := memory.Request(created.RequestID)
+					revision := created.RequestRevision
+					refined := memory.Execute(CallRequest{
+						Operation:               "request.refine",
+						ActorContextRef:         "drafting-table",
+						RequestID:               created.RequestID,
+						ExpectedRequestRevision: &revision,
+						IdempotencyKey:          "vr048-refine-" + projectID,
+						Payload: jsonPayload(t, refineRequestPayload{
+							Classification:           "changes",
+							RefinementState:          "ready-for-dimensioning",
+							HumanApprovalID:          approval.ID,
+							ApprovalRefinementDigest: approval.Digest,
+						}),
+					})
+					assertRequestRejection(t, refined, validation.CodeUnauthorizedAction)
+					after, _ := memory.Request(created.RequestID)
+					approvalAfter, _ := memory.Approval(approval.ID)
+					if !reflect.DeepEqual(after, before) || approvalAfter.Status != "unused" {
+						t.Fatalf("failed project binding changed request or approval: request=%#v approval=%#v", after, approvalAfter)
+					}
+					assertEventCount(t, memory, 1)
+				})
+			}
+		}},
 	}
 
 	for _, test := range tests {
@@ -1053,6 +1234,30 @@ func conformanceCall(operation validation.Operation, actor string, item validati
 		ExpectedState:           item.State,
 		ExpectedContractVersion: &version,
 		IdempotencyKey:          key,
+	}
+}
+
+func preflightLifecycleCall(
+	t *testing.T,
+	actor string,
+	item validation.WorkItem,
+	operation validation.Operation,
+	fencingToken string,
+	payload validation.Payload,
+) CallRequest {
+	t.Helper()
+	version := item.ContractVersion
+	return CallRequest{
+		Operation:               "lifecycle.preflight",
+		ActorContextRef:         actor,
+		WorkItemID:              item.ID,
+		ExpectedState:           item.State,
+		ExpectedContractVersion: &version,
+		FencingToken:            fencingToken,
+		Payload: jsonPayload(t, struct {
+			Operation validation.Operation `json:"operation"`
+			validation.Payload
+		}{Operation: operation, Payload: payload}),
 	}
 }
 

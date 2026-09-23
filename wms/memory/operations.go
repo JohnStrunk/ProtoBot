@@ -118,20 +118,16 @@ func AdapterOperations() []string {
 func roleHasWMSOperation(role validation.Role, operation string) bool {
 	switch role {
 	case validation.RoleDraftingTable:
-		return containsOperation(draftingTableOperations, operation)
+		return slices.Contains(draftingTableOperations, operation)
 	case validation.RoleHumanMaintainer:
-		return containsOperation(humanMaintainerOperations, operation)
+		return slices.Contains(humanMaintainerOperations, operation)
 	case validation.RoleJobSite:
-		return containsOperation(jobSiteOperations, operation)
+		return slices.Contains(jobSiteOperations, operation)
 	case validation.RoleMaterializer:
-		return containsOperation(materializerOperations, operation)
+		return slices.Contains(materializerOperations, operation)
 	case validation.RoleReconciler:
-		return containsOperation(reconcilerOperations, operation)
+		return slices.Contains(reconcilerOperations, operation)
 	default:
 		return false
 	}
-}
-
-func containsOperation(operations []string, operation string) bool {
-	return slices.Contains(operations, operation)
 }
