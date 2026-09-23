@@ -72,6 +72,7 @@ func (memory *Memory) applyLifecycleMutationLocked(
 		memory.releaseLease(item)
 	case validation.OperationResolveBlock:
 		item.BlockReason = ""
+		memory.applyRefresh(item, evaluation)
 	}
 }
 

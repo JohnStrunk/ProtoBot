@@ -58,7 +58,7 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 	result.Mutation = mutationApplied
 	result.Idempotency = idempotencyNew
 	result.Submission = "accepted"
-	result.ApprovalStatus = "unused"
+	result.ApprovalStatus = validation.ApprovalStatusUnused
 	result.WorkItemID = item.ID
 	result.WorkItemState = item.State
 	result.ContractVersion = item.ContractVersion
@@ -71,19 +71,19 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 	}
 	if priorID := memory.activeSubmissions[item.ID]; priorID != "" {
 		prior := memory.submissions[priorID]
-		if prior.Status == "pending" {
-			prior.Status = "superseded"
+		if prior.Status == validation.ResolutionSubmissionStatusPending {
+			prior.Status = validation.ResolutionSubmissionStatusSuperseded
 			memory.submissions[priorID] = prior
 			result.PriorResolutionSubmissionID = priorID
-			result.PriorSubmissionStatus = "superseded"
+			result.PriorSubmissionStatus = validation.ResolutionSubmissionStatusSuperseded
 			if prior.ApprovalID == call.HumanApprovalID {
 				result.PriorApprovalStatus = memory.approvals[prior.ApprovalID].Status
 			} else {
 				priorApproval := memory.approvals[prior.ApprovalID]
 				priorApproval.ID = prior.ApprovalID
-				priorApproval.Status = "revoked"
+				priorApproval.Status = validation.ApprovalStatusRevoked
 				memory.approvals[prior.ApprovalID] = priorApproval
-				result.PriorApprovalStatus = "revoked"
+				result.PriorApprovalStatus = validation.ApprovalStatusRevoked
 			}
 		}
 	}
@@ -99,7 +99,7 @@ func (memory *Memory) submitResolutionLocked(call CallRequest, authorization val
 			ApprovalID:           call.HumanApprovalID,
 			ApprovalDigest:       payload.ApprovalResolutionDigest,
 			ApprovedHumanSubject: approval.ApprovedSubject,
-			Status:               "pending",
+			Status:               validation.ResolutionSubmissionStatusPending,
 		},
 		Revision: revision,
 	}
@@ -150,7 +150,7 @@ func (memory *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorizati
 		return rejectedResult(call.Operation, rejection)
 	}
 	approval.ID = call.HumanApprovalID
-	approval.Status = "consumed"
+	approval.Status = validation.ApprovalStatusConsumed
 	memory.approvals[call.HumanApprovalID] = approval
 	submissionID := memory.nextSubmissionIDLocked(true)
 	submission := Submission{
@@ -160,7 +160,7 @@ func (memory *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorizati
 			Kind:           "acknowledge",
 			ApprovalID:     call.HumanApprovalID,
 			ApprovalDigest: payload.ApprovalResolutionDigest,
-			Status:         "consumed",
+			Status:         validation.ResolutionSubmissionStatusConsumed,
 		},
 		Revision: 1,
 	}
@@ -176,7 +176,7 @@ func (memory *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorizati
 	result.Outcome = outcomeApplied
 	result.Mutation = mutationApplied
 	result.Idempotency = idempotencyNew
-	result.ApprovalStatus = "consumed"
+	result.ApprovalStatus = validation.ApprovalStatusConsumed
 	result.WorkItemID = item.ID
 	result.WorkItemState = item.State
 	result.ContractVersion = item.ContractVersion

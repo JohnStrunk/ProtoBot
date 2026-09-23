@@ -83,6 +83,25 @@ const (
 	MaterializationOutcomeOmitted          MaterializationOutcome = "omitted"
 )
 
+// ApprovalStatus is the lifecycle state of one Gate-owned approval.
+type ApprovalStatus string
+
+const (
+	ApprovalStatusUnused   ApprovalStatus = "unused"
+	ApprovalStatusConsumed ApprovalStatus = "consumed"
+	ApprovalStatusRevoked  ApprovalStatus = "revoked"
+)
+
+// ResolutionSubmissionStatus is the lifecycle state of one blocked-work
+// resolution submission.
+type ResolutionSubmissionStatus string
+
+const (
+	ResolutionSubmissionStatusPending    ResolutionSubmissionStatus = "pending"
+	ResolutionSubmissionStatusSuperseded ResolutionSubmissionStatus = "superseded"
+	ResolutionSubmissionStatusConsumed   ResolutionSubmissionStatus = "consumed"
+)
+
 const (
 	CodeUnauthorizedAction   = "UNAUTHORIZED_ACTION"
 	CodeInvalidChangeType    = "INVALID_CHANGE_TYPE"
@@ -228,20 +247,20 @@ type Request struct {
 
 // ApprovalRecord is Gate-owned single-use approval state.
 type ApprovalRecord struct {
-	ID                      string    `json:"id,omitempty"`
-	ApprovedSubject         string    `json:"approved_subject"`
-	DelegatedPrincipal      string    `json:"delegated_principal"`
-	ProjectID               string    `json:"project_id,omitempty"`
-	WorkItemID              string    `json:"work_item_id,omitempty"`
-	RequestID               string    `json:"request_id,omitempty"`
-	Digest                  string    `json:"resolution_digest"`
-	Action                  Operation `json:"action"`
-	ResolutionKind          string    `json:"resolution_kind,omitempty"`
-	ExpectedState           State     `json:"expected_state,omitempty"`
-	ExpectedContractVersion *uint64   `json:"expected_contract_version,omitempty"`
-	PolicyVersion           string    `json:"policy_version,omitempty"`
-	ExpiresAt               time.Time `json:"expires_at"`
-	Status                  string    `json:"status"`
+	ID                      string         `json:"id,omitempty"`
+	ApprovedSubject         string         `json:"approved_subject"`
+	DelegatedPrincipal      string         `json:"delegated_principal"`
+	ProjectID               string         `json:"project_id,omitempty"`
+	WorkItemID              string         `json:"work_item_id,omitempty"`
+	RequestID               string         `json:"request_id,omitempty"`
+	Digest                  string         `json:"resolution_digest"`
+	Action                  Operation      `json:"action"`
+	ResolutionKind          string         `json:"resolution_kind,omitempty"`
+	ExpectedState           State          `json:"expected_state,omitempty"`
+	ExpectedContractVersion *uint64        `json:"expected_contract_version,omitempty"`
+	PolicyVersion           string         `json:"policy_version,omitempty"`
+	ExpiresAt               time.Time      `json:"expires_at"`
+	Status                  ApprovalStatus `json:"status"`
 }
 
 // ApprovalRequirement describes the exact Gate binding a mutation consumes.
@@ -261,16 +280,17 @@ type ApprovalRequirement struct {
 // ResolutionSubmission is the WMS-owned record submitted for a later
 // Materializer transition.
 type ResolutionSubmission struct {
-	ID                            string `json:"id"`
-	WorkItemID                    string `json:"work_item_id"`
-	Kind                          string `json:"kind"`
-	ChangeSetID                   string `json:"change_set_id,omitempty"`
-	ApprovalID                    string `json:"approval_id"`
-	ApprovalDigest                string `json:"approval_digest"`
-	ApprovedHumanSubject          string `json:"approved_human_subject"`
-	Status                        string `json:"status"`
-	PlannedDependencyComplete     bool   `json:"planned_dependency_complete"`
-	IndependentInspectorConfirmed bool   `json:"independent_inspector_confirmed"`
+	ID                                 string                     `json:"id"`
+	WorkItemID                         string                     `json:"work_item_id"`
+	Kind                               string                     `json:"kind"`
+	ChangeSetID                        string                     `json:"change_set_id,omitempty"`
+	ApprovalID                         string                     `json:"approval_id"`
+	ApprovalDigest                     string                     `json:"approval_digest"`
+	ApprovedHumanSubject               string                     `json:"approved_human_subject"`
+	Status                             ResolutionSubmissionStatus `json:"status"`
+	PlannedDependencyComplete          bool                       `json:"planned_dependency_complete"`
+	IndependentInspectorConfirmed      bool                       `json:"independent_inspector_confirmed"`
+	IndependentInspectorConfirmationID string                     `json:"independent_inspector_confirmation_id,omitempty"`
 }
 
 // ResolutionPreview is hypothetical preflight data; it never becomes a

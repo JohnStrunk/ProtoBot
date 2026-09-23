@@ -2,6 +2,7 @@ package memory
 
 import (
 	"encoding/json"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -215,22 +216,239 @@ func TestSupersedingResolutionWithSameApprovalKeepsApprovalUsable(t *testing.T) 
 	if !first.OK || !second.OK || first.ResolutionSubmissionID == second.ResolutionSubmissionID {
 		t.Fatalf("same-approval submissions = %#v / %#v, want two accepted submissions", first, second)
 	}
-	if second.PriorSubmissionStatus != "superseded" || second.PriorApprovalStatus != "unused" {
+	if second.PriorSubmissionStatus != validation.ResolutionSubmissionStatusSuperseded || second.PriorApprovalStatus != validation.ApprovalStatusUnused {
 		t.Fatalf("supersession result = %#v, want prior submission superseded and shared approval unused", second)
 	}
 	prior, _ := memory.Submission(first.ResolutionSubmissionID)
 	current, _ := memory.Submission(second.ResolutionSubmissionID)
 	storedApproval, _ := memory.Approval(approval.ID)
-	if prior.Status != "superseded" || current.Status != "pending" || storedApproval.Status != "unused" {
+	if prior.Status != validation.ResolutionSubmissionStatusSuperseded || current.Status != validation.ResolutionSubmissionStatusPending || storedApproval.Status != validation.ApprovalStatusUnused {
 		t.Fatalf("supersession state: prior=%#v current=%#v approval=%#v", prior, current, storedApproval)
 	}
 
 	resolved := memory.Execute(conformanceResolveCall(t, item, approval.ID, second.ResolutionSubmissionID, approval.Digest, "resolve-same-approval"))
 	decision := assertAllowedDecision(t, resolved, validation.AuthorityAuthoritative)
-	if decision.After.State != validation.StateReadyForBuilding || resolved.ApprovalStatus != "consumed" {
+	if decision.After.State != validation.StateReadyForBuilding || resolved.ApprovalStatus != validation.ApprovalStatusConsumed {
 		t.Fatalf("same-approval resolve result = %#v, want ready and consumed", resolved)
 	}
 	assertEventCount(t, memory, 3)
+}
+
+func TestResolveBlockRefreshesLiveDependenciesAndPersistsSnapshot(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	dependency := testWorkItem("wi-live-dependency", validation.StateMerging, 9)
+	expectedMerge := &validation.MergeEnvelope{
+		ProductTreeDigest: "tree-live-dependency",
+		InspectionRunID:   "inspection-live-dependency",
+		IntegrationHead:   "integration-live-dependency",
+		Target:            "main",
+		ContractVersion:   9,
+	}
+	dependency.ExpectedMerge = expectedMerge
+	setConformanceLease(&dependency, "job-site", "fence-live-dependency", memoryTestTime.Add(time.Hour))
+	if err := memory.SeedWorkItem(dependency); err != nil {
+		t.Fatal(err)
+	}
+
+	blocked := testWorkItem("wi-live-dependency-blocked", validation.StateBlocked, 7)
+	blocked.Dependencies = []validation.Dependency{{ID: dependency.ID, State: validation.StateWaiting}}
+	seedConformanceItem(t, memory, blocked)
+	seedCompletedDependencyAndChangeSet(t, memory, "wi-live-planned-dependency", "CS-live-dependency")
+	approval := conformanceApproval(blocked, "live-dependency-approval", "human-live-dependency", "materializer-1", "add-requirement")
+	if err := memory.SeedApproval(approval); err != nil {
+		t.Fatal(err)
+	}
+	submitted := submitConformanceResolution(t, memory, blocked, approval.ID, approval.Digest, "CS-live-dependency", "live-dependency-submit")
+	if !submitted.OK {
+		t.Fatalf("resolution submission = %#v, want accepted", submitted)
+	}
+
+	firstResolve := memory.Execute(conformanceResolveCall(t, blocked, approval.ID, submitted.ResolutionSubmissionID, approval.Digest, "live-dependency-resolve-before"))
+	assertRejectedDecision(t, firstResolve, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+	assertItemUnchanged(t, memory, blocked)
+	approvalAfterFailure, _ := memory.Approval(approval.ID)
+	if approvalAfterFailure.Status != validation.ApprovalStatusUnused {
+		t.Fatalf("failed resolve consumed approval: %#v", approvalAfterFailure)
+	}
+
+	merge := *expectedMerge
+	merge.MergeCommit = "merge-live-dependency"
+	completeDependency := conformanceCall(validation.OperationRecordMerge, "job-site", dependency, "live-dependency-complete")
+	completeDependency.FencingToken = "fence-live-dependency"
+	completeDependency.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &merge})
+	completed := memory.Execute(completeDependency)
+	assertAllowedDecision(t, completed, validation.AuthorityAuthoritative)
+
+	preflightPayload := validation.Payload{
+		ResolutionKind:         "add-requirement",
+		ChangeSetID:            "CS-live-dependency",
+		HumanApprovalID:        approval.ID,
+		ApprovalDigest:         approval.Digest,
+		ResolutionSubmissionID: submitted.ResolutionSubmissionID,
+	}
+	preflight := memory.Execute(preflightLifecycleCall(t, "materializer", blocked, validation.OperationResolveBlock, "", preflightPayload))
+	preflightDecision := assertPreflightDecision(t, preflight, validation.OutcomeAllowed)
+
+	retry := conformanceResolveCall(t, blocked, approval.ID, submitted.ResolutionSubmissionID, approval.Digest, "live-dependency-resolve-after")
+	resolved := memory.Execute(retry)
+	decision := assertAllowedDecision(t, resolved, validation.AuthorityAuthoritative)
+	if !reflect.DeepEqual(preflightDecision.After, decision.After) {
+		t.Fatalf("resolve-block preflight after = %#v, authoritative after = %#v", preflightDecision.After, decision.After)
+	}
+	stored, _ := memory.WorkItem(blocked.ID)
+	if decision.After.State != validation.StateReadyForBuilding || len(stored.Dependencies) != 1 || stored.Dependencies[0].State != validation.StateCompleted {
+		t.Fatalf("resolve-block result=%#v stored dependencies=%#v, want ready with completed dependency", resolved, stored.Dependencies)
+	}
+
+	claim := memory.Execute(conformanceCall(validation.OperationClaim, "job-site", stored, "live-dependency-claim"))
+	claimDecision := assertAllowedDecision(t, claim, validation.AuthorityAuthoritative)
+	if claimDecision.After.State != validation.StateBuilding {
+		t.Fatalf("claim after resolve-block = %#v, want building", claimDecision.After)
+	}
+	assertEventCount(t, memory, 4)
+}
+
+func TestOutOfScopeResolutionUsesObservedInspectorConfirmation(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	item := testWorkItem("wi-out-of-scope-confirmation", validation.StateBlocked, 7)
+	seedConformanceItem(t, memory, item)
+	approval := conformanceApproval(item, "out-of-scope-approval", "human-out-of-scope", "materializer-1", "out-of-scope")
+	if err := memory.SeedApproval(approval); err != nil {
+		t.Fatal(err)
+	}
+
+	version := item.ContractVersion
+	submitted := memory.Execute(CallRequest{
+		Operation:               "blocked-work.submit-resolution",
+		ActorContextRef:         "drafting-table",
+		WorkItemID:              item.ID,
+		ExpectedState:           validation.StateBlocked,
+		ExpectedContractVersion: &version,
+		HumanApprovalID:         approval.ID,
+		IdempotencyKey:          "out-of-scope-submit",
+		Payload: jsonPayload(t, blockedResolutionPayload{
+			ResolutionKind:           "out-of-scope",
+			ApprovalResolutionDigest: approval.Digest,
+		}),
+	})
+	if !submitted.OK || submitted.ResolutionSubmissionID == "" {
+		t.Fatalf("out-of-scope submission = %#v, want accepted submission", submitted)
+	}
+
+	forged := conformanceCall(validation.OperationResolveBlock, "materializer", item, "out-of-scope-forged-confirmation")
+	forged.HumanApprovalID = approval.ID
+	forged.Payload = jsonPayload(t, map[string]any{
+		"resolution_kind":                 "out-of-scope",
+		"human_approval_id":               approval.ID,
+		"approval_resolution_digest":      approval.Digest,
+		"resolution_submission_id":        submitted.ResolutionSubmissionID,
+		"independent_inspector_confirmed": true,
+	})
+	assertRequestRejection(t, memory.Execute(forged), CodeInvalidRequest)
+
+	resolve := conformanceCall(validation.OperationResolveBlock, "materializer", item, "out-of-scope-resolve-before-confirmation")
+	resolve.HumanApprovalID = approval.ID
+	resolve.Payload = jsonPayload(t, validation.Payload{
+		ResolutionKind:         "out-of-scope",
+		HumanApprovalID:        approval.ID,
+		ApprovalDigest:         approval.Digest,
+		ResolutionSubmissionID: submitted.ResolutionSubmissionID,
+	})
+	firstResolve := memory.Execute(resolve)
+	decision := assertRejectedDecision(t, firstResolve, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+	if decision.Rejection.Details["required_evidence"] != "independent-inspector-confirmation" {
+		t.Fatalf("out-of-scope rejection = %#v, want missing Inspector confirmation", decision.Rejection)
+	}
+	assertItemUnchanged(t, memory, item)
+	approvalAfterFailure, _ := memory.Approval(approval.ID)
+	if approvalAfterFailure.Status != validation.ApprovalStatusUnused {
+		t.Fatalf("failed out-of-scope resolve consumed approval: %#v", approvalAfterFailure)
+	}
+
+	preflightPayload := validation.Payload{ResolutionSubmissionID: submitted.ResolutionSubmissionID}
+	preflight := memory.Execute(preflightLifecycleCall(t, "materializer", item, validation.OperationResolveBlock, "", preflightPayload))
+	preflightDecision := assertPreflightDecision(t, preflight, validation.OutcomeRejected)
+	if preflightDecision.Rejection == nil || preflightDecision.Rejection.Details["required_evidence"] != "independent-inspector-confirmation" {
+		t.Fatalf("unconfirmed out-of-scope preflight = %#v, want missing Inspector confirmation", preflightDecision.Rejection)
+	}
+
+	const confirmationID = "finding-event-out-of-scope-confirmed"
+	if err := memory.ObserveIndependentInspectorConfirmation(submitted.ResolutionSubmissionID, confirmationID); err != nil {
+		t.Fatal(err)
+	}
+	if err := memory.ObserveIndependentInspectorConfirmation(submitted.ResolutionSubmissionID, confirmationID); err != nil {
+		t.Fatalf("replaying confirmation observation: %v", err)
+	}
+	storedSubmission, _ := memory.Submission(submitted.ResolutionSubmissionID)
+	if !storedSubmission.IndependentInspectorConfirmed || storedSubmission.IndependentInspectorConfirmationID != confirmationID || storedSubmission.Revision != 2 {
+		t.Fatalf("observed submission = %#v, want recorded confirmation at revision 2", storedSubmission)
+	}
+
+	preflight = memory.Execute(preflightLifecycleCall(t, "materializer", item, validation.OperationResolveBlock, "", preflightPayload))
+	preflightDecision = assertPreflightDecision(t, preflight, validation.OutcomeAllowed)
+
+	resolve.IdempotencyKey = "out-of-scope-resolve-after-confirmation"
+	resolved := memory.Execute(resolve)
+	resolvedDecision := assertAllowedDecision(t, resolved, validation.AuthorityAuthoritative)
+	if !reflect.DeepEqual(preflightDecision.After, resolvedDecision.After) || resolved.ApprovalStatus != validation.ApprovalStatusConsumed {
+		t.Fatalf("confirmed out-of-scope resolve = %#v preflight after=%#v, want matching allowed result and consumed approval", resolved, preflightDecision.After)
+	}
+	assertEventCount(t, memory, 2)
+}
+
+func TestWMSFailureCodesAndRetryGuidanceUseStableValues(t *testing.T) {
+	gate := conformanceGate()
+	jobSite := gate["job-site"]
+	jobSite.AllowedActions = append(jobSite.AllowedActions, validation.Operation("finding.create"))
+	gate["job-site"] = jobSite
+	memory := newConformanceMemoryWithGate(t, gate)
+
+	invalid := memory.Execute(CallRequest{
+		Operation:       "request.create",
+		ActorContextRef: "drafting-table",
+		IdempotencyKey:  "invalid-request",
+		Payload:         jsonPayload(t, createRequestPayload{Rationale: "Missing intent."}),
+	})
+	if invalid.Error == nil || invalid.Error.Code != CodeInvalidRequest || invalid.Error.Retry != validation.RetryNewKey {
+		t.Fatalf("invalid request rejection = %#v, want INVALID_REQUEST with new-key retry", invalid.Error)
+	}
+
+	unavailable := memory.Execute(CallRequest{Operation: "finding.create", ActorContextRef: "job-site"})
+	if unavailable.Error == nil || unavailable.Error.Code != CodeWMSUnavailable || unavailable.Error.Retry != validation.RetryRefresh {
+		t.Fatalf("unavailable WMS rejection = %#v, want WMS_UNAVAILABLE with refresh retry", unavailable.Error)
+	}
+
+	requestPayload := createRequestPayload{Intent: "Record a request", Rationale: "Exercise stable WMS errors."}
+	created := memory.Execute(CallRequest{
+		Operation:       "request.create",
+		ActorContextRef: "drafting-table",
+		IdempotencyKey:  "stable-error-create",
+		Payload:         jsonPayload(t, requestPayload),
+	})
+	if !created.OK {
+		t.Fatalf("create request result = %#v, want success", created)
+	}
+	duplicate := memory.Execute(CallRequest{
+		Operation:       "request.create",
+		ActorContextRef: "drafting-table",
+		IdempotencyKey:  "stable-error-duplicate",
+		Payload:         jsonPayload(t, requestPayload),
+	})
+	if duplicate.Error == nil || duplicate.Error.Code != CodeDuplicateRequest || duplicate.Error.Retry != validation.RetryQuery {
+		t.Fatalf("duplicate request rejection = %#v, want DUPLICATE_REQUEST with query retry", duplicate.Error)
+	}
+
+	staleRevision := uint64(0)
+	stale := memory.Execute(CallRequest{
+		Operation:               "request.link-change-set",
+		ActorContextRef:         "drafting-table",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &staleRevision,
+		IdempotencyKey:          "stable-error-stale-revision",
+	})
+	if stale.Error == nil || stale.Error.Code != CodeStaleRequestRevision || stale.Error.Retry != validation.RetryRefresh {
+		t.Fatalf("stale request rejection = %#v, want STALE_REQUEST_REVISION with refresh retry", stale.Error)
+	}
 }
 
 func TestRequestLinkAuditIncludesActorAndPolicyVersion(t *testing.T) {

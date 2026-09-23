@@ -465,7 +465,7 @@ func validateResolutionBinding(request Request, current *WorkItem, evaluation Ev
 		return unauthorizedFor(request.Authorization, OperationResolveBlock, request.WorkItemID)
 	}
 	submission, ok := evaluation.ResolutionSubmissions[submissionID]
-	if !ok || submission.Status != "pending" || submission.ID != current.ActiveResolutionSubmissionID ||
+	if !ok || submission.Status != ResolutionSubmissionStatusPending || submission.ID != current.ActiveResolutionSubmissionID ||
 		submission.WorkItemID != request.WorkItemID || submission.Kind != request.Payload.ResolutionKind ||
 		submission.ApprovalID != request.Payload.HumanApprovalID || submission.ApprovalDigest != request.Payload.ApprovalDigest ||
 		submission.ApprovedHumanSubject == "" {

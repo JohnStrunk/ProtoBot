@@ -130,7 +130,7 @@ func ValidateApproval(approval ApprovalRecord, requirement ApprovalRequirement, 
 		approval.DelegatedPrincipal == requirement.DelegatedPrincipal &&
 		approval.Action == requirement.Action &&
 		approval.Digest != "" && approval.Digest == requirement.Digest &&
-		approval.Status == "unused" &&
+		approval.Status == ApprovalStatusUnused &&
 		!approval.ExpiresAt.IsZero() && now.Before(approval.ExpiresAt)
 	bindingsMatch := approvalBindingMatches(approval, requirement)
 	valid = valid && bindingsMatch

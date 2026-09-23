@@ -11,6 +11,13 @@ import (
 	"github.com/redhat-et/protobot/wms/validation"
 )
 
+const (
+	CodeInvalidRequest       = "INVALID_REQUEST"
+	CodeWMSUnavailable       = "WMS_UNAVAILABLE"
+	CodeDuplicateRequest     = "DUPLICATE_REQUEST"
+	CodeStaleRequestRevision = "STALE_REQUEST_REVISION"
+)
+
 // Gate resolves an opaque transport reference to trusted authorization
 // context. A request body cannot provide or widen the returned claims.
 type Gate interface {
@@ -98,34 +105,34 @@ const (
 
 // Result is the stable result envelope for one WMS operation.
 type Result struct {
-	OK                           bool                  `json:"ok"`
-	Operation                    string                `json:"operation"`
-	Outcome                      Outcome               `json:"outcome"`
-	Resource                     any                   `json:"resource,omitempty"`
-	Diagnostics                  []Diagnostic          `json:"diagnostics"`
-	Mutation                     Mutation              `json:"mutation"`
-	Idempotency                  Idempotency           `json:"idempotency,omitempty"`
-	Error                        *validation.Rejection `json:"error,omitempty"`
-	Decision                     *validation.Decision  `json:"decision,omitempty"`
-	RequestID                    string                `json:"request_id,omitempty"`
-	WorkItemID                   string                `json:"work_item_id,omitempty"`
-	RequestRevision              uint64                `json:"request_revision,omitempty"`
-	ApprovalStatus               string                `json:"approval_status,omitempty"`
-	AuditEvent                   string                `json:"audit_event,omitempty"`
-	Link                         map[string]string     `json:"link,omitempty"`
-	LinkedChangeSetPriority      string                `json:"linked_change_set_priority,omitempty"`
-	LinkedWorkItemPriority       string                `json:"linked_work_item_priority,omitempty"`
-	WorkItemState                validation.State      `json:"work_item_state,omitempty"`
-	ContractVersion              uint64                `json:"contract_version,omitempty"`
-	Requests                     []RequestRecord       `json:"requests,omitempty"`
-	Items                        []WorkItemProjection  `json:"items,omitempty"`
-	Submission                   string                `json:"submission,omitempty"`
-	ResolutionSubmissionID       string                `json:"resolution_submission_id,omitempty"`
-	ResolutionSubmissionRevision uint64                `json:"resolution_submission_revision,omitempty"`
-	PriorResolutionSubmissionID  string                `json:"prior_resolution_submission_id,omitempty"`
-	PriorSubmissionStatus        string                `json:"prior_submission_status,omitempty"`
-	PriorApprovalStatus          string                `json:"prior_approval_status,omitempty"`
-	PlannedDependency            *PlannedDependency    `json:"planned_dependency,omitempty"`
+	OK                           bool                                  `json:"ok"`
+	Operation                    string                                `json:"operation"`
+	Outcome                      Outcome                               `json:"outcome"`
+	Resource                     any                                   `json:"resource,omitempty"`
+	Diagnostics                  []Diagnostic                          `json:"diagnostics"`
+	Mutation                     Mutation                              `json:"mutation"`
+	Idempotency                  Idempotency                           `json:"idempotency,omitempty"`
+	Error                        *validation.Rejection                 `json:"error,omitempty"`
+	Decision                     *validation.Decision                  `json:"decision,omitempty"`
+	RequestID                    string                                `json:"request_id,omitempty"`
+	WorkItemID                   string                                `json:"work_item_id,omitempty"`
+	RequestRevision              uint64                                `json:"request_revision,omitempty"`
+	ApprovalStatus               validation.ApprovalStatus             `json:"approval_status,omitempty"`
+	AuditEvent                   string                                `json:"audit_event,omitempty"`
+	Link                         map[string]string                     `json:"link,omitempty"`
+	LinkedChangeSetPriority      string                                `json:"linked_change_set_priority,omitempty"`
+	LinkedWorkItemPriority       string                                `json:"linked_work_item_priority,omitempty"`
+	WorkItemState                validation.State                      `json:"work_item_state,omitempty"`
+	ContractVersion              uint64                                `json:"contract_version,omitempty"`
+	Requests                     []RequestRecord                       `json:"requests,omitempty"`
+	Items                        []WorkItemProjection                  `json:"items,omitempty"`
+	Submission                   string                                `json:"submission,omitempty"`
+	ResolutionSubmissionID       string                                `json:"resolution_submission_id,omitempty"`
+	ResolutionSubmissionRevision uint64                                `json:"resolution_submission_revision,omitempty"`
+	PriorResolutionSubmissionID  string                                `json:"prior_resolution_submission_id,omitempty"`
+	PriorSubmissionStatus        validation.ResolutionSubmissionStatus `json:"prior_submission_status,omitempty"`
+	PriorApprovalStatus          validation.ApprovalStatus             `json:"prior_approval_status,omitempty"`
+	PlannedDependency            *PlannedDependency                    `json:"planned_dependency,omitempty"`
 }
 
 // RequestRecord is the WMS-owned mutable request backlog entry.

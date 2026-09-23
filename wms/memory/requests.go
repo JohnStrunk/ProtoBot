@@ -122,10 +122,10 @@ func (memory *Memory) createRequestLocked(call CallRequest, authorization valida
 	semanticKey := requestSemanticKey(payload)
 	if _, exists := memory.semanticRequests[semanticKey]; exists {
 		return rejectedResult(call.Operation, wmsRejection(
-			"DUPLICATE_REQUEST",
+			CodeDuplicateRequest,
 			"A semantically equivalent request already exists.",
 			map[string]any{"request_id": memory.semanticRequests[semanticKey]},
-			"query",
+			validation.RetryQuery,
 		))
 	}
 	request := RequestRecord{
@@ -215,7 +215,7 @@ func (memory *Memory) refineRequestLocked(call CallRequest, authorization valida
 	request.RefinementState = payload.RefinementState
 	request.Revision++
 	memory.requests[request.ID] = request
-	approval.Status = "consumed"
+	approval.Status = validation.ApprovalStatusConsumed
 	memory.approvals[approvalID] = approval
 	memory.events = append(memory.events, AuditEvent{
 		Operation:              call.Operation,
@@ -231,7 +231,7 @@ func (memory *Memory) refineRequestLocked(call CallRequest, authorization valida
 	result.Resource = cloneRequest(request)
 	result.RequestID = request.ID
 	result.RequestRevision = request.Revision
-	result.ApprovalStatus = "consumed"
+	result.ApprovalStatus = validation.ApprovalStatusConsumed
 	return result
 }
 
@@ -482,10 +482,10 @@ func validateRequestRevision(call CallRequest, request RequestRecord) *validatio
 			expected = *call.ExpectedRequestRevision
 		}
 		return wmsRejection(
-			"STALE_REQUEST_REVISION",
+			CodeStaleRequestRevision,
 			"The request changed after this operation was prepared.",
 			map[string]any{"expected_request_revision": expected, "current_request_revision": request.Revision},
-			"refresh",
+			validation.RetryRefresh,
 		)
 	}
 	return nil

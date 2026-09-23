@@ -236,11 +236,17 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			assertAllowedDecision(t, completed, validation.AuthorityAuthoritative)
 
 			stored, _ := memory.WorkItem(candidate.ID)
+			preflight := memory.Execute(preflightLifecycleCall(t, "materializer", stored, validation.OperationRefreshDependencies, "", validation.Payload{}))
+			preflightDecision := assertPreflightDecision(t, preflight, validation.OutcomeAllowed)
+
 			refresh := conformanceCall(validation.OperationRefreshDependencies, "materializer", stored, "vr014-refresh")
 			refreshed := memory.Execute(refresh)
 			decision := assertAllowedDecision(t, refreshed, validation.AuthorityAuthoritative)
 			if decision.After.State != validation.StateReadyForBuilding || decision.After.ContractVersion != 2 {
 				t.Fatalf("dependency refresh decision = %#v, want ready v2", decision)
+			}
+			if !reflect.DeepEqual(preflightDecision.After, decision.After) {
+				t.Fatalf("dependency refresh preflight after = %#v, authoritative after = %#v", preflightDecision.After, decision.After)
 			}
 			stored, _ = memory.WorkItem(candidate.ID)
 			if len(stored.Dependencies) != 1 || stored.Dependencies[0].State != validation.StateCompleted {
@@ -436,7 +442,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			resolve := conformanceResolveCall(t, item, approval.ID, submitted.ResolutionSubmissionID, approval.Digest, "vr023-resolve")
 			resolved := memory.Execute(resolve)
 			decision := assertAllowedDecision(t, resolved, validation.AuthorityAuthoritative)
-			if decision.After.State != validation.StateReadyForBuilding || decision.After.ContractVersion != 8 || resolved.ApprovalStatus != "consumed" {
+			if decision.After.State != validation.StateReadyForBuilding || decision.After.ContractVersion != 8 || resolved.ApprovalStatus != validation.ApprovalStatusConsumed {
 				t.Fatalf("resolve-block result = %#v, want ready v8 and consumed approval", resolved)
 			}
 			events := memory.Events()
@@ -596,7 +602,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 					assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeUnauthorizedAction)
 					assertItemUnchanged(t, memory, item)
 					storedApproval, _ := memory.Approval(approval.ID)
-					if storedApproval.Status != "unused" {
+					if storedApproval.Status != validation.ApprovalStatusUnused {
 						t.Fatalf("approval status = %q, want unused", storedApproval.Status)
 					}
 					assertEventCount(t, memory, 0)
@@ -609,8 +615,8 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				mutate func(*validation.ApprovalRecord)
 			}{
 				{name: "expired", mutate: func(approval *validation.ApprovalRecord) { approval.ExpiresAt = memoryTestTime }},
-				{name: "revoked", mutate: func(approval *validation.ApprovalRecord) { approval.Status = "revoked" }},
-				{name: "consumed", mutate: func(approval *validation.ApprovalRecord) { approval.Status = "consumed" }},
+				{name: "revoked", mutate: func(approval *validation.ApprovalRecord) { approval.Status = validation.ApprovalStatusRevoked }},
+				{name: "consumed", mutate: func(approval *validation.ApprovalRecord) { approval.Status = validation.ApprovalStatusConsumed }},
 				{name: "digest mismatch", mutate: func(approval *validation.ApprovalRecord) { approval.Digest = "other-digest" }},
 			} {
 				t.Run(test.name, func(t *testing.T) {
@@ -682,7 +688,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			first := memory.Execute(call)
 			firstDecision := assertAllowedDecision(t, first, validation.AuthorityAuthoritative)
 			approvalAfterFirst, _ := memory.Approval(approval.ID)
-			if approvalAfterFirst.Status != "consumed" {
+			if approvalAfterFirst.Status != validation.ApprovalStatusConsumed {
 				t.Fatalf("approval status after resolve = %q, want consumed", approvalAfterFirst.Status)
 			}
 			replay := memory.Execute(call)
@@ -903,7 +909,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 					assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeUnauthorizedAction)
 					assertItemUnchanged(t, memory, item)
 					stored, _ := memory.Approval(approval.ID)
-					if stored.Status != "unused" {
+					if stored.Status != validation.ApprovalStatusUnused {
 						t.Fatalf("mismatched approval status = %q, want unused", stored.Status)
 					}
 					assertEventCount(t, memory, 0)
@@ -927,7 +933,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				first := submitConformanceResolution(t, memory, item, firstApproval.ID, firstApproval.Digest, "CS-043", "vr043-submit-1")
 				second := submitConformanceResolution(t, memory, item, secondApproval.ID, secondApproval.Digest, "CS-043", "vr043-submit-2")
 				oldApproval, _ := memory.Approval(firstApproval.ID)
-				if oldApproval.Status != "revoked" || second.ResolutionSubmissionID == first.ResolutionSubmissionID {
+				if oldApproval.Status != validation.ApprovalStatusRevoked || second.ResolutionSubmissionID == first.ResolutionSubmissionID {
 					t.Fatalf("superseded resolution state: old approval=%#v, submissions=%#v/%#v", oldApproval, first, second)
 				}
 				stale := conformanceResolveCall(t, item, firstApproval.ID, first.ResolutionSubmissionID, firstApproval.Digest, "vr043-stale-resolution")
@@ -952,7 +958,9 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 		{"VR-044", func(t *testing.T) {
 			memory, _ := newConformanceMemory(t)
 			item := testWorkItem("wi-044", validation.StateBlocked, 7)
-			item.Dependencies = []validation.Dependency{{ID: "existing-dependency", State: validation.StateCompleted}}
+			dependency := testWorkItem("existing-dependency", validation.StateCompleted, 2)
+			seedConformanceItem(t, memory, dependency)
+			item.Dependencies = []validation.Dependency{{ID: dependency.ID, State: validation.StateCompleted}}
 			seedConformanceItem(t, memory, item)
 			incomplete := testWorkItem("wi-044-planned", validation.StateWaiting, 1)
 			seedConformanceItem(t, memory, incomplete)
@@ -971,7 +979,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				t.Fatalf("failed planned dependency check mutated item: %#v", stored)
 			}
 			approvalAfter, _ := memory.Approval(approval.ID)
-			if approvalAfter.Status != "unused" {
+			if approvalAfter.Status != validation.ApprovalStatusUnused {
 				t.Fatalf("incomplete dependency consumed approval: %#v", approvalAfter)
 			}
 			assertEventCount(t, memory, 1)
@@ -1009,7 +1017,9 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 		{"VR-046", func(t *testing.T) {
 			memory, _ := newConformanceMemory(t)
 			blocked := testWorkItem("wi-046-blocked", validation.StateBlocked, 7)
-			blocked.Dependencies = []validation.Dependency{{ID: "wi-046-existing", State: validation.StateCompleted}}
+			dependency := testWorkItem("wi-046-existing", validation.StateCompleted, 2)
+			seedConformanceItem(t, memory, dependency)
+			blocked.Dependencies = []validation.Dependency{{ID: dependency.ID, State: validation.StateCompleted}}
 			seedConformanceItem(t, memory, blocked)
 
 			planned := testWorkItem("wi-046-planned", validation.StateMerging, 9)
@@ -1045,7 +1055,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			firstResult := memory.Execute(firstResolve)
 			assertRejectedDecision(t, firstResult, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
 			approvalAfterFailure, _ := memory.Approval(approval.ID)
-			if approvalAfterFailure.Status != "unused" {
+			if approvalAfterFailure.Status != validation.ApprovalStatusUnused {
 				t.Fatalf("failed resolve consumed approval: %#v", approvalAfterFailure)
 			}
 
@@ -1057,7 +1067,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			retry := conformanceResolveCall(t, blocked, approval.ID, submitted.ResolutionSubmissionID, approval.Digest, "vr046-resolve-after-completion")
 			resolved := memory.Execute(retry)
 			decision := assertAllowedDecision(t, resolved, validation.AuthorityAuthoritative)
-			if decision.After.State != validation.StateReadyForBuilding || resolved.ApprovalStatus != "consumed" {
+			if decision.After.State != validation.StateReadyForBuilding || resolved.ApprovalStatus != validation.ApprovalStatusConsumed {
 				t.Fatalf("resolve retry after live dependency completion = %#v, want ready and consumed", resolved)
 			}
 			assertEventCount(t, memory, 3)
@@ -1102,7 +1112,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 						Action:             validation.Operation("request.refine"),
 						PolicyVersion:      "wms-policy/v1",
 						ExpiresAt:          memoryTestTime.Add(time.Hour),
-						Status:             "unused",
+						Status:             validation.ApprovalStatusUnused,
 					}
 					if err := memory.SeedApproval(approval); err != nil {
 						t.Fatal(err)
@@ -1125,7 +1135,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 					assertRequestRejection(t, refined, validation.CodeUnauthorizedAction)
 					after, _ := memory.Request(created.RequestID)
 					approvalAfter, _ := memory.Approval(approval.ID)
-					if !reflect.DeepEqual(after, before) || approvalAfter.Status != "unused" {
+					if !reflect.DeepEqual(after, before) || approvalAfter.Status != validation.ApprovalStatusUnused {
 						t.Fatalf("failed project binding changed request or approval: request=%#v approval=%#v", after, approvalAfter)
 					}
 					assertEventCount(t, memory, 1)
@@ -1387,7 +1397,7 @@ func conformanceApproval(item validation.WorkItem, id, human, delegated, kind st
 		ExpectedContractVersion: &version,
 		PolicyVersion:           "wms-policy/v1",
 		ExpiresAt:               memoryTestTime.Add(time.Hour),
-		Status:                  "unused",
+		Status:                  validation.ApprovalStatusUnused,
 	}
 }
 
@@ -1445,7 +1455,7 @@ func seedActiveResolution(
 			ApprovalID:                approval.ID,
 			ApprovalDigest:            approval.Digest,
 			ApprovedHumanSubject:      approval.ApprovedSubject,
-			Status:                    "pending",
+			Status:                    validation.ResolutionSubmissionStatusPending,
 			PlannedDependencyComplete: plannedDependencyComplete,
 		},
 		Revision: 1,

@@ -63,13 +63,48 @@ func (memory *Memory) Execute(call CallRequest) Result {
 	}
 	if call.Operation == "finding.create" {
 		return rejectedResult(call.Operation, wmsRejection(
-			"WMS_UNAVAILABLE",
+			CodeWMSUnavailable,
 			"The in-memory Drafting Table adapter does not implement the Finding Ledger.",
 			map[string]any{},
-			"retry",
+			validation.RetryRefresh,
 		))
 	}
 	return memory.executeRequestLocked(call, authorization)
+}
+
+// ObserveIndependentInspectorConfirmation records a confirmation event that
+// the trusted WMS Finding Ledger has already validated. This fixture hook is
+// separate from CallRequest so a caller cannot assert Inspector confirmation
+// in a lifecycle payload.
+func (memory *Memory) ObserveIndependentInspectorConfirmation(submissionID, confirmationID string) error {
+	if isBlank(submissionID) || isBlank(confirmationID) {
+		return errors.New("resolution submission and confirmation IDs must not be empty")
+	}
+
+	memory.mu.Lock()
+	defer memory.mu.Unlock()
+
+	submission, exists := memory.submissions[submissionID]
+	if !exists {
+		return errors.New("resolution submission does not exist")
+	}
+	if submission.IndependentInspectorConfirmationID == confirmationID {
+		return nil
+	}
+	if submission.Kind != "out-of-scope" || submission.Status != validation.ResolutionSubmissionStatusPending ||
+		memory.activeSubmissions[submission.WorkItemID] != submissionID {
+		return errors.New("confirmation requires the active out-of-scope resolution submission")
+	}
+	if submission.IndependentInspectorConfirmationID != "" {
+		return errors.New("resolution submission already has a different Inspector confirmation")
+	}
+
+	submission.IndependentInspectorConfirmationID = confirmationID
+	submission.IndependentInspectorConfirmed = true
+	memory.resolutionRevisions[submission.WorkItemID]++
+	submission.Revision = memory.resolutionRevisions[submission.WorkItemID]
+	memory.submissions[submissionID] = submission
+	return nil
 }
 
 func (memory *Memory) executePreflightLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
@@ -108,13 +143,24 @@ func (memory *Memory) executePreflightLocked(call CallRequest, authorization val
 		Kind:        payload.ResolutionKind,
 		ChangeSetID: payload.ChangeSetID,
 	}
-	if payload.ResolutionKind == "add-requirement" {
-		preview.PlannedDependencyComplete = memory.plannedDependencyComplete(payload.ChangeSetID)
+	if submission, exists := memory.submissions[payload.ResolutionSubmissionID]; payload.ResolutionSubmissionID != "" && exists &&
+		submission.WorkItemID == workItemID && submission.Status == validation.ResolutionSubmissionStatusPending &&
+		memory.activeSubmissions[workItemID] == payload.ResolutionSubmissionID {
+		preview.Kind = submission.Kind
+		preview.ChangeSetID = submission.ChangeSetID
+		preview.InspectorConfirmed = submission.IndependentInspectorConfirmationID != ""
+	}
+	if preview.Kind == "add-requirement" {
+		preview.PlannedDependencyComplete = memory.plannedDependencyComplete(preview.ChangeSetID)
 	}
 	evaluation := validation.EvaluationContext{
 		Authority:         validation.AuthorityPreflight,
 		EvaluationTime:    memory.now(),
 		PreviewResolution: preview,
+	}
+	if current != nil && (payload.Operation == validation.OperationRefreshDependencies || payload.Operation == validation.OperationResolveBlock) {
+		dependencies := memory.liveDependenciesLocked(*current)
+		evaluation.RefreshDependencies = &dependencies
 	}
 	decision := validation.Evaluate(request, current, evaluation)
 	if call.PolicyVersion != "" && call.PolicyVersion != authorization.PolicyVersion &&
@@ -198,7 +244,7 @@ func (memory *Memory) executeLifecycleLocked(call CallRequest, authorization val
 	if result, handled := memory.replayLifecycleRequest(call, request, fingerprint); handled {
 		return result
 	}
-	if request.Operation == validation.OperationRefreshDependencies {
+	if current != nil && (request.Operation == validation.OperationRefreshDependencies || request.Operation == validation.OperationResolveBlock) {
 		dependencies := memory.liveDependenciesLocked(*current)
 		evaluation.RefreshDependencies = &dependencies
 	}
@@ -314,7 +360,7 @@ func (memory *Memory) applyLifecycleRequest(
 	}
 	if request.Operation == validation.OperationResolveBlock && decision.Outcome == validation.OutcomeAllowed {
 		memory.consumeResolutionApprovalLocked(request)
-		result.ApprovalStatus = "consumed"
+		result.ApprovalStatus = validation.ApprovalStatusConsumed
 	} else if request.Operation == validation.OperationResolveBlock && request.Payload.HumanApprovalID != "" {
 		if approval, exists := memory.approvals[request.Payload.HumanApprovalID]; exists {
 			result.ApprovalStatus = approval.Status
@@ -464,10 +510,10 @@ func (memory *Memory) approvalSubject(approvalID string, operation validation.Op
 
 func invalidRequest(field, message string) *validation.Rejection {
 	return wmsRejection(
-		"INVALID_REQUEST",
+		CodeInvalidRequest,
 		"The request has a field that is missing or invalid.",
 		map[string]any{"field": field, "reason": message},
-		"revise",
+		validation.RetryNewKey,
 	)
 }
 
@@ -585,6 +631,7 @@ func (memory *Memory) resolutionSnapshotLocked() map[string]validation.Resolutio
 	result := make(map[string]validation.ResolutionSubmission, len(memory.submissions))
 	for id, submission := range memory.submissions {
 		resolution := submission.ResolutionSubmission
+		resolution.IndependentInspectorConfirmed = resolution.IndependentInspectorConfirmationID != ""
 		if resolution.Kind == "add-requirement" {
 			resolution.PlannedDependencyComplete = memory.plannedDependencyComplete(resolution.ChangeSetID)
 		}
@@ -596,10 +643,10 @@ func (memory *Memory) resolutionSnapshotLocked() map[string]validation.Resolutio
 func (memory *Memory) consumeResolutionApprovalLocked(request validation.Request) {
 	approval := memory.approvals[request.Payload.HumanApprovalID]
 	approval.ID = request.Payload.HumanApprovalID
-	approval.Status = "consumed"
+	approval.Status = validation.ApprovalStatusConsumed
 	memory.approvals[approval.ID] = approval
 	submission := memory.submissions[request.Payload.ResolutionSubmissionID]
-	submission.Status = "consumed"
+	submission.Status = validation.ResolutionSubmissionStatusConsumed
 	memory.submissions[submission.ID] = submission
 	memory.activeSubmissions[request.WorkItemID] = ""
 }
