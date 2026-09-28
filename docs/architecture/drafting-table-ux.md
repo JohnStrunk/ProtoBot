@@ -627,7 +627,11 @@ The Drafting Table provides visibility, not orchestration:
 
 ### Structural enforcement and security
 
-The agent operates through governed tools and cannot:
+The agent operates through governed tools. On calls that the harness
+guard checks, it cannot do the following; a call without a guard
+decision is limited as
+[What the harness layer stops](agent-harness/adapter-contract.md#what-the-harness-layer-stops)
+records:
 
 - write specification files directly (bypassing `ears-manager`);
 - modify work-item state directly (bypassing the WMS write boundary);

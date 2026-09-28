@@ -263,8 +263,10 @@ governed_mcp_servers:
   `wms` stub serves.
 - The `scm` list is the Drafting Table face of the
   [Source Control Manager][scm], which a binding starts with
-  `source-control-manager serve --face drafting-table`. No Git or Git
-  host operation reaches the role any other way.
+  `source-control-manager serve --face drafting-table`. On calls that
+  receive a guard decision, no Git or Git host operation reaches the
+  role any other way; a fail-open call is bounded as its binding's row
+  under [File-source arguments](#file-source-arguments) records.
 - A new Toolkit skill is one manifest line, plus the same line in each
   binding's native copy.
 - The manifest holds no credential and no path rule.
@@ -273,6 +275,11 @@ governed_mcp_servers:
 
 Each binding gives exactly one agent, profile, or session mode the
 Drafting Table role. Only that role performs governed mutations.
+The refusals in this table that the guard enforces, such as reads
+outside the project, direct file writes, and credential-file reads,
+hold on calls that receive a guard decision. A fail-open call is
+bounded only by the native rules or sandbox that its binding's row
+under [File-source arguments](#file-source-arguments) records.
 
 | Capability | Drafting Table role | Through |
 | --- | --- | --- |
@@ -1309,6 +1316,7 @@ negative checks of the [SCM's fixture][scm-fixture]:
 | Drafting Table | An `scm` tool that the manifest does not list | Not a Drafting Table operation |
 | Drafting Table | `register-approved-change-set --change-set CS-00004` | Not the change set of the current branch |
 | Drafting Table | `git switch -c cs/00001-project-init main`, in an initialized fixture clone | `Project already initialized` |
+| Drafting Table | `git switch -c cs/00001-project-init main`, in a fixture clone without `.protobot/` | Not a shell operation: Git runs through the `scm` tools |
 | Drafting Table | `ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner <owner> --content-file ~/.netrc` | `--content-file` with a path |
 | Drafting Table | A `wms` tool that the manifest does not list, such as a lifecycle transition | Not a Drafting Table operation |
 | Drafting Table | `ears-manager --output json requirement add --change-set CS-00003 ... --text "$GH_TOKEN" ...` | Variable expansion |

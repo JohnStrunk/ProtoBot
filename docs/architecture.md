@@ -697,8 +697,8 @@ must meet. [OpenCode](architecture/agent-harness/opencode.md),
 
 ### Governed tool integrations
 
-The Drafting Table agent interacts with external systems
-exclusively through governed tools defined by the
+The Drafting Table agent is meant to interact with external
+systems exclusively through governed tools defined by the
 Specification Toolkit. `ears-manager` is the intended route for
 every specification read and write; the agent is not meant to
 edit specification files directly. The harness guard enforces

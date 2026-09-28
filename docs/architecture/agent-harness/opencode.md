@@ -242,7 +242,7 @@ If the plugin is absent or its hook is not registered for a call, the
 non-`-` file-source values, `--text "$GH_TOKEN"`, output redirection,
 and other shell forms that only the guard rejects. The binding does not
 claim the rest of the shell path is protected in that state; these are
-documented H8 gaps, not behavior supplied by native permissions or later
+recorded H8 gaps, not behavior supplied by native permissions or later
 layers. See the shared
 [file-source exception](adapter-contract.md#file-source-arguments).
 
