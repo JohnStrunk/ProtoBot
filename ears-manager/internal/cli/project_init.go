@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"errors"
 	"io/fs"
 	"os"
@@ -183,7 +182,9 @@ func optionOrDefault(parsed options, name, fallback string) string {
 
 // rejectMisplacedProject refuses initialization when a project configuration
 // already exists below the working-tree root, either between the current
-// directory and the root or anywhere Git can see it.
+// directory and the root or anywhere in the working tree. The filesystem
+// walk includes ignored files because an ignored project configuration is
+// still a misplaced project configuration.
 func rejectMisplacedProject(root string) *commandFailure {
 	cwd, err := os.Getwd()
 	if err == nil {
@@ -202,20 +203,35 @@ func rejectMisplacedProject(root string) *commandFailure {
 			}
 		}
 	}
-	command := exec.Command("git", "-C", root, "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ":(glob)**/.protobot/project.yaml")
-	output, err := command.Output()
+	var misplaced string
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == root {
+			return nil
+		}
+		if entry.IsDir() && entry.Name() == ".git" {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() || entry.Name() != "project.yaml" || filepath.Base(filepath.Dir(path)) != controlNamespace {
+			return nil
+		}
+		relative, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		if filepath.ToSlash(relative) == projectConfigRelative {
+			return nil
+		}
+		misplaced = filepath.ToSlash(relative)
+		return filepath.SkipAll
+	})
 	if err != nil {
-		return ioFailure("git.ls_files_failed", "The working tree could not be searched for an existing project configuration.")
+		return ioFailure("storage.read_failed", "The working tree could not be searched for an existing project configuration.")
 	}
-	for _, entry := range bytes.Split(output, []byte{0}) {
-		path := string(entry)
-		if path == "" {
-			continue
-		}
-		if path == projectConfigRelative {
-			return alreadyInitializedFailure("Git still tracks .protobot/project.yaml at the working-tree root; restore it instead of initializing again.")
-		}
-		return misplacedProjectFailure(path)
+	if misplaced != "" {
+		return misplacedProjectFailure(misplaced)
 	}
 	return nil
 }

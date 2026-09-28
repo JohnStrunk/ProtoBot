@@ -266,9 +266,11 @@ The protocol enforces six non-negotiable invariants:
 The user starts a new project by providing an initial description or IdeaBot
 artifacts. The Drafting Table:
 
-This is the target end-to-end workflow. The EM-04 first release defers project
-initialization and branch automation; its `change-set create` command records
-the manifest but does not create or check out a branch. See the
+This is the target end-to-end workflow. EM-06 implements project initialization
+through `ears-manager project init`, which adopts the existing repository and
+does not create or check out a branch. Branch automation remains a follow-on
+Git integration capability; the first-release `change-set create` command
+records the manifest but does not create or check out a branch. See the
 [`ears-manager` CLI first-release
 scope](ears-manager-cli.md#em-04-first-release-scope).
 

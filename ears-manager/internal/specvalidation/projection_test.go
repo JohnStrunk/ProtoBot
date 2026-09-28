@@ -124,6 +124,12 @@ func TestValidateProjectionRequiresSharedClass(t *testing.T) {
 		if strings.Contains(diagnostic.Message, ".github") {
 			t.Fatalf("a reserved path was echoed: %#v", diagnostic)
 		}
+		if diagnostic.Path == "docs/vision.md" && !strings.Contains(diagnostic.Hint, "reviewed .protobot/projection.yaml") {
+			t.Fatalf("non-shared class hint = %q", diagnostic.Hint)
+		}
+		if diagnostic.Path == "docs/architecture.md" && !strings.Contains(diagnostic.Hint, "Register the path through ears-manager") {
+			t.Fatalf("unlisted path hint = %q", diagnostic.Hint)
+		}
 	}
 
 	skipped := Result{}

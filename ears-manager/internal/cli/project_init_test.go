@@ -308,6 +308,20 @@ func TestProjectInitRejectsMisplacedProjectFile(t *testing.T) {
 	}
 }
 
+func TestProjectInitRejectsGitignoredMisplacedProjectFileFromRoot(t *testing.T) {
+	root := newUninitializedRepository(t)
+	writeTestFile(t, root, ".gitignore", "nested/.protobot/\n")
+	writeTestFile(t, root, "nested/.protobot/project.yaml", "project:\n  id: ignored\n")
+	t.Chdir(root)
+
+	code, stdout, stderr := runCLI(nil, initArgs...)
+	assertFailure(t, code, stdout, stderr, 3, "project.not_git_root")
+	if !strings.Contains(stdout, `"path":"nested/.protobot/project.yaml"`) || strings.Contains(stdout, root) {
+		t.Fatalf("ignored misplaced diagnostic = %s", stdout)
+	}
+	assertNotInitialized(t, root)
+}
+
 func TestProjectInitRejectsUnsafeOrMissingPaths(t *testing.T) {
 	root := newUninitializedRepository(t)
 	outside := filepath.Join(t.TempDir(), "outside.md")

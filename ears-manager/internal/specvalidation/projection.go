@@ -275,10 +275,12 @@ func validateProjection(result *Result, snapshot Snapshot, artifacts []records.A
 		if classified && class == ProjectionClassShared {
 			continue
 		}
+		hint := "Register the path through ears-manager, which adds its shared projection entry."
 		message := fmt.Sprintf("Registered path %q is not classified; it requires the class shared.", canonical)
 		if classified {
 			message = fmt.Sprintf("Registered path %q is classified %s; it requires the class shared.", canonical, class)
+			hint = "Update the reviewed .protobot/projection.yaml policy entry to use the class shared."
 		}
-		result.add(diagnostic("projection.unclassified", canonical, artifact.ID, "class", message, "Register the path through ears-manager, which adds its shared projection entry."))
+		result.add(diagnostic("projection.unclassified", canonical, artifact.ID, "class", message, hint))
 	}
 }
