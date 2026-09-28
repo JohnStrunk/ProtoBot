@@ -127,6 +127,8 @@ func LoadWithContext(root string, context ValidationContext) (Snapshot, error) {
 		ConfigFields: fields,
 		Context:      context,
 	}
+	projection := loadProjection(rootHandle)
+	snapshot.Projection = &projection
 	failures := loadStoreDocuments(&snapshot, absoluteRoot, rootHandle, config.Stores.WithDefaults())
 	if len(failures) > 0 {
 		return snapshot, &loadFailures{Items: failures}

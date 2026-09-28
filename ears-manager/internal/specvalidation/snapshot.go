@@ -36,7 +36,11 @@ type Snapshot struct {
 	// mutation validation. It lets callers validate a new artifact before the
 	// final transaction writes it to the working tree.
 	ArtifactContents map[string][]byte
-	Requirements     []Document[records.Requirement]
-	Interfaces       []Document[records.InterfaceRecord]
-	ChangeSets       []Document[records.ChangeSet]
+	// Projection holds the projection manifest. Loaded snapshots always carry
+	// one, even when the file is absent; a nil value skips projection checks
+	// for in-memory snapshots that do not model the manifest.
+	Projection   *Projection
+	Requirements []Document[records.Requirement]
+	Interfaces   []Document[records.InterfaceRecord]
+	ChangeSets   []Document[records.ChangeSet]
 }

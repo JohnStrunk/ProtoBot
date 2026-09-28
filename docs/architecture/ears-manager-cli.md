@@ -246,11 +246,13 @@ release implements `check`, requirement add/list/show/update/retire,
 interface add/list/show, artifact get/put, and minimal proposed change-set
 creation. EM-05 adds change-set list/show/update/compare and `impact`,
 including proposed-change-set impact-completeness checks. Issue #206 adds the
-immutable `--at` read to `change-set show`. Project initialization, artifact
-listing, interface updates, `--at` reads on the other read and analysis
-commands, explicit `--against` comparison revisions, and governed
-branch/commit/pull-request automation remain follow-on work. The
-dispatcher must not claim those remaining operations are available.
+immutable `--at` read to `change-set show`. EM-06 adds `project init` and the
+`shared` projection classification that `project init` and `artifact put`
+write and `check` validates. Artifact listing, interface updates, `--at` reads
+on the other read and analysis commands, explicit `--against` comparison
+revisions, and governed branch/commit/pull-request automation remain
+follow-on work. The dispatcher must not claim those remaining operations are
+available.
 
 In the first release, `change-set create` allocates the ID, records the base
 commit, and writes the manifest. It does not create or check out the change-set
@@ -544,6 +546,37 @@ The operation is the only write that does not require an existing project
 configuration or `--change-set`. It is atomic across `project.yaml` and
 `projection.yaml`. The initial change set and Git branch follow the #34
 sequence; initialization itself does not approve or commit the project.
+
+Initialization adopts an existing repository. It registers the files already
+at the selected Vision and Architecture paths without moving or rewriting
+them, computes the store digests of the configured stores as they are, and
+creates no store directory. It leaves Git history, the index, and every
+other working-tree path untouched.
+
+Diagnostic results use these statuses:
+
+| Code | Status | Condition |
+| --- | ---: | --- |
+| `project.not_git_root` | `3` | The current directory is not in a Git working tree, or a `.protobot/project.yaml` exists below the working-tree root. The diagnostic names the misplaced file by its root-relative path; the command never relocates it. |
+| `project.invalid_configuration` | `3` | The repository has no commit, or the selected default branch does not resolve to a commit. An empty repository is initialized outside this contract. |
+| `project.already_initialized` | `5` | Anything named `.protobot` exists at the working-tree root, including a symbolic link or a file. |
+| `project.invalid_path` | `4` | A selected path is unsafe, reserved, missing, not a regular file, or selected twice. |
+| `project.remote_credentials` | `4` | The canonical remote carries userinfo other than the fixed `git@host:path` form. |
+| `project.invalid_configuration` | `4` | Another request value is invalid, such as a reserved branch prefix, an unknown review mode, an unsupported remote, or selected content that is not UTF-8 text without a BOM. |
+
+#### Projection classification
+
+`projection.yaml` is a YAML mapping. Its `paths` key lists entries with
+exactly the keys `path` and `class`, and each `class` is one of the
+projection classes defined by [Worker repository
+projections](components.md#worker-repository-projections-decided). A
+trailing `/` on a `path` names a directory. Other top-level keys are
+reviewed project policy. `ears-manager` adds a `shared` entry for each path
+it registers, in the same transaction as the registry write, and never
+changes or removes another entry or key.
+`check` reports a registered path without a `shared` entry as
+`projection.unclassified`, naming the path and the required class, and a
+manifest outside this format as `projection.invalid`.
 
 ### Artifacts
 
@@ -1070,10 +1103,10 @@ path as a workaround. Safe retries are:
 
 [`fixtures/ears-manager-cli-golden.jsonl`](fixtures/ears-manager-cli-golden.jsonl)
 is the harness-neutral follow-on fixture for the complete target contract. Its
-`fixture-scope` record identifies the subset implemented by EM-04 and EM-05
-and the commands deferred to later increments. Implementation tests exercise
-the implemented subset directly; the deferred fixture steps remain acceptance
-data for their owning follow-on issues. The fixture covers:
+`fixture-scope` record identifies the subset implemented by EM-04, EM-05, and
+EM-06 and the commands deferred to later increments. Implementation tests
+exercise the implemented subset directly; the deferred fixture steps remain
+acceptance data for their owning follow-on issues. The fixture covers:
 
 - project initialization;
 - change-set creation;

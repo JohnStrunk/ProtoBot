@@ -468,8 +468,9 @@ It is used by these callers:
 
 ### Subcommands
 
-The table describes the target `ears-manager` subcommand surface. EM-04 and
-EM-05 implement a subset and do not create change-set branches; see the
+The table describes the target `ears-manager` subcommand surface. EM-04,
+EM-05, and EM-06 implement a subset and do not create change-set branches;
+see the
 [`ears-manager` CLI first-release
 scope](ears-manager-cli.md#em-04-first-release-scope).
 

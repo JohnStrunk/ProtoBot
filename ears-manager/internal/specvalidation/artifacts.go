@@ -266,6 +266,13 @@ func fieldSuffix(field string) string {
 	return "." + field
 }
 
+// IsReservedProjectPath reports whether a canonical project path names a
+// control, workflow, agent-harness, or evidence path that may not be
+// registered as a specification artifact.
+func IsReservedProjectPath(path string) bool {
+	return isReservedProjectPath(path)
+}
+
 func isReservedProjectPath(path string) bool {
 	return isReservedPath(path, false)
 }

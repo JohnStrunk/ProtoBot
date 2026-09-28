@@ -422,6 +422,10 @@ func helpText(args []string) string {
 		return "Usage: ears-manager check [--change-set CS-ID]\n"
 	case "impact":
 		return "Usage: ears-manager impact --change-set CS-ID\n"
+	case "project":
+		return "Usage: ears-manager project <init> [options]\n"
+	case "project init":
+		return "Usage: ears-manager project init --id PROJECT-ID --name PROJECT-NAME --canonical-remote URL --review-mode single-player|multi-player [--default-branch BRANCH] [--branch-prefix PREFIX] [--vision PATH] [--architecture PATH]\n"
 	case "requirement add":
 		return "Usage: ears-manager requirement add --change-set CS-ID --id REQ-ID --type TYPE --text TEXT --verification-mode MODE --provenance PROVENANCE --created ISO8601 [--interface ID] [--scope SCOPE]\n"
 	case "requirement list":
@@ -453,7 +457,7 @@ func helpText(args []string) string {
 	case "change-set compare":
 		return "Usage: ears-manager change-set compare --change-set CS-ID\n"
 	default:
-		return "Usage: ears-manager [--output human|json] <command> [<subcommand>] [options]\n\nCommands:\n  check\n  requirement add|list|show|update|retire\n  interface add|list|show\n  artifact get|put\n  change-set create|list|show|update|compare\n  impact\n\nUse --help after a command for command-specific usage.\n"
+		return "Usage: ears-manager [--output human|json] <command> [<subcommand>] [options]\n\nCommands:\n  project init\n  check\n  requirement add|list|show|update|retire\n  interface add|list|show\n  artifact get|put\n  change-set create|list|show|update|compare\n  impact\n\nUse --help after a command for command-specific usage.\n"
 	}
 }
 

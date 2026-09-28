@@ -139,6 +139,7 @@ func validateProject(result *Result, snapshot Snapshot, config records.ProjectCo
 	validateStorePaths(result, snapshot.Root, path, config.Stores)
 	validateStoreIntegrity(result, snapshot, path, config.Stores, config.StoreDigests)
 	validateArtifacts(result, snapshot, path, config.Stores, config.Artifacts)
+	validateProjection(result, snapshot, config.Artifacts)
 }
 
 func validateProjectMetadata(result *Result, fields map[string]bool, path string, config records.ProjectConfig) {

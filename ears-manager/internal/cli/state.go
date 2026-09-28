@@ -159,7 +159,7 @@ func cloneExpectations(value map[string]fileExpectation) map[string]fileExpectat
 }
 
 func observeSnapshot(root string, snapshot specvalidation.Snapshot) map[string]fileExpectation {
-	paths := []string{configPath(snapshot)}
+	paths := []string{configPath(snapshot), specvalidation.ProjectionPath}
 	for _, document := range snapshot.Requirements {
 		paths = append(paths, document.Path)
 	}
@@ -379,6 +379,10 @@ func cloneSnapshot(snapshot specvalidation.Snapshot) specvalidation.Snapshot {
 	clone := snapshot
 	clone.Config = cloneProjectConfig(snapshot.Config)
 	clone.ConfigFields = cloneFields(snapshot.ConfigFields)
+	if snapshot.Projection != nil {
+		projection := snapshot.Projection.Clone()
+		clone.Projection = &projection
+	}
 	if snapshot.ArtifactContents != nil {
 		clone.ArtifactContents = make(map[string][]byte, len(snapshot.ArtifactContents))
 		for path, data := range snapshot.ArtifactContents {
