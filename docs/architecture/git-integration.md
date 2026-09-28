@@ -746,9 +746,12 @@ No component is meant to write a registered specification file
 directly; for the Drafting Table the guard enforces this on the calls
 it checks, and a call without a guard decision may still write one
 ([What the harness layer stops][layer-stops]). A file edited outside
-`ears-manager`, by any route, must be rejected or caught before it can
-reach the default branch. Four layers do that, in order of how early they
-fire.
+`ears-manager`, by any route, that leaves the registry intact must be
+rejected or caught before it can reach the default branch. Four layers
+do that, in order of how early they fire. A fail-open write that also
+rewrites the digest in `.protobot/project.yaml` is a recorded gap and
+is not caught by those layers ([File-source arguments][fail-open]);
+review of the pull request is the remaining check.
 
 | Layer | Where | Catches |
 | --- | --- | --- |
@@ -796,7 +799,11 @@ simply never staged by the Drafting Table.
 
 CI repeats the same comparison inside `ears-manager check`, so a
 contributor who bypasses the Drafting Table entirely is still
-caught before merge. Path ownership in CI is the last layer.
+caught before merge when the edit leaves the registry intact. A
+fail-open write that also rewrites the digest in
+`.protobot/project.yaml` is a recorded gap and is not caught by those
+layers ([File-source arguments][fail-open]); review of the pull request
+is the remaining check. Path ownership in CI is the last layer.
 
 ---
 
