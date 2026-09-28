@@ -480,7 +480,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			assertEventCount(t, memory, 1)
 		}},
 		{"VR-025", func(t *testing.T) {
-			memory, _ := newConformanceMemory(t)
+			memory, gate := newConformanceMemory(t)
 			candidate := testWorkItem("wi-025", validation.StateInitial, 0)
 			candidate.ChangeType = "undefined"
 			first := memory.Execute(materializeCall(candidate, "vr025-command-1", "vr025-logical-key"))
@@ -493,7 +493,30 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			if stored.State != first.WorkItemState || stored.ContractVersion != first.ContractVersion {
 				t.Fatalf("materialization source conflict changed item: %#v", stored)
 			}
-			assertEventCount(t, memory, 1)
+
+			// The merge target named by the source contract participates in
+			// the materialization binding: reusing a key with a different
+			// target must conflict rather than silently replay the first
+			// reservation's target.
+			setConformanceAllowedRefs(gate, "materializer", "main", "release-1.0")
+			targeted := testWorkItem("wi-025-target", validation.StateInitial, 0)
+			targeted.ChangeType = "undefined"
+			targeted.ExpectedMerge = &validation.MergeEnvelope{Target: "main"}
+			withTarget := memory.Execute(materializeCall(targeted, "vr025-command-3", "vr025-target-key"))
+			assertAllowedDecision(t, withTarget, validation.AuthorityAuthoritative)
+			otherTarget := targeted
+			otherTarget.ExpectedMerge = &validation.MergeEnvelope{Target: "release-1.0"}
+			targetConflict := memory.Execute(materializeCall(otherTarget, "vr025-command-4", "vr025-target-key"))
+			assertRejectedDecision(t, targetConflict, validation.AuthorityAuthoritative, validation.CodeIdempotencyConflict)
+			sameTarget := targeted
+			sameTarget.ExpectedMerge = &validation.MergeEnvelope{Target: "main"}
+			replayed := memory.Execute(materializeCall(sameTarget, "vr025-command-5", "vr025-target-key"))
+			assertReplayedDecision(t, replayed, validation.AuthorityAuthoritative)
+			targetedStored, _ := memory.WorkItem(targeted.ID)
+			if targetedStored.ExpectedMerge == nil || targetedStored.ExpectedMerge.Target != "main" {
+				t.Fatalf("stored target = %#v, want the source contract's merge target", targetedStored.ExpectedMerge)
+			}
+			assertEventCount(t, memory, 2)
 		}},
 		{"VR-026", func(t *testing.T) {
 			memory, _ := newConformanceMemory(t)

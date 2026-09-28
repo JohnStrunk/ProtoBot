@@ -457,6 +457,7 @@ Relevant persistent state remains owned by existing components:
 | --- | --- | --- |
 | Request backlog and request revisions | WMS Adapter/backend | Create, refine, link, query, and human-maintainer priority operations in this document. |
 | Work-item lifecycle and contract versions | WMS Adapter/claim coordinator | Read-only projections plus validated blocked-resolution submissions. |
+| Gate approval records | Gate | Single-use resolution, refinement, and acknowledgement approvals, verified and consumed atomically at the WMS write boundary. |
 | Specification records and change sets | Git through `ears-manager` | Referenced by ID/commit; never parsed or edited through WMS operations. |
 | Web session state | Web Drafting Table deployment | Supplies authenticated project/session context; never becomes work-item state or an alternate write authority. |
 | Deployment-level project registry | Deployment operator / registry | Supplies trusted project visibility and adapter configuration; never becomes work-item state. |

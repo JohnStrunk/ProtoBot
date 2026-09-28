@@ -73,6 +73,46 @@ func TestSourceFingerprintDoesNotMutateCallerDependencies(t *testing.T) {
 	}
 }
 
+func TestSourceFingerprintDoesNotMutateCallerMergeEnvelope(t *testing.T) {
+	item := readyItem(StateInitial, 0)
+	item.ExpectedMerge = &MergeEnvelope{Target: "main"}
+	before := cloneForTest(item)
+	SourceFingerprint(item)
+	if !reflect.DeepEqual(item, before) {
+		t.Fatalf("SourceFingerprint mutated the caller's work item: %#v, want %#v", item, before)
+	}
+}
+
+func TestSourceFingerprintBindsMergeTarget(t *testing.T) {
+	withTarget := readyItem(StateInitial, 0)
+	withTarget.ExpectedMerge = &MergeEnvelope{Target: "main"}
+
+	sameTarget := cloneForTest(withTarget)
+	if SourceFingerprint(withTarget) != SourceFingerprint(sameTarget) {
+		t.Fatal("SourceFingerprint treated an identical source contract as different")
+	}
+
+	otherTarget := cloneForTest(withTarget)
+	otherTarget.ExpectedMerge = &MergeEnvelope{Target: "release-1.0"}
+	if SourceFingerprint(withTarget) == SourceFingerprint(otherTarget) {
+		t.Fatal("SourceFingerprint ignored the materialization source's merge target; a different target must be a different source contract")
+	}
+
+	withoutTarget := cloneForTest(withTarget)
+	withoutTarget.ExpectedMerge = nil
+	if SourceFingerprint(withTarget) == SourceFingerprint(withoutTarget) {
+		t.Fatal("SourceFingerprint treated a named merge target as absent")
+	}
+
+	// An envelope that names no target binds like an absent one, so an
+	// empty envelope cannot fork the source identity.
+	emptyTarget := cloneForTest(withTarget)
+	emptyTarget.ExpectedMerge = &MergeEnvelope{}
+	if SourceFingerprint(withoutTarget) != SourceFingerprint(emptyTarget) {
+		t.Fatal("SourceFingerprint treated an empty merge envelope as different from an absent one")
+	}
+}
+
 func TestPreflightIsAdvisoryAndDoesNotMutate(t *testing.T) {
 	item := readyItem(StateReadyForBuilding, 4)
 	original := cloneForTest(item)

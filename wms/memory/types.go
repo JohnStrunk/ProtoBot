@@ -87,12 +87,18 @@ const (
 	OutcomeRejected Outcome = "rejected"
 )
 
-// Mutation reports whether one WMS operation changed adapter state.
+// Mutation reports whether one WMS operation changed adapter state. The
+// in-memory adapter is atomic and local, so it emits only none and
+// applied; unknown (a backend that cannot determine whether the mutation
+// was applied) and not-applicable (an operation with no adapter mutation)
+// complete the published Result-envelope vocabulary for other backends.
 type Mutation string
 
 const (
-	MutationNone    Mutation = "none"
-	MutationApplied Mutation = "applied"
+	MutationNone          Mutation = "none"
+	MutationApplied       Mutation = "applied"
+	MutationUnknown       Mutation = "unknown"
+	MutationNotApplicable Mutation = "not-applicable"
 )
 
 // Idempotency reports whether a mutating request is new or a replay.
