@@ -63,7 +63,8 @@ type workItemQueryPayload struct {
 }
 
 func (m *Memory) executeRequestLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
-	mutating := isRequestMutation(call.Operation)
+	operation := validation.Operation(call.Operation)
+	mutating := isRequestMutation(operation)
 	if mutating && call.IdempotencyKey == "" {
 		return rejectedResult(call.Operation, invalidRequest("idempotency_key", "request mutations require an idempotency key"))
 	}
@@ -77,30 +78,30 @@ func (m *Memory) executeRequestLocked(call CallRequest, authorization validation
 	}
 
 	var result Result
-	switch call.Operation {
-	case "request.create":
+	switch operation {
+	case validation.OperationRequestCreate:
 		result = m.createRequestLocked(call, authorization)
-	case "request.refine":
+	case validation.OperationRequestRefine:
 		result = m.refineRequestLocked(call, authorization)
-	case "request.update-priority":
+	case validation.OperationRequestUpdatePriority:
 		result = m.updatePriorityLocked(call, authorization)
-	case "request.link-change-set":
+	case validation.OperationRequestLinkChangeSet:
 		result = m.linkChangeSetLocked(call, authorization)
-	case "request.link-build-work-item":
+	case validation.OperationRequestLinkBuildWorkItem:
 		result = m.linkWorkItemLocked(call, authorization)
-	case "request.get":
+	case validation.OperationRequestGet:
 		result = m.getRequestLocked(call)
-	case "request.query":
+	case validation.OperationRequestQuery:
 		result = m.queryRequestsLocked(call)
-	case "work-item.get":
+	case validation.OperationWorkItemGet:
 		result = m.getWorkItemLocked(call)
-	case "work-item.query":
+	case validation.OperationWorkItemQuery:
 		result = m.queryWorkItemsLocked(call)
-	case "blocked-work.query":
+	case validation.OperationBlockedWorkQuery:
 		result = m.queryBlockedWorkLocked(call)
-	case "blocked-work.submit-resolution":
+	case validation.OperationBlockedWorkSubmitResolution:
 		result = m.submitResolutionLocked(call, authorization)
-	case "blocked-work.acknowledge":
+	case validation.OperationBlockedWorkAcknowledge:
 		result = m.acknowledgeBlockedWorkLocked(call, authorization)
 	default:
 		result = rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, authorization.PolicyVersion))
@@ -189,7 +190,7 @@ func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.
 		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "request"))
 	}
 	requirement := validation.ApprovalRequirement{
-		Action:             validation.Operation("request.refine"),
+		Action:             validation.OperationRequestRefine,
 		DelegatedPrincipal: authorization.Subject,
 		ProjectID:          m.projectID,
 		RequestID:          request.ID,
@@ -605,11 +606,12 @@ func requestFingerprint(call CallRequest, authorization validation.Authorization
 	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
-func isRequestMutation(operation string) bool {
+func isRequestMutation(operation validation.Operation) bool {
 	switch operation {
-	case "request.create", "request.refine", "request.update-priority",
-		"request.link-change-set", "request.link-build-work-item",
-		"blocked-work.submit-resolution", "blocked-work.acknowledge":
+	case validation.OperationRequestCreate, validation.OperationRequestRefine,
+		validation.OperationRequestUpdatePriority,
+		validation.OperationRequestLinkChangeSet, validation.OperationRequestLinkBuildWorkItem,
+		validation.OperationBlockedWorkSubmitResolution, validation.OperationBlockedWorkAcknowledge:
 		return true
 	default:
 		return false

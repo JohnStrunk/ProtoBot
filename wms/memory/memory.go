@@ -31,25 +31,28 @@ func (m *Memory) Execute(call CallRequest) Result {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if !slices.Contains(adapterOperations, call.Operation) {
+	// The wire carries operation names as strings; they enter the typed
+	// Operation vocabulary here, once, at the adapter boundary.
+	operation := validation.Operation(call.Operation)
+	if !slices.Contains(adapterOperations, operation) {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
 	}
 	authorization, ok := m.gate.Resolve(call.ActorContextRef)
 	if !ok {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
 	}
-	if call.Operation == string(validation.OperationLifecyclePreflight) {
+	if operation == validation.OperationLifecyclePreflight {
 		return m.executePreflightLocked(call, authorization)
 	}
-	if isLifecycleOperation(call.Operation) {
+	if isLifecycleOperation(operation) {
 		return m.executeLifecycleLocked(call, authorization)
 	}
-	if !roleHasWMSOperation(authorization.Role, call.Operation) {
+	if !roleHasWMSOperation(authorization.Role, operation) {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, authorization.PolicyVersion))
 	}
 	if rejection := validation.AuthorizeContext(
 		authorization,
-		validation.Operation(call.Operation),
+		operation,
 		m.projectID,
 		call.WorkItemID,
 		"",
@@ -61,7 +64,7 @@ func (m *Memory) Execute(call CallRequest) Result {
 	if call.PolicyVersion != "" && call.PolicyVersion != authorization.PolicyVersion {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, authorization.PolicyVersion))
 	}
-	if call.Operation == "finding.create" {
+	if operation == validation.OperationFindingCreate {
 		return rejectedResult(call.Operation, wmsRejection(
 			CodeWMSUnavailable,
 			"The in-memory Drafting Table adapter does not implement the Finding Ledger.",
@@ -302,8 +305,9 @@ func (m *Memory) normalizeLifecycleRequest(call CallRequest, authorization valid
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return validation.Request{}, invalidRequest("payload", err.Error())
 	}
+	operation := validation.Operation(call.Operation)
 	workItemID := call.WorkItemID
-	if call.Operation == string(validation.OperationMaterialize) && workItemID == "" && payload.WorkItem != nil {
+	if operation == validation.OperationMaterialize && workItemID == "" && payload.WorkItem != nil {
 		workItemID = payload.WorkItem.ID
 	}
 	if payload.ResolutionSubmissionID != "" && payload.ChangeSetID == "" {
@@ -315,7 +319,7 @@ func (m *Memory) normalizeLifecycleRequest(call CallRequest, authorization valid
 		payload.HumanApprovalID = call.HumanApprovalID
 	}
 	request := validation.Request{
-		Operation:               validation.Operation(call.Operation),
+		Operation:               operation,
 		ProjectID:               m.projectID,
 		WorkItemID:              workItemID,
 		MaterializationKey:      requestMaterializationKey(call, payload),
@@ -323,7 +327,7 @@ func (m *Memory) normalizeLifecycleRequest(call CallRequest, authorization valid
 		ExpectedState:           call.ExpectedState,
 		ExpectedContractVersion: call.ExpectedContractVersion,
 		FencingToken:            call.FencingToken,
-		References:              lifecycleReferences(validation.Operation(call.Operation), authorization.Role, payload),
+		References:              lifecycleReferences(operation, authorization.Role, payload),
 		Payload:                 payload,
 		Authorization:           authorization,
 	}
@@ -366,7 +370,7 @@ func (m *Memory) replayLifecycleRequest(call CallRequest, request validation.Req
 		decision := validation.RejectionDecision(request, validation.AuthorityAuthoritative, conflict)
 		return resultFromDecision(call.Operation, decision), true
 	}
-	if call.Operation == string(validation.OperationMaterialize) {
+	if request.Operation == validation.OperationMaterialize {
 		if replay, conflict := m.checkMaterializationLocked(request); replay != nil {
 			m.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, *replay)
 			return *replay, true
@@ -471,8 +475,8 @@ func (m *Memory) applyLifecycleRequest(
 	return result
 }
 
-func isLifecycleOperation(operation string) bool {
-	switch validation.Operation(operation) {
+func isLifecycleOperation(operation validation.Operation) bool {
+	switch operation {
 	case validation.OperationMaterialize, validation.OperationRefreshDependencies,
 		validation.OperationRevalidate, validation.OperationResolveBlock,
 		validation.OperationClaim, validation.OperationRenewLease,
@@ -586,7 +590,8 @@ func resultFromDecision(operation string, decision validation.Decision) Result {
 
 func (m *Memory) approvalSubject(approvalID string, operation validation.Operation) string {
 	switch operation {
-	case validation.OperationResolveBlock, "blocked-work.submit-resolution", "blocked-work.acknowledge", "request.refine":
+	case validation.OperationResolveBlock, validation.OperationBlockedWorkSubmitResolution,
+		validation.OperationBlockedWorkAcknowledge, validation.OperationRequestRefine:
 		if approval, exists := m.approvals[approvalID]; exists {
 			return approval.ApprovedSubject
 		}

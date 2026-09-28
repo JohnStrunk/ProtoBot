@@ -160,15 +160,23 @@ func approvalBindingMatches(approval ApprovalRecord, requirement ApprovalRequire
 		matchesOptionalBinding(approval.PolicyVersion, requirement.PolicyVersion)
 }
 
-func matchesOptionalBinding(actual, required string) bool {
-	if required == "" {
-		return true
-	}
-	return actual == required
+// matchesOptionalBinding reports whether the Gate-recorded binding and the
+// requirement agree on one optional binding dimension: both empty (the
+// dimension is unbound on both sides) or equal. Matching is bidirectional —
+// a dimension the requirement leaves open does not drop a constraint the
+// Gate recorded, so the caller cannot consume an approval outside the scope
+// the Gate bound it to.
+func matchesOptionalBinding(recorded, required string) bool {
+	return recorded == required
 }
 
-func matchesApprovalVersion(actual, required *uint64) bool {
-	return required == nil || actual != nil && *actual == *required
+// matchesApprovalVersion applies the same bidirectional agreement rule to
+// the optional expected-contract-version binding.
+func matchesApprovalVersion(recorded, required *uint64) bool {
+	if recorded == nil || required == nil {
+		return recorded == nil && required == nil
+	}
+	return *recorded == *required
 }
 
 func unauthorizedFor(auth AuthorizationContext, action Operation, workItemID string) *Rejection {

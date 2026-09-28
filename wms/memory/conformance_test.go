@@ -1314,6 +1314,88 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				t.Fatalf("stored dependencies = %#v, want the WMS-observed blocked state", stored.Dependencies)
 			}
 		}},
+		{"VR-054", func(t *testing.T) {
+			memory, gate := newConformanceMemory(t)
+			item := testWorkItem("wi-054", validation.StateBuilding, 4)
+			setConformanceLease(&item, "job-site", "fence-054", memoryTestTime.Add(time.Hour))
+			seedConformanceItem(t, memory, item)
+
+			// A first execution cycle reaches inspecting and the WMS
+			// observes a sealed inspection run.
+			testsPass := conformanceCall(validation.OperationTestsPass, "job-site", item, "vr054-tests-pass-1")
+			testsPass.FencingToken = "fence-054"
+			testsPass.Payload = jsonPayload(t, validation.Payload{BuildTestsPassed: true})
+			if passed := memory.Execute(testsPass); !passed.OK {
+				t.Fatalf("first tests-pass result = %#v", passed)
+			}
+			inspecting, _ := memory.WorkItem(item.ID)
+			inspecting.InspectionRunSealed = true
+			inspecting.FindingsTerminal = true
+			inspecting.FinalTestsPassed = true
+			replaceObservedWorkItem(memory, inspecting)
+
+			// Rework returns the item to building; the observed inspection
+			// evidence must be cleared with the lease handoff.
+			returnToBuilding := conformanceCall(validation.OperationReturnToBuilding, "job-site", inspecting, "vr054-rework")
+			returnToBuilding.FencingToken = "fence-054"
+			returnToBuilding.Payload = jsonPayload(t, validation.Payload{InContractDefect: true})
+			reworked := memory.Execute(returnToBuilding)
+			reworkedDecision := assertAllowedDecision(t, reworked, validation.AuthorityAuthoritative)
+			if reworkedDecision.After.State != validation.StateBuilding {
+				t.Fatalf("return-to-building after = %#v, want building", reworkedDecision.After)
+			}
+			returned, _ := memory.WorkItem(item.ID)
+			if returned.InspectionRunSealed || returned.FindingsTerminal || returned.FinalTestsPassed {
+				t.Fatalf("rework kept prior inspection evidence: %#v", returned)
+			}
+
+			// The second cycle passes the building gate again, but no fresh
+			// WMS inspection observation exists yet.
+			testsPassAgain := conformanceCall(validation.OperationTestsPass, "job-site", returned, "vr054-tests-pass-2")
+			testsPassAgain.FencingToken = returned.Lease.FencingToken
+			testsPassAgain.Payload = jsonPayload(t, validation.Payload{BuildTestsPassed: true})
+			if passed := memory.Execute(testsPassAgain); !passed.OK {
+				t.Fatalf("second tests-pass result = %#v", passed)
+			}
+			inspectingAgain, _ := memory.WorkItem(item.ID)
+			if inspectingAgain.InspectionRunSealed || inspectingAgain.FindingsTerminal || inspectingAgain.FinalTestsPassed {
+				t.Fatalf("second cycle entered inspecting with stale inspection evidence: %#v", inspectingAgain)
+			}
+
+			testedCandidate := &validation.MergeEnvelope{
+				ProductTreeDigest: "tree-054",
+				InspectionRunID:   "inspection-054",
+				IntegrationHead:   "integration-054",
+				Target:            "main",
+				ContractVersion:   inspectingAgain.ContractVersion + 1,
+			}
+			setConformanceAllowedRefs(gate, "job-site", testedCandidate.Target, testedCandidate.IntegrationHead, testedCandidate.InspectionRunID)
+			beginMerge := conformanceCall(validation.OperationBeginMerge, "job-site", inspectingAgain, "vr054-begin-merge-stale")
+			beginMerge.FencingToken = returned.Lease.FencingToken
+			beginMerge.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: testedCandidate})
+			staleBegin := memory.Execute(beginMerge)
+			staleDecision := assertRejectedDecision(t, staleBegin, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+			if staleDecision.Rejection.Details["required_evidence"] != "sealed-inspection-and-final-tests" {
+				t.Fatalf("stale begin-merge rejection = %#v, want incomplete inspection gates", staleDecision.Rejection)
+			}
+			assertItemUnchanged(t, memory, inspectingAgain)
+
+			// After a fresh WMS inspection observation, begin-merge succeeds.
+			reobserved, _ := memory.WorkItem(item.ID)
+			reobserved.InspectionRunSealed = true
+			reobserved.FindingsTerminal = true
+			reobserved.FinalTestsPassed = true
+			replaceObservedWorkItem(memory, reobserved)
+			beginMergeAgain := conformanceCall(validation.OperationBeginMerge, "job-site", reobserved, "vr054-begin-merge-fresh")
+			beginMergeAgain.FencingToken = returned.Lease.FencingToken
+			beginMergeAgain.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: testedCandidate})
+			begun := memory.Execute(beginMergeAgain)
+			begunDecision := assertAllowedDecision(t, begun, validation.AuthorityAuthoritative)
+			if begunDecision.After.State != validation.StateMerging {
+				t.Fatalf("fresh begin-merge after = %#v, want merging", begunDecision.After)
+			}
+			assertEventCount(t, memory, 4)
+		}},
 	}
 
 	for _, test := range tests {
@@ -1346,17 +1428,17 @@ func conformanceGate() StaticGate {
 	return StaticGate{
 		"drafting-table": testAuthorization("drafting-agent", validation.RoleDraftingTable,
 			validation.OperationLifecyclePreflight,
-			validation.Operation("request.create"),
-			validation.Operation("request.refine"),
-			validation.Operation("request.link-change-set"),
-			validation.Operation("request.link-build-work-item"),
-			validation.Operation("request.get"),
-			validation.Operation("request.query"),
-			validation.Operation("work-item.get"),
-			validation.Operation("work-item.query"),
-			validation.Operation("blocked-work.query"),
-			validation.Operation("blocked-work.submit-resolution"),
-			validation.Operation("blocked-work.acknowledge")),
+			validation.OperationRequestCreate,
+			validation.OperationRequestRefine,
+			validation.OperationRequestLinkChangeSet,
+			validation.OperationRequestLinkBuildWorkItem,
+			validation.OperationRequestGet,
+			validation.OperationRequestQuery,
+			validation.OperationWorkItemGet,
+			validation.OperationWorkItemQuery,
+			validation.OperationBlockedWorkQuery,
+			validation.OperationBlockedWorkSubmitResolution,
+			validation.OperationBlockedWorkAcknowledge),
 		"job-site": testAuthorization("job-site", validation.RoleJobSite,
 			validation.OperationLifecyclePreflight,
 			validation.OperationClaim,
@@ -1403,8 +1485,8 @@ func conformanceGate() StaticGate {
 			validation.OperationRecordMerge),
 		"human-maintainer": testAuthorization("human-1", validation.RoleHumanMaintainer,
 			validation.OperationAbandon,
-			validation.Operation("request.update-priority"),
-			validation.Operation("request.link-change-set")),
+			validation.OperationRequestUpdatePriority,
+			validation.OperationRequestLinkChangeSet),
 	}
 }
 

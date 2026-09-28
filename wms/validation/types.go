@@ -22,7 +22,9 @@ const (
 	StateAbandoned        State = "abandoned"
 )
 
-// Operation is a canonical lifecycle command or WMS action name.
+// Operation is a canonical lifecycle command or WMS action name. The
+// exported constants are the closed vocabulary: a second WMS backend
+// implements exactly these names, and any other value is rejected.
 type Operation string
 
 const (
@@ -43,6 +45,26 @@ const (
 	OperationRecoverLease        Operation = "recover-lease"
 	OperationAbandon             Operation = "abandon"
 	OperationLifecyclePreflight  Operation = "lifecycle.preflight"
+)
+
+// WMS action names share the Operation vocabulary through Gate action
+// families and approval records, but they are not lifecycle commands: they
+// route Drafting Table request, query, and blocked-work surfaces rather
+// than work-item state transitions.
+const (
+	OperationRequestCreate               Operation = "request.create"
+	OperationRequestRefine               Operation = "request.refine"
+	OperationRequestUpdatePriority       Operation = "request.update-priority"
+	OperationRequestLinkChangeSet        Operation = "request.link-change-set"
+	OperationRequestLinkBuildWorkItem    Operation = "request.link-build-work-item"
+	OperationRequestGet                  Operation = "request.get"
+	OperationRequestQuery                Operation = "request.query"
+	OperationWorkItemGet                 Operation = "work-item.get"
+	OperationWorkItemQuery               Operation = "work-item.query"
+	OperationBlockedWorkQuery            Operation = "blocked-work.query"
+	OperationBlockedWorkSubmitResolution Operation = "blocked-work.submit-resolution"
+	OperationBlockedWorkAcknowledge      Operation = "blocked-work.acknowledge"
+	OperationFindingCreate               Operation = "finding.create"
 )
 
 // Role is a Gate-issued lifecycle authorization role.
@@ -212,11 +234,15 @@ type ReconciliationEvidence struct {
 // evidence (inspection sealing, terminal findings, final tests, and
 // reconciliation) is intentionally absent: callers cannot assert it.
 type Payload struct {
-	WorkItem               *WorkItem      `json:"work_item,omitempty"`
-	MaterializationKey     string         `json:"materialization_key,omitempty"`
-	ChangeType             string         `json:"change_type,omitempty"`
-	ChangeSetID            string         `json:"change_set_id,omitempty"`
-	HumanApprovalID        string         `json:"human_approval_id,omitempty"`
+	WorkItem           *WorkItem `json:"work_item,omitempty"`
+	MaterializationKey string    `json:"materialization_key,omitempty"`
+	ChangeType         string    `json:"change_type,omitempty"`
+	ChangeSetID        string    `json:"change_set_id,omitempty"`
+	HumanApprovalID    string    `json:"human_approval_id,omitempty"`
+	// ApprovalDigest is the digest of the Gate approval this request
+	// presents. It is the same conceptual digest as ApprovalRecord.Digest
+	// and ResolutionSubmission.ApprovalDigest, compared against the Gate
+	// record before any mutation is applied.
 	ApprovalDigest         string         `json:"approval_resolution_digest,omitempty"`
 	ResolutionKind         string         `json:"resolution_kind,omitempty"`
 	ResolutionSubmissionID string         `json:"resolution_submission_id,omitempty"`
@@ -246,13 +272,16 @@ type Request struct {
 
 // ApprovalRecord is Gate-owned single-use approval state.
 type ApprovalRecord struct {
-	ID                      string         `json:"id,omitempty"`
-	ApprovedSubject         string         `json:"approved_subject"`
-	DelegatedPrincipal      string         `json:"delegated_principal"`
-	ProjectID               string         `json:"project_id,omitempty"`
-	WorkItemID              string         `json:"work_item_id,omitempty"`
-	RequestID               string         `json:"request_id,omitempty"`
-	ChangeSetID             string         `json:"change_set_id,omitempty"`
+	ID                 string `json:"id,omitempty"`
+	ApprovedSubject    string `json:"approved_subject"`
+	DelegatedPrincipal string `json:"delegated_principal"`
+	ProjectID          string `json:"project_id,omitempty"`
+	WorkItemID         string `json:"work_item_id,omitempty"`
+	RequestID          string `json:"request_id,omitempty"`
+	ChangeSetID        string `json:"change_set_id,omitempty"`
+	// Digest is the Gate-recorded digest of the approved resolution or
+	// refinement content. It is the same conceptual digest as
+	// Payload.ApprovalDigest and ResolutionSubmission.ApprovalDigest.
 	Digest                  string         `json:"resolution_digest"`
 	Action                  Operation      `json:"action"`
 	ResolutionKind          string         `json:"resolution_kind,omitempty"`
@@ -281,12 +310,17 @@ type ApprovalRequirement struct {
 // ResolutionSubmission is the WMS-owned record submitted for a later
 // Materializer transition.
 type ResolutionSubmission struct {
-	ID                                 string                     `json:"id"`
-	WorkItemID                         string                     `json:"work_item_id"`
-	Kind                               string                     `json:"kind"`
-	ChangeSetID                        string                     `json:"change_set_id,omitempty"`
-	ApprovalID                         string                     `json:"approval_id"`
-	ApprovalDigest                     string                     `json:"approval_digest"`
+	ID          string `json:"id"`
+	WorkItemID  string `json:"work_item_id"`
+	Kind        string `json:"kind"`
+	ChangeSetID string `json:"change_set_id,omitempty"`
+	ApprovalID  string `json:"approval_id"`
+	// ApprovalDigest is the digest the submission presented from the
+	// Gate approval. It is the same conceptual digest as
+	// Payload.ApprovalDigest and ApprovalRecord.Digest, carried on the
+	// submission record so a later resolve-block can re-verify the exact
+	// approval content the submission was accepted under.
+	ApprovalDigest                     string                     `json:"approval_resolution_digest"`
 	ApprovedHumanSubject               string                     `json:"approved_human_subject"`
 	Status                             ResolutionSubmissionStatus `json:"status"`
 	PlannedDependencyComplete          bool                       `json:"planned_dependency_complete"`

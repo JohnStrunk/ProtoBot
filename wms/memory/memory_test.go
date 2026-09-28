@@ -456,7 +456,7 @@ func TestOutOfScopeResolutionUsesObservedInspectorConfirmation(t *testing.T) {
 func TestWMSFailureCodesAndRetryGuidanceUseStableValues(t *testing.T) {
 	gate := conformanceGate()
 	jobSite := gate["job-site"]
-	jobSite.AllowedActions = append(jobSite.AllowedActions, validation.Operation("finding.create"))
+	jobSite.AllowedActions = append(jobSite.AllowedActions, validation.OperationFindingCreate)
 	gate["job-site"] = jobSite
 	memory := newConformanceMemoryWithGate(t, gate)
 
@@ -915,7 +915,7 @@ func TestRefineApprovalRejectsProjectMismatch(t *testing.T) {
 					Classification:  "changes",
 					RefinementState: "ready-for-dimensioning",
 				}),
-				Action:        validation.Operation("request.refine"),
+				Action:        validation.OperationRequestRefine,
 				PolicyVersion: "wms-policy/v1",
 				ExpiresAt:     memoryTestTime.Add(time.Hour),
 				Status:        validation.ApprovalStatusUnused,
@@ -1004,7 +1004,7 @@ func seedRefinementApproval(t *testing.T, memory *Memory, id, requestID string, 
 		ProjectID:          "fixture-project",
 		RequestID:          requestID,
 		Digest:             validation.RefinementDigest(content),
-		Action:             validation.Operation("request.refine"),
+		Action:             validation.OperationRequestRefine,
 		PolicyVersion:      "wms-policy/v1",
 		ExpiresAt:          memoryTestTime.Add(time.Hour),
 		Status:             validation.ApprovalStatusUnused,

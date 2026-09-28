@@ -542,7 +542,10 @@ func validateResolutionRefresh(kind, changeSetID string, plannedDependencyComple
 			if changeSetID == "" {
 				changeSetID = "planned change-set"
 			}
-			return dependencyFailed(changeSetID)
+			// The planned change set is submission-owned state, not a
+			// work-item dependency; name it in failed_precondition so
+			// clients can distinguish the two PRECONDITION_FAILED causes.
+			return preconditionFailed("planned dependency "+changeSetID+" build work is not completed", "planned-dependency-completion")
 		}
 	case "out-of-scope":
 		if !inspectorConfirmed {

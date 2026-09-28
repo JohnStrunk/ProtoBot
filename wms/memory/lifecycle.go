@@ -16,6 +16,18 @@ func (m *Memory) applyLifecycleMutationLocked(
 ) {
 	item.State = decision.After.State
 	item.ContractVersion = decision.After.ContractVersion
+	// WMS-observed inspection evidence is valid only while the item stays in
+	// the inspecting-merging continuum; terminal states retain it as the
+	// completion record. Every other result — rework back to building, a
+	// block, or a recovered lease — invalidates it in the same atomic
+	// operation, so a later tests-pass cannot re-enter inspecting with a
+	// prior cycle's sealed inspection still authorizing begin-merge.
+	if item.State != validation.StateInspecting && item.State != validation.StateMerging &&
+		item.State != validation.StateCompleted && item.State != validation.StateAbandoned {
+		item.InspectionRunSealed = false
+		item.FindingsTerminal = false
+		item.FinalTestsPassed = false
+	}
 	switch request.Operation {
 	case validation.OperationClaim:
 		// A lease handoff clears stale reconciliation evidence: the new lease

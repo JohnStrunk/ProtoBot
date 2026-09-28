@@ -90,7 +90,8 @@ type wmsFixtureExpected struct {
 }
 
 type wmsFixtureError struct {
-	Code string `json:"code"`
+	Code               string `json:"code"`
+	FailedPrecondition string `json:"failed_precondition"`
 }
 
 type wmsFixtureDecision struct {
@@ -100,8 +101,8 @@ type wmsFixtureDecision struct {
 	RuleVersion string               `json:"rule_version"`
 	Replayed    bool                 `json:"replayed"`
 	Rejection   *struct {
-		Code    string         `json:"code"`
-		Details map[string]any `json:"details"`
+		Code               string `json:"code"`
+		FailedPrecondition string `json:"failed_precondition"`
 	} `json:"rejection"`
 }
 
@@ -392,6 +393,10 @@ func assertGoldenStatus(t *testing.T, step string, actual Result, expected wmsFi
 	if expected.Error != nil {
 		if actual.Error == nil || actual.Error.Code != expected.Error.Code {
 			t.Errorf("%s error = %#v, want code %q", step, actual.Error, expected.Error.Code)
+		} else if expected.Error.FailedPrecondition != "" {
+			if detail, ok := actual.Error.Details["failed_precondition"].(string); !ok || detail != expected.Error.FailedPrecondition {
+				t.Errorf("%s error failed_precondition = %#v, want %q", step, actual.Error.Details["failed_precondition"], expected.Error.FailedPrecondition)
+			}
 		}
 	} else if expected.OK != nil && *expected.OK && actual.Error != nil {
 		t.Errorf("%s unexpected error = %#v", step, actual.Error)
@@ -436,6 +441,10 @@ func assertGoldenDecision(t *testing.T, step string, actual *validation.Decision
 	checkGoldenString(t, step, "decision.rule_version", expected.RuleVersion, actual.RuleVersion)
 	if expected.Rejection != nil && (actual.Rejection == nil || actual.Rejection.Code != expected.Rejection.Code) {
 		t.Errorf("%s decision rejection = %#v, want %q", step, actual.Rejection, expected.Rejection.Code)
+	} else if expected.Rejection != nil && actual.Rejection != nil && expected.Rejection.FailedPrecondition != "" {
+		if detail, ok := actual.Rejection.Details["failed_precondition"].(string); !ok || detail != expected.Rejection.FailedPrecondition {
+			t.Errorf("%s decision rejection failed_precondition = %#v, want %q", step, actual.Rejection.Details["failed_precondition"], expected.Rejection.FailedPrecondition)
+		}
 	}
 }
 

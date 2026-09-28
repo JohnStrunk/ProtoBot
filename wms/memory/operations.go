@@ -6,116 +6,135 @@ import (
 	"github.com/redhat-et/protobot/wms/validation"
 )
 
-var draftingTableOperations = []string{
-	"request.create",
-	"request.refine",
-	"request.link-change-set",
-	"request.link-build-work-item",
-	"request.get",
-	"request.query",
-	"work-item.get",
-	"work-item.query",
-	"blocked-work.query",
-	"lifecycle.preflight",
-	"blocked-work.submit-resolution",
-	"blocked-work.acknowledge",
+var draftingTableOperations = []validation.Operation{
+	validation.OperationRequestCreate,
+	validation.OperationRequestRefine,
+	validation.OperationRequestLinkChangeSet,
+	validation.OperationRequestLinkBuildWorkItem,
+	validation.OperationRequestGet,
+	validation.OperationRequestQuery,
+	validation.OperationWorkItemGet,
+	validation.OperationWorkItemQuery,
+	validation.OperationBlockedWorkQuery,
+	validation.OperationLifecyclePreflight,
+	validation.OperationBlockedWorkSubmitResolution,
+	validation.OperationBlockedWorkAcknowledge,
 }
 
-var humanMaintainerOperations = []string{"request.update-priority", "request.link-change-set"}
-
-var jobSiteOperations = []string{
-	"claim",
-	"renew-lease",
-	"tests-pass",
-	"raise-spec-question",
-	"refresh-active",
-	"return-to-building",
-	"begin-merge",
-	"merge-conflict",
-	"record-merge",
-	"finding.create",
+var humanMaintainerOperations = []validation.Operation{
+	validation.OperationRequestUpdatePriority,
+	validation.OperationRequestLinkChangeSet,
 }
 
-var materializerOperations = []string{
-	"materialize",
-	"refresh-dependencies",
-	"revalidate",
-	"resolve-block",
+var jobSiteOperations = []validation.Operation{
+	validation.OperationClaim,
+	validation.OperationRenewLease,
+	validation.OperationTestsPass,
+	validation.OperationRaiseSpecQuestion,
+	validation.OperationRefreshActive,
+	validation.OperationReturnToBuilding,
+	validation.OperationBeginMerge,
+	validation.OperationMergeConflict,
+	validation.OperationRecordMerge,
+	validation.OperationFindingCreate,
 }
 
-var reconcilerOperations = []string{
-	"recover-lease",
-	"merge-conflict",
-	"merge-not-applied",
-	"record-merge",
+var materializerOperations = []validation.Operation{
+	validation.OperationMaterialize,
+	validation.OperationRefreshDependencies,
+	validation.OperationRevalidate,
+	validation.OperationResolveBlock,
 }
 
-var adapterOperations = []string{
-	"request.create",
-	"request.refine",
-	"request.update-priority",
-	"request.link-change-set",
-	"request.link-build-work-item",
-	"request.get",
-	"request.query",
-	"work-item.get",
-	"work-item.query",
-	"blocked-work.query",
-	"lifecycle.preflight",
-	"blocked-work.submit-resolution",
-	"blocked-work.acknowledge",
-	"materialize",
-	"refresh-dependencies",
-	"revalidate",
-	"resolve-block",
-	"claim",
-	"renew-lease",
-	"tests-pass",
-	"raise-spec-question",
-	"refresh-active",
-	"return-to-building",
-	"begin-merge",
-	"merge-conflict",
-	"merge-not-applied",
-	"record-merge",
-	"recover-lease",
-	"abandon",
-	"finding.create",
+var reconcilerOperations = []validation.Operation{
+	validation.OperationRecoverLease,
+	validation.OperationMergeConflict,
+	validation.OperationMergeNotApplied,
+	validation.OperationRecordMerge,
+}
+
+var adapterOperations = []validation.Operation{
+	validation.OperationRequestCreate,
+	validation.OperationRequestRefine,
+	validation.OperationRequestUpdatePriority,
+	validation.OperationRequestLinkChangeSet,
+	validation.OperationRequestLinkBuildWorkItem,
+	validation.OperationRequestGet,
+	validation.OperationRequestQuery,
+	validation.OperationWorkItemGet,
+	validation.OperationWorkItemQuery,
+	validation.OperationBlockedWorkQuery,
+	validation.OperationLifecyclePreflight,
+	validation.OperationBlockedWorkSubmitResolution,
+	validation.OperationBlockedWorkAcknowledge,
+	validation.OperationMaterialize,
+	validation.OperationRefreshDependencies,
+	validation.OperationRevalidate,
+	validation.OperationResolveBlock,
+	validation.OperationClaim,
+	validation.OperationRenewLease,
+	validation.OperationTestsPass,
+	validation.OperationRaiseSpecQuestion,
+	validation.OperationRefreshActive,
+	validation.OperationReturnToBuilding,
+	validation.OperationBeginMerge,
+	validation.OperationMergeConflict,
+	validation.OperationMergeNotApplied,
+	validation.OperationRecordMerge,
+	validation.OperationRecoverLease,
+	validation.OperationAbandon,
+	validation.OperationFindingCreate,
 }
 
 // DraftingTableOperations returns the exact request/query/preflight surface
-// granted to the Drafting Table.
+// granted to the Drafting Table, projected onto the wire's operation-name
+// strings.
 func DraftingTableOperations() []string {
-	return append([]string(nil), draftingTableOperations...)
+	return operationNames(draftingTableOperations)
 }
 
 // HumanMaintainerOperations returns the WMS request operations directly
-// invoked by a trusted human-maintainer client.
+// invoked by a trusted human-maintainer client, projected onto the wire's
+// operation-name strings.
 func HumanMaintainerOperations() []string {
-	return append([]string(nil), humanMaintainerOperations...)
+	return operationNames(humanMaintainerOperations)
 }
 
-// JobSiteOperations returns the Job Site execution operation set.
+// JobSiteOperations returns the Job Site execution operation set, projected
+// onto the wire's operation-name strings.
 func JobSiteOperations() []string {
-	return append([]string(nil), jobSiteOperations...)
+	return operationNames(jobSiteOperations)
 }
 
-// MaterializerOperations returns the Materializer lifecycle operation set.
+// MaterializerOperations returns the Materializer lifecycle operation set,
+// projected onto the wire's operation-name strings.
 func MaterializerOperations() []string {
-	return append([]string(nil), materializerOperations...)
+	return operationNames(materializerOperations)
 }
 
-// ReconcilerOperations returns the reconciliation operation set.
+// ReconcilerOperations returns the reconciliation operation set, projected
+// onto the wire's operation-name strings.
 func ReconcilerOperations() []string {
-	return append([]string(nil), reconcilerOperations...)
+	return operationNames(reconcilerOperations)
 }
 
-// AdapterOperations returns the complete declared in-memory adapter API.
+// AdapterOperations returns the complete declared in-memory adapter API,
+// projected onto the wire's operation-name strings.
 func AdapterOperations() []string {
-	return append([]string(nil), adapterOperations...)
+	return operationNames(adapterOperations)
 }
 
-func roleHasWMSOperation(role validation.Role, operation string) bool {
+// operationNames projects the typed Operation vocabulary onto the plain
+// strings used on the wire and in fixtures.
+func operationNames(operations []validation.Operation) []string {
+	names := make([]string, len(operations))
+	for index, operation := range operations {
+		names[index] = string(operation)
+	}
+	return names
+}
+
+func roleHasWMSOperation(role validation.Role, operation validation.Operation) bool {
 	switch role {
 	case validation.RoleDraftingTable:
 		return slices.Contains(draftingTableOperations, operation)

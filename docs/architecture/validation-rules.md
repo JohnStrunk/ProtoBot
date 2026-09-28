@@ -229,6 +229,11 @@ The approval binding is checked and consumed in the same transaction as
 approval cannot unblock any item. The Materializer's trusted subject must
 match the approval's delegated principal, and the approval's authorized
 human subject must be preserved in the audit event before consumption.
+Each optional binding dimension — request, change set, resolution kind,
+expected state, and expected contract version — must agree on both sides:
+an approval bound to a value the consuming request leaves unset does not
+match, so a Gate-recorded binding cannot be dropped by an open request
+field.
 
 Every authoritative evaluation fails closed unless the Gate-issued context
 contains a non-empty authenticated `subject`, known `role`, trusted
@@ -424,6 +429,14 @@ the same atomic operation that changes the state. The prior token is
 invalidated before the decision is returned. The new owner is the subject
 in the trusted authorization context; a caller cannot transfer ownership
 by putting another subject in the command payload.
+
+Any transition that leaves `inspecting` or `merging` without recording the
+merge clears the WMS-observed inspection evidence — the sealed Inspection
+Run, terminal findings, and final-test gate — in the same atomic operation
+that changes the state; `completed` and `abandoned` retain the observed
+evidence as the terminal record. A later `tests-pass` therefore re-enters
+`inspecting` with no inspection evidence, and `begin-merge` requires a
+fresh WMS inspection observation rather than reusing the prior cycle's.
 
 ### Readiness and materialization outcomes
 
@@ -719,6 +732,7 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-051` | A reconciler runs `recover-lease` on an expired lease with matching `lease-recovered`/`none` evidence, then the stored record is inspected. | The recovery succeeds and the reconciliation evidence that authorized it is cleared with the lease; a second recovery requires a fresh WMS observation. |
 | `VR-052` | Materialize a complete contract whose payload copy asserts inspection or reconciliation evidence. | The materialized record stores no caller-asserted evidence; only WMS-observed evidence may be recorded. |
 | `VR-053` | Materialize a complete contract whose payload copy states a dependency is completed while the WMS observes that dependency as blocked. | Materialization follows the WMS-observed dependency state and returns `waiting`; the caller's dependency states are not stored. |
+| `VR-054` | An `inspecting` work item with observed inspection evidence returns to building through rework, passes the Building test gate again, and requests `begin-merge` before a fresh inspection observation. | `begin-merge` is rejected with `PRECONDITION_FAILED`; the rework cleared the observed inspection evidence, so merging requires a fresh WMS inspection observation. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests

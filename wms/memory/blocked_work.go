@@ -140,7 +140,7 @@ func (m *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorization va
 		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "work-item"))
 	}
 	requirement := validation.ApprovalRequirement{
-		Action:                  validation.Operation("blocked-work.acknowledge"),
+		Action:                  validation.OperationBlockedWorkAcknowledge,
 		DelegatedPrincipal:      authorization.Subject,
 		ProjectID:               m.projectID,
 		WorkItemID:              call.WorkItemID,
@@ -215,7 +215,7 @@ func validateBlockedExpected(call CallRequest, item validation.WorkItem) *valida
 		return &validation.Rejection{
 			Code:    validation.CodeInvalidTransition,
 			Message: "Blocked-work resolution requires a blocked work item.",
-			Details: map[string]any{"operation": "blocked-work.submit-resolution", "current_state": item.State, "allowed_operations": []string{"blocked-work.submit-resolution", "blocked-work.acknowledge"}},
+			Details: map[string]any{"operation": call.Operation, "current_state": item.State, "allowed_operations": []string{string(validation.OperationBlockedWorkSubmitResolution), string(validation.OperationBlockedWorkAcknowledge)}},
 			Retry:   validation.RetryRefresh,
 		}
 	}

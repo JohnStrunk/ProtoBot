@@ -127,7 +127,10 @@ Drafting Table subject that writes the acknowledgement. Missing, unknown,
 cross-item, cross-change-set, wrong-kind, digest-mismatched, expired,
 consumed, revoked, or delegated-principal-mismatched approvals return
 `UNAUTHORIZED_ACTION` before any resource write. The same checks apply to
-an informational acknowledgement.
+an informational acknowledgement. Every binding dimension must agree on
+both sides — the approval record and the consuming request — including
+dimensions the request leaves unset; a Gate-recorded binding cannot be
+dropped by an open request field.
 
 Acceptance of `blocked-work.submit-resolution` verifies the approval binding
 and stores it with the durable submission; it does not consume or reserve
