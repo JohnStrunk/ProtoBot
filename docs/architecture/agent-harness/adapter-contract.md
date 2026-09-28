@@ -994,9 +994,12 @@ The adapter places three more facts in it:
   the record lacks. The fixture captures anything missing, such as the
   resolved native rules, next to the export.
 - The adapter cannot redact a harness's record, so it keeps
-  credentials out of the role's own turns: every credential-file read,
-  every read outside the project, and every read under `.git/` are
-  refused, and no `scm` result holds a remote URL; the fixture
+  credentials out of the role's own turns: on calls that receive a
+  guard decision, every credential-file read, every read outside the
+  project, and every read under `.git/` are refused, and no `scm`
+  result holds a remote URL. A fail-open call can place a readable
+  secret in the record, as the per-binding rows under
+  [File-source arguments](#file-source-arguments) record. The fixture
   plants a token-shaped string in the in-project places among those
   and asserts that no export holds it, and vectors cover the rest
   ([harness checks](#guard-vectors)). A turn outside
