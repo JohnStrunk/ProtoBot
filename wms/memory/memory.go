@@ -678,6 +678,12 @@ func (m *Memory) checkMaterializationLocked(request validation.Request) (*Result
 	if !exists {
 		return nil, nil
 	}
+	// The evaluator's target check must also gate the create-or-return
+	// replay: a request naming another work item or project must not
+	// receive the record this key replays.
+	if rejection := validation.MaterializationTargetRejection(request, request.Payload.WorkItem); rejection != nil {
+		return nil, rejection
+	}
 	source := validation.CanonicalMaterializationSource(*request.Payload.WorkItem, request.Payload.ChangeType)
 	// The evaluator's source-contract check must also gate the create-or-
 	// return replay: SourceFingerprint binds only the merge target, so an

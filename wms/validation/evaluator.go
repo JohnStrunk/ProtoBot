@@ -96,6 +96,9 @@ func Evaluate(request Request, current *WorkItem, evaluation EvaluationContext) 
 	if rejection := authorizeRequest(request, evaluation); rejection != nil {
 		return rejectDecision(decision, rejection)
 	}
+	if rejection := observeExistingMaterialization(request, current); rejection != nil {
+		return rejectDecision(decision, rejection)
+	}
 	if rejection := validateMutationPreconditions(request, current, decision.Before, evaluation); rejection != nil {
 		return rejectDecision(decision, rejection)
 	}
@@ -144,15 +147,26 @@ func authorizeRequest(request Request, evaluation EvaluationContext) *Rejection 
 func observeTarget(request Request, current *WorkItem, decision *Decision) *Rejection {
 	if request.Operation == OperationMaterialize {
 		decision.Before = &StateVersion{State: StateInitial, ContractVersion: 0}
-		if current != nil {
-			return idempotencyConflict("materialization-source", request.MaterializationKey, "")
-		}
 		return nil
 	}
 	if current == nil || current.ProjectID != request.ProjectID || current.ID != request.WorkItemID {
 		return notFound("work-item")
 	}
 	decision.Before = stateVersion(current)
+	return nil
+}
+
+// observeExistingMaterialization reports the create-or-return conflict for a
+// materialization whose work-item record already exists under a different
+// materialization key. The check runs after authorization and before the
+// mutation-precondition checks, matching the documented check order:
+// authorization at step 2, create-or-return at step 4, and terminal state at
+// step 6. Checking it in observeTarget would instead report a target
+// conflict to a caller whose role is not even allowed to materialize.
+func observeExistingMaterialization(request Request, current *WorkItem) *Rejection {
+	if request.Operation == OperationMaterialize && current != nil {
+		return idempotencyConflict("materialization-source", request.MaterializationKey, "")
+	}
 	return nil
 }
 
@@ -416,8 +430,8 @@ func evaluateMaterialization(request Request, evaluation EvaluationContext) (Sta
 		return "", OutcomeRejected, nil, preconditionFailed("materialization_key is required", "materialization_key")
 	}
 	item := request.Payload.WorkItem
-	if item == nil || item.ID == "" || item.ID != request.WorkItemID || item.ProjectID != request.ProjectID {
-		return "", OutcomeRejected, nil, preconditionFailed("a complete work-item contract for the trusted project is required", "complete-work-item-contract")
+	if rejection := MaterializationTargetRejection(request, item); rejection != nil {
+		return "", OutcomeRejected, nil, rejection
 	}
 	candidate := CanonicalMaterializationSource(*item, request.Payload.ChangeType)
 	changeType := candidate.ChangeType
@@ -806,6 +820,18 @@ func preconditionFailed(reason, evidence string) *Rejection {
 
 func reconciliationMatches(evidence ReconciliationEvidence, status, mutation string) bool {
 	return evidence.Status == status && evidence.GitMutation == mutation
+}
+
+// MaterializationTargetRejection reports the rejection for a materialization
+// request whose payload work item does not carry the trusted project and the
+// requested work-item identity. The WMS boundary applies the same check
+// before the create-or-return replay, so a request naming another work item
+// or project cannot receive the record a bound materialization key replays.
+func MaterializationTargetRejection(request Request, item *WorkItem) *Rejection {
+	if item == nil || item.ID == "" || item.ID != request.WorkItemID || item.ProjectID != request.ProjectID {
+		return preconditionFailed("a complete work-item contract for the trusted project is required", "complete-work-item-contract")
+	}
+	return nil
 }
 
 // MaterializationSourceMergeRejection reports the rejection for a

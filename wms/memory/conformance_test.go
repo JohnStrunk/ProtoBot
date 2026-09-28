@@ -478,6 +478,26 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				t.Fatalf("materialization replay = %#v, original = %#v", replay, first)
 			}
 			assertEventCount(t, memory, 1)
+
+			// The create-or-return replay is scoped to the requested
+			// target: the same source under a new command key that names
+			// another work_item_id must not receive this key's stored
+			// record, exactly as a fresh evaluation would reject it.
+			mismatched := materializeCall(candidate, "vr024-command-3", "vr024-logical-key")
+			mismatched.WorkItemID = "wi-024-unrelated"
+			rejected := memory.Execute(mismatched)
+			decision := assertRejectedDecision(t, rejected, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+			if decision.Rejection == nil || decision.Rejection.Details["required_evidence"] != "complete-work-item-contract" {
+				t.Fatalf("rejection = %#v, want complete-work-item-contract failure", decision.Rejection)
+			}
+			if _, exists := memory.WorkItem("wi-024-unrelated"); exists {
+				t.Fatal("target-mismatched replay created the unrelated work item")
+			}
+			stored, _ := memory.WorkItem(candidate.ID)
+			if stored.State != first.WorkItemState || stored.ContractVersion != first.ContractVersion {
+				t.Fatalf("stored work item = %#v, want the original materialization unchanged", stored)
+			}
+			assertEventCount(t, memory, 1)
 		}},
 		{"VR-025", func(t *testing.T) {
 			memory, gate := newConformanceMemory(t)

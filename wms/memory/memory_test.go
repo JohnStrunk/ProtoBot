@@ -183,6 +183,7 @@ func TestMaterializationCannotReplaceExistingWorkItemID(t *testing.T) {
 		t.Run(string(state), func(t *testing.T) {
 			gate := StaticGate{
 				"materializer": testAuthorization("materializer", validation.RoleMaterializer, validation.OperationMaterialize),
+				"job-site":     testAuthorization("job-site", validation.RoleJobSite, validation.OperationClaim),
 			}
 			memory := newTestMemory(t, gate, "materializer")
 			existing := testWorkItem("wi-existing", state, 12)
@@ -197,6 +198,17 @@ func TestMaterializationCannotReplaceExistingWorkItemID(t *testing.T) {
 			candidate.ChangeType = "undefined"
 			result := memory.Execute(materializeCall(candidate, "new-materialization-command", "new-materialization-key"))
 			assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeIdempotencyConflict)
+			assertItemUnchanged(t, memory, existing)
+			assertEventCount(t, memory, 0)
+
+			// Authorization precedes the create-or-return conflict: a
+			// caller whose role cannot materialize receives
+			// UNAUTHORIZED_ACTION for an existing record, exactly as it
+			// would for a missing one, instead of a target conflict.
+			unauthorized := materializeCall(candidate, "unauthorized-materialization-command", "another-materialization-key")
+			unauthorized.ActorContextRef = "job-site"
+			rejected := memory.Execute(unauthorized)
+			assertRejectedDecision(t, rejected, validation.AuthorityAuthoritative, validation.CodeUnauthorizedAction)
 			assertItemUnchanged(t, memory, existing)
 			assertEventCount(t, memory, 0)
 		})

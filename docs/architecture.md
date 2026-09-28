@@ -823,7 +823,8 @@ has its own revision and approval/digest binding; writing or replaying it
 does not change the work-item lifecycle state, contract version, or
 dependencies. The Materializer consumes the currently-active submission
 through authoritative `resolve-block`; a superseded submission's Gate
-approval is revoked and cannot be applied.
+approval is revoked and cannot be applied, unless the new submission
+reuses the same approval.
 
 **Where it lives:** The configured WMS backend, one per project.
 
@@ -837,10 +838,12 @@ request refinement approvals, and acknowledgement approvals — are issued
 by the Gate and bound to the approved human subject, delegated principal,
 project, target, resolution or refinement digest, expected state/version,
 policy version, expiry, and single-use status. The WMS Adapter resolves and
-consumes them atomically in the same transaction as the mutation they
-authorize (`resolve-block`, `request.refine`, blocked-work submissions, and
-acknowledgements); a consumed or revoked approval cannot authorize a second
-mutation.
+verifies them at the write boundary. `resolve-block`, `request.refine`, and
+`blocked-work.acknowledge` consume the approval atomically in the same
+transaction as the mutation they authorize; `blocked-work.submit-resolution`
+verifies the approval binding and stores it with the durable submission
+without consuming it. A consumed or revoked approval cannot authorize a
+second mutation.
 
 **Where it lives:** Issued by the Gate; resolved and consumed at the WMS
 Adapter write boundary from trusted Gate state, one per project.
