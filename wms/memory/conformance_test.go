@@ -1224,6 +1224,42 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				}
 				assertEventCount(t, memory, 0)
 			})
+
+			t.Run("materialize replay path rejects tested-candidate merge fields", func(t *testing.T) {
+				memory, gate := newConformanceMemory(t)
+				setConformanceAllowedRefs(gate, "materializer", expected.Target)
+				candidate := testWorkItem("wi-049-replay-fields", validation.StateInitial, 0)
+				candidate.ChangeType = "undefined"
+				candidate.ExpectedMerge = &validation.MergeEnvelope{Target: expected.Target}
+				first := memory.Execute(materializeCall(candidate, "vr049-replay-fields-1", "vr049-replay-fields-key"))
+				assertAllowedDecision(t, first, validation.AuthorityAuthoritative)
+
+				// The invalid source passes authorization (the tree digest is
+				// not a Gate ref) and would fingerprint like the valid
+				// target-only source; the create-or-return replay must still
+				// apply the source-contract rejection instead of replaying
+				// the original success.
+				invalid := candidate
+				invalid.ExpectedMerge = &validation.MergeEnvelope{Target: expected.Target, ProductTreeDigest: "tree-049-forged"}
+				second := memory.Execute(materializeCall(invalid, "vr049-replay-fields-2", "vr049-replay-fields-key"))
+				decision := assertRejectedDecision(t, second, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+				if decision.Rejection == nil || decision.Rejection.Details["required_evidence"] != "materialization-merge-target" {
+					t.Fatalf("rejection = %#v, want materialization-merge-target failure", decision.Rejection)
+				}
+				stored, _ := memory.WorkItem(candidate.ID)
+				if stored.ExpectedMerge == nil || stored.ExpectedMerge.ProductTreeDigest != "" {
+					t.Fatalf("stored merge envelope = %#v, want the target-only source contract", stored.ExpectedMerge)
+				}
+				// The rejection, not a success, is what the command key
+				// replays: an exact retry of the invalid payload must not
+				// surface a replayed success.
+				retry := memory.Execute(materializeCall(invalid, "vr049-replay-fields-2", "vr049-replay-fields-key"))
+				if retry.OK || retry.Error == nil || retry.Error.Code != validation.CodePreconditionFailed ||
+					retry.Outcome != outcomeReplayed || retry.Idempotency != idempotencyReplayed {
+					t.Fatalf("invalid-payload retry = %#v, want the replayed PRECONDITION_FAILED rejection", retry)
+				}
+				assertEventCount(t, memory, 1)
+			})
 		}},
 		{"VR-049", func(t *testing.T) {
 			memory, _ := newConformanceMemory(t)

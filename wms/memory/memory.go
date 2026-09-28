@@ -371,11 +371,11 @@ func (m *Memory) replayLifecycleRequest(call CallRequest, request validation.Req
 		return resultFromDecision(call.Operation, decision), true
 	}
 	if request.Operation == validation.OperationMaterialize {
-		if replay, conflict := m.checkMaterializationLocked(request); replay != nil {
+		if replay, rejection := m.checkMaterializationLocked(request); replay != nil {
 			m.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, *replay)
 			return *replay, true
-		} else if conflict != nil {
-			decision := validation.RejectionDecision(request, validation.AuthorityAuthoritative, conflict)
+		} else if rejection != nil {
+			decision := validation.RejectionDecision(request, validation.AuthorityAuthoritative, rejection)
 			result := resultFromDecision(call.Operation, decision)
 			m.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, result)
 			return result, true
@@ -679,6 +679,13 @@ func (m *Memory) checkMaterializationLocked(request validation.Request) (*Result
 		return nil, nil
 	}
 	source := validation.CanonicalMaterializationSource(*request.Payload.WorkItem, request.Payload.ChangeType)
+	// The evaluator's source-contract check must also gate the create-or-
+	// return replay: SourceFingerprint binds only the merge target, so an
+	// invalid source asserting tested-candidate fields would otherwise
+	// fingerprint like the valid original and replay its success.
+	if rejection := validation.MaterializationSourceMergeRejection(source); rejection != nil {
+		return nil, rejection
+	}
 	fingerprint := validation.SourceFingerprint(source)
 	if fingerprint != entry.fingerprint {
 		return nil, wmsRejection(

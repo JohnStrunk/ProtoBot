@@ -435,13 +435,8 @@ func evaluateMaterialization(request Request, evaluation EvaluationContext) (Sta
 	if reason := readinessContractFailure(candidate.Readiness); reason != "" {
 		return "", OutcomeRejected, nil, preconditionFailed(reason, "complete-work-item-contract")
 	}
-	// The tested candidate exists only after Building and Inspecting, so a
-	// materialization source may name only the merge target; begin-merge
-	// records the tested-candidate envelope.
-	if candidate.ExpectedMerge != nil && (candidate.ExpectedMerge.ProductTreeDigest != "" ||
-		candidate.ExpectedMerge.InspectionRunID != "" || candidate.ExpectedMerge.IntegrationHead != "" ||
-		candidate.ExpectedMerge.MergeCommit != "" || candidate.ExpectedMerge.ContractVersion != 0) {
-		return "", OutcomeRejected, nil, preconditionFailed("the materialization source may carry only the merge target; tested-candidate merge fields are recorded at begin-merge", "materialization-merge-target")
+	if rejection := MaterializationSourceMergeRejection(candidate); rejection != nil {
+		return "", OutcomeRejected, nil, rejection
 	}
 
 	dependencies := candidate.Dependencies
@@ -811,6 +806,25 @@ func preconditionFailed(reason, evidence string) *Rejection {
 
 func reconciliationMatches(evidence ReconciliationEvidence, status, mutation string) bool {
 	return evidence.Status == status && evidence.GitMutation == mutation
+}
+
+// MaterializationSourceMergeRejection reports the rejection for a
+// materialization source whose merge envelope asserts tested-candidate
+// fields. The tested candidate exists only after Building and Inspecting,
+// so a source may name only the merge target; begin-merge records the
+// tested-candidate envelope. The WMS boundary applies the same check
+// before the create-or-return replay, so an invalid source contract
+// cannot short-circuit evaluation through a matching materialization key.
+func MaterializationSourceMergeRejection(source WorkItem) *Rejection {
+	if source.ExpectedMerge == nil {
+		return nil
+	}
+	if source.ExpectedMerge.ProductTreeDigest != "" || source.ExpectedMerge.InspectionRunID != "" ||
+		source.ExpectedMerge.IntegrationHead != "" || source.ExpectedMerge.MergeCommit != "" ||
+		source.ExpectedMerge.ContractVersion != 0 {
+		return preconditionFailed("the materialization source may carry only the merge target; tested-candidate merge fields are recorded at begin-merge", "materialization-merge-target")
+	}
+	return nil
 }
 
 // testedCandidateRejection validates the merge envelope a Job Site supplies
