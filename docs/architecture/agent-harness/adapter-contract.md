@@ -381,9 +381,12 @@ the CLI contract leaves open:
   `change-set update --impact-file -` read from standard input, so the
   role needs no file-writing tool for a Vision document or an impact
   file. `--content-file` and `--impact-file` also accept a path, which
-  may lie outside the project; the guard allows only `-`, because a
-  path there would let the role copy any readable file, a credential
-  file included, into a registered artifact.
+  may lie outside the project. On every call for which it returns a
+  decision, the shared guard rejects non-`-` values for these options,
+  because a path there would let the role copy any readable file, a
+  credential file included, into a registered artifact
+  ([File-source arguments](#file-source-arguments)). A fail-open call
+  is bounded as that section records.
 - **One JSON envelope per call.** With `--output json`, success and
   failure alike print one document and nothing else on standard
   output, so a result can be replayed byte for byte. The recording
@@ -485,6 +488,8 @@ refuses:
 - an environment assignment before the command;
 - output redirection, command substitution, and variable expansion
   outside a quoted here-document body;
+- input redirection (`<`, `<>`) and any other standard-input source
+  that is not a quoted here-document body;
 - a command that does not parse to exactly one simple command, so a
   quoted here-document whose body holds its own delimiter line ends
   early, and the second command that follows is refused; and
@@ -804,7 +809,7 @@ specific and are not refusals.
 | File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage digest comparison, `ears-manager check`, CI path ownership, for persistent edits to registered paths |
 | Shell writer, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Same, for persistent edits to registered paths |
 | Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root | Same, for persistent edits to registered paths |
-| `ears-manager --content-file` or `--impact-file` with a value other than `-` | Refused when the guard runs; binding-specific hook failures may pass the call through | Same | None: integrity and CI cannot establish whether the bytes came from standard input or an external file |
+| `ears-manager --content-file` or `--impact-file` with a value other than `-`, or with `-` or `--content-stdin` and input redirection | Refused when the guard runs; binding-specific hook failures may pass the call through | Same | None: integrity and CI cannot establish whether the bytes came from standard input or an external file |
 | Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | No tool-call check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
 | Subagent | Refused by the guard | Not applicable | No launch check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
 
@@ -843,7 +848,12 @@ non-`-` values for these options. A binding may provide the same check as a
 native value-level restriction. The check is per call, not per process or
 session: an installed hook, a passing startup probe, or an available guard
 binary is not sufficient evidence that a particular invocation was
-checked.
+checked. That same guard-checked guarantee covers not only the option
+value being `-`, but also that the standard-input bytes come from a
+quoted here-document body, not from a redirected host file. The guard
+refuses input redirection (`<`, `<>`) and any other standard-input
+source that is not a quoted here-document body
+([Shell operations](#shell-operations)).
 
 The shared refusal guarantee has an explicit fail-open exception where a
 harness may run the tool without a guard decision. In that case the native
@@ -854,7 +864,7 @@ enforcement:
 
 | Binding | Guard-unavailable case | Admitted without a guard decision | Still blocked by native rules or the sandbox |
 | --- | --- | --- | --- |
-| [OpenCode](opencode.md) | The plugin is absent or no hook is registered; native Bash permissions have no plugin-presence check | The `ears-manager *` allow rule still admits the command, including non-`-` file-source values, `--text "$GH_TOKEN"`, output redirection, and other shell syntax that only the guard rejects; a `read` of an in-project credential file other than `.env` | Every other shell command, including `git` and `gh` (`"*": deny`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
+| [OpenCode](opencode.md) | The plugin is absent or no hook is registered; native Bash permissions have no plugin-presence check | The `ears-manager *` allow rule still admits the command, including non-`-` file-source values, `--text "$GH_TOKEN"`, output redirection, input redirection, and other shell syntax that only the guard rejects; a `read` of an in-project credential file other than `.env` | Every other shell command, including `git` and `gh` (`"*": deny`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
 | [Claude Code](claude-code.md) | The hook times out, is killed, or its shim cannot run | No status 2 is returned, so an `ears-manager` call may proceed with a non-`-` value, such as a credential file, or with variable expansion such as `--text "$GH_TOKEN"`; a `Read` of a credential file outside the native denies, including one outside the project | Every shell command without an allow rule, including `git` and `gh` (`dontAsk`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
 | [Codex](codex.md) | The hook is untrusted outside the launcher, crashes, exits other than 2, or times out | The call may proceed with a non-`-` value or variable expansion; any shell command, including Git reads; an `apply_patch` or shell write in the working tree, including `.protobot/project.yaml` and registered paths, so a compound edit can pass the later checks (see below); the sandbox bounds writes, not reads, so a host credential file can reach the model or governed state, and the sandbox does not establish the source of bytes read into governed state | Writes outside the working tree and `$TMPDIR`, writes under `.git/`, and shell network access, so Git writes and Git host calls fail; hidden web and subagent tools |
 
@@ -1333,6 +1343,7 @@ negative checks of the [SCM's fixture][scm-fixture]:
 | Drafting Table | `git switch -c cs/00001-project-init main`, in an initialized fixture clone | `Project already initialized` |
 | Drafting Table | `git switch -c cs/00001-project-init main`, in a fixture clone without `.protobot/` | Not a shell operation: Git runs through the `scm` tools |
 | Drafting Table | `ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner <owner> --content-file ~/.netrc` | `--content-file` with a path |
+| Drafting Table | `ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner <owner> --content-file - < ~/.netrc`, `ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner <owner> --content-stdin < ~/.netrc`, and `ears-manager --output json change-set update --change-set CS-00003 --impact-file - < ~/.netrc` | Input redirection |
 | Drafting Table | A `wms` tool that the manifest does not list, such as a lifecycle transition | Not a Drafting Table operation |
 | Drafting Table | `ears-manager --output json requirement add --change-set CS-00003 ... --text "$GH_TOKEN" ...` | Variable expansion |
 | Drafting Table | `date +%s` | Not a shell operation: only the ISO 8601 form |
