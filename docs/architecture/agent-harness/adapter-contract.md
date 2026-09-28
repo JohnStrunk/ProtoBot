@@ -558,7 +558,7 @@ performs them:
 
 | #34 names | Drafting Table role | Why |
 | --- | --- | --- |
-| Reading state with `log`, `diff`, `show`, and `ls-files` | Not an operation; `repo_state` reports what a step needs | No step needs them. `ears-manager change-set compare` shows the change, and `show` and `diff` print store files under `.protobot/`, which the role does not read. |
+| Reading state with `log`, `diff`, `show`, and `ls-files` | Not an operation; `repo_state` reports what a step needs | No step needs them. `ears-manager change-set compare` shows the change, and `show` and `diff` print store files under `.protobot/`, which the role does not read on guard-checked calls. |
 | Creating a change-set branch | Not an operation, except `cs/00001-project-init`, which the SCM's `branch_init` cuts | Target #30 behavior: `ears-manager change-set create` cuts and checks out the branch. EM-04 first release only writes the manifest and defers branch creation and reuse (see the [`ears-manager` CLI first-release scope](../ears-manager-cli.md#em-04-first-release-scope)). Initialization is the target case where the branch must exist first, and guard rule 1 lets the role run `project init` on it before `.protobot/` exists. |
 | Amending an unpushed commit on explicit request | Refused. `commit` has no amend | History stays append-only, the rule for every pushed commit, so no second rule is needed for an unpushed one. |
 | Merging one's own pull request, in single-player mode | Refused. The user merges on the Git host, then asks the role to register. | The merge is the approval event ([Registration](../git-integration.md#registration)), so a person makes it, never an agent tool call ([Compliance](../components.md#compliance-ess--aia)). |
@@ -785,7 +785,8 @@ The mandatory layers stay where #34 puts them
 ([Ungoverned-edit detection](../git-integration.md#ungoverned-edit-detection)),
 so a harness whose binding is weaker normally changes how early an
 unauthorized persistent edit to a registered path is caught, not whether
-that edit is caught when it reaches the SCM or CI checks. Those later
+that edit is caught when it reaches the SCM or CI checks with the
+registry intact ([File-source arguments](#file-source-arguments)). Those later
 layers do not replace the guard's command parser, option/value checks,
 read restrictions, or shell-syntax restrictions. A call that reaches an
 allowed shell tool without a guard decision can therefore bypass any
@@ -855,7 +856,20 @@ enforcement:
 | --- | --- | --- | --- |
 | [OpenCode](opencode.md) | The plugin is absent or no hook is registered; native Bash permissions have no plugin-presence check | The `ears-manager *` allow rule still admits the command, including non-`-` file-source values, `--text "$GH_TOKEN"`, output redirection, and other shell syntax that only the guard rejects; a `read` of an in-project credential file other than `.env` | Every other shell command, including `git` and `gh` (`"*": deny`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
 | [Claude Code](claude-code.md) | The hook times out, is killed, or its shim cannot run | No status 2 is returned, so an `ears-manager` call may proceed with a non-`-` value, such as a credential file, or with variable expansion such as `--text "$GH_TOKEN"`; a `Read` of a credential file outside the native denies, including one outside the project | Every shell command without an allow rule, including `git` and `gh` (`dontAsk`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
-| [Codex](codex.md) | The hook is untrusted outside the launcher, crashes, exits other than 2, or times out | The call may proceed with a non-`-` value or variable expansion; any shell command, including Git reads; an `apply_patch` write in the working tree, including `.protobot/` and registered paths; the sandbox bounds writes, not reads, so a host credential file can reach the model or governed state, and the sandbox does not establish the source of bytes read into governed state | Writes outside the working tree and `$TMPDIR`, writes under `.git/`, and shell network access, so Git writes and Git host calls fail; hidden web and subagent tools |
+| [Codex](codex.md) | The hook is untrusted outside the launcher, crashes, exits other than 2, or times out | The call may proceed with a non-`-` value or variable expansion; any shell command, including Git reads; an `apply_patch` or shell write in the working tree, including `.protobot/project.yaml` and registered paths, so a compound edit can pass the later checks (see below); the sandbox bounds writes, not reads, so a host credential file can reach the model or governed state, and the sandbox does not establish the source of bytes read into governed state | Writes outside the working tree and `$TMPDIR`, writes under `.git/`, and shell network access, so Git writes and Git host calls fail; hidden web and subagent tools |
+
+The later checks compare against digests that live in the registry:
+`store_digests` and each artifact's `digest` in `.protobot/project.yaml`,
+which cannot record a digest for itself and which `ears-manager check`
+validates only structurally
+([Repository fields](../git-integration.md#repository-fields)). A fail-open
+write that changes a registered path and also rewrites its digest in
+`project.yaml` therefore passes the pre-stage digest comparison,
+`ears-manager check`, and CI path ownership. The Codex row admits such a
+write. Wherever this contract says the later checks catch an unauthorized
+persistent edit, that holds for edits that leave the registry intact; the
+compound edit is a recorded gap, and review of the pull request is the
+remaining check.
 
 The binding status and fixture must keep these failure modes visible. A
 call with no guard decision is not a refusal, and a fixture that exercises
@@ -1001,10 +1015,10 @@ The adapter places three more facts in it:
   the record lacks. The fixture captures anything missing, such as the
   resolved native rules, next to the export.
 - The adapter cannot redact a harness's record, so it keeps
-  credentials out of the role's own turns: on calls that receive a
-  guard decision, every credential-file read, every read outside the
-  project, and every read under `.git/` are refused, and no `scm`
-  result holds a remote URL. A fail-open call can place a readable
+  credentials out of the role's own turns: no `scm` result holds a
+  remote URL, and on calls that receive a guard decision, every
+  credential-file read, every read outside the project, and every read
+  under `.git/` are refused. A fail-open call can place a readable
   secret in the record, as the per-binding rows under
   [File-source arguments](#file-source-arguments) record. The fixture
   plants a token-shaped string in the in-project places among those
@@ -1079,7 +1093,8 @@ A harness can host the Drafting Table when its binding meets these
 obligations. **Required** obligations make the binding usable at all.
 **Enforcement** obligations form the early layer: a binding that cannot
 meet one records the gap. Later layers check unauthorized persistent
-edits to registered paths when they reach the SCM or CI, but cannot
+edits to registered paths that leave the registry intact when they reach
+the SCM or CI, but cannot
 establish file-source provenance when a hook fails open, as described
 under [File-source arguments](#file-source-arguments).
 

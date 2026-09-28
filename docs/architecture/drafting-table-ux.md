@@ -628,21 +628,28 @@ The Drafting Table provides visibility, not orchestration:
 ### Structural enforcement and security
 
 The agent operates through governed tools. On calls that the harness
-guard checks, it cannot do the following; a call without a guard
-decision is limited as
-[What the harness layer stops](agent-harness/adapter-contract.md#what-the-harness-layer-stops)
-records:
+guard checks, it cannot:
 
-- write specification files directly (bypassing `ears-manager`);
-- modify work-item state directly (bypassing the WMS write boundary);
-- commit or push without explicit user request; or
-- approve its own suggestions.
+- write specification files directly (bypassing `ears-manager`); or
+- modify work-item state directly (bypassing the WMS write boundary).
+
+A call without a guard decision is limited as
+[What the harness layer stops](agent-harness/adapter-contract.md#what-the-harness-layer-stops)
+records. Independently of the guard, the agent does not:
+
+- commit or push without explicit user request, a flow constraint on
+  the `scm` tools; or
+- approve its own suggestions, which the SCM's self-merge refusal and
+  the WMS approval boundary enforce.
 
 These constraints are enforced structurally:
 
 - **Credential isolation:** Enforced via the Alcove Bridge/Gate pattern
   ([`components.md`](components.md#authentication-and-credential-isolation)).
-  The agent never holds live credentials. In hosted modes, Bridges pre-fetch
+  On guard-checked calls the agent holds no live credential; a
+  fail-open call is bounded as its binding's row under
+  [File-source arguments](agent-harness/adapter-contract.md#file-source-arguments)
+  records. In hosted modes, Bridges pre-fetch
   scoped tokens and Gates inject them at the mutation boundary. In single-player
   mode, the user's local Git token is used without OAuth 2.1 infrastructure
   ([`architecture.md`](../architecture.md#environmental-constraints)).

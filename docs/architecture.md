@@ -490,7 +490,7 @@ components.
 - **Integrity:** `store_digests` in `.protobot/project.yaml` protect
   each structured store's canonical file set. Pre-stage comparison and
   CI reject direct edits, additions, deletions, renames, and symlinks
-  that do not match the digest.
+  that do not match an unaltered digest.
 - **Merge strategy:** Merge commits (not squash or rebase) to
   preserve the iteration DAG for evaluability.
 
@@ -708,9 +708,11 @@ sandbox, which may still let it edit a specification file
 directly: for example, Codex's sandbox permits writes in the
 working tree, and an admitted `ears-manager` call can redirect
 its output. Later checks do not prevent such an edit. When an
-unauthorized persistent edit to a registered path reaches them,
-the SCM's pre-stage digest comparison refuses to stage it and
-`ears-manager check` fails it before merge; CI path ownership does
+unauthorized persistent edit to a registered path reaches them
+and leaves the registry intact, the SCM's pre-stage digest
+comparison refuses to stage it and `ears-manager check` fails it
+before merge; a fail-open write that also rewrites the digest in
+`.protobot/project.yaml` passes both; CI path ownership does
 not catch an edit inside the correct owned path
 ([What the harness layer stops][layer-stops]). No later check
 establishes the provenance of `--content-file` or `--impact-file`

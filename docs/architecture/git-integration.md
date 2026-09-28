@@ -165,7 +165,10 @@ This document adds a `repository` block for the Git-facing fields:
 
 `ears-manager` owns this file and is the only writer
 ([Persistent State](../architecture.md#project-configuration-protobot)).
-The Drafting Table reads it and commits it; it never edits it.
+The Drafting Table reads it and commits it; it is not meant to edit
+it, and the guard refuses such an edit on the calls it checks. A
+fail-open write can rewrite its digests, which the later checks then
+trust ([File-source arguments][fail-open]).
 The registry cannot record a digest for `project.yaml` itself, so
 `ears-manager check` validates that file structurally instead.
 
