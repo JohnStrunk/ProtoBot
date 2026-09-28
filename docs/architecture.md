@@ -707,13 +707,18 @@ decision is bounded only by the binding's native rules or
 sandbox, which may still let it edit a specification file
 directly: for example, Codex's sandbox permits writes in the
 working tree, and an admitted `ears-manager` call can redirect
-its output. The SCM's pre-stage digest comparison and the
-enforcement layers below do not prevent such an edit; they limit
-its impact by keeping it from being committed or merged
-([What the harness layer stops][layer-stops]).
+its output. Later checks do not prevent such an edit. When an
+unauthorized persistent edit to a registered path reaches them,
+the SCM's pre-stage digest comparison refuses to stage it and
+`ears-manager check` fails it before merge; CI path ownership does
+not catch an edit inside the correct owned path
+([What the harness layer stops][layer-stops]). No later check
+establishes the provenance of `--content-file` or `--impact-file`
+bytes ([File-source arguments][fail-open]).
 
 [layer-stops]: architecture/agent-harness/adapter-contract.md#what-the-harness-layer-stops
 [permitted-git]: architecture/git-integration.md#permitted-git-operations
+[fail-open]: architecture/agent-harness/adapter-contract.md#file-source-arguments
 
 **Enforcement:** This rule is enforced structurally, not by
 prompting alone. The mandatory enforcement layers are:

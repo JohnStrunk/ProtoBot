@@ -382,7 +382,7 @@ entry point's name must differ from every skill name.
 | H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Designed |
 | H6 | Replayable session record | OpenCode's session record and `opencode export`; the resolved rules come from `opencode debug agent` | Observed for `opencode export` (behavior 8) |
 | H7 | Headless replay with no permission prompt | `opencode run --format json`, a replay provider, no `ask` rules | Observed for the replay provider and the `ask` rejection (behaviors 6, 9); the fixture has not run |
-| H8 | Invoke the guard on each tool call and enforce its decision | The shim | Active-hook refusal is observed (behavior 7); if the plugin is absent or no hook is registered, allowed `ears-manager` commands bypass guard-only shell restrictions, so a credential file or an expanded variable such as `$GH_TOKEN` can reach governed state (documented gap); `"*": deny` still refuses `git` and `gh` |
+| H8 | Invoke the guard on each tool call and enforce its decision | The shim | Active-hook refusal is observed (behavior 7); if the plugin is absent or no hook is registered, allowed `ears-manager` commands bypass guard-only shell restrictions, so a credential file or an expanded variable such as `$GH_TOKEN` can reach governed state (recorded gap); `"*": deny` still refuses `git` and `gh` |
 | H9 | Hide file-writing, subagent, and web tools | `"*": deny` | Observed (behavior 3) |
 | H10 | Toolkit skills only | `skill` rule with `"*": deny` first; other skills are hidden from the model's list and refused | Observed (behavior 2) |
 | H11 | No credential in binding files; no session upload | Placeholders; `share: disabled` | Designed |

@@ -841,7 +841,7 @@ The shared refusal guarantee has an explicit fail-open exception where a
 harness may run the tool without a guard decision. In that case the native
 rules may still admit the shell command, `ears-manager` may read the
 external source, and the later integrity and CI layers do not catch it.
-These are binding gaps, not protected behavior or successful H8
+These are recorded gaps, not protected behavior or successful H8
 enforcement:
 
 | Binding | Guard-unavailable case | Admitted without a guard decision | Still blocked by native rules or the sandbox |
@@ -917,7 +917,7 @@ receive a guard decision, they cannot change what the agent can do,
 because the guard and the native rules bound every effect
 ([Enforce constraints structurally][structural]). A call that a
 binding passes through without a guard decision is bounded only by the
-native rules and, in Codex, the sandbox; those cases are binding gaps
+native rules and, in Codex, the sandbox; those cases are recorded gaps
 ([File-source arguments](#file-source-arguments)).
 The guard and the resume steps take the project identity from the
 working tree only, never from a caller

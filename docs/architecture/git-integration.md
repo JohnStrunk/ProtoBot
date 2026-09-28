@@ -742,7 +742,7 @@ project; it does not change any rule in this document.
 No component is meant to write a registered specification file
 directly; for the Drafting Table the guard enforces this on the calls
 it checks, and a call without a guard decision may still write one
-([File-source arguments][fail-open]). A file edited outside
+([What the harness layer stops][layer-stops]). A file edited outside
 `ears-manager`, by any route, must be rejected or caught before it can
 reach the default branch. Four layers do that, in order of how early they
 fire.
