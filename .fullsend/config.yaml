@@ -53,8 +53,10 @@ agents:
           security: xai/grok-4.6
           style-conventions: google-vertex/gemini-3.8-flash
     - name: retro
+      runtime: pi
       model: google-vertex/gemini-3.8-flash
     - name: triage
+      runtime: pi
       model: google-vertex/gemini-3.8-flash
       source: harness/triage.yaml
 inference:
