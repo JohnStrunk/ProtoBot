@@ -490,7 +490,7 @@ components.
 - **Integrity:** `store_digests` in `.protobot/project.yaml` protect
   each structured store's canonical file set. Pre-stage comparison and
   CI reject direct edits, additions, deletions, renames, and symlinks
-  that do not match the digest.
+  that do not match an unaltered digest.
 - **Merge strategy:** Merge commits (not squash or rebase) to
   preserve the iteration DAG for evaluability.
 
@@ -678,8 +678,11 @@ defines the initial integration model:
 - **Git operations** use the tools of the
   [Source Control Manager](#source-control-manager), which cut
   the initialization branch, commit artifacts produced through
-  `ears-manager`, push, and open PRs. The agent runs no Git or
-  Git host command itself.
+  `ears-manager`, push, and open PRs. The agent is given no Git
+  or Git host command of its own; the harness guard refuses them on
+  the calls it checks, and each binding records which native or
+  sandbox rules still apply when a call passes without a guard
+  decision ([Permitted Git operations][permitted-git]).
 
 The Web Drafting Table replaces OpenCode with a hosted agent
 runtime but loads the same Specification Toolkit.
@@ -694,11 +697,30 @@ must meet. [OpenCode](architecture/agent-harness/opencode.md),
 
 ### Governed tool integrations
 
-The Drafting Table agent interacts with external systems
-exclusively through governed tools defined by the
-Specification Toolkit. The agent never edits specification
-files directly — all reads and writes go through
-`ears-manager`.
+The Drafting Table agent is meant to interact with external
+systems exclusively through governed tools defined by the
+Specification Toolkit. `ears-manager` is the intended route for
+every specification read and write; the agent is not meant to
+edit specification files directly. The harness guard enforces
+this on the calls it checks. A call that passes without a guard
+decision is bounded only by the binding's native rules or
+sandbox, which may still let it edit a specification file
+directly: for example, Codex's sandbox permits writes in the
+working tree, and an admitted `ears-manager` call can redirect
+its output. Later checks do not prevent such an edit. When an
+unauthorized persistent edit to a registered path reaches them
+and leaves the registry intact, the SCM's pre-stage digest
+comparison refuses to stage it and `ears-manager check` fails it
+before merge; a fail-open write that also rewrites the digest in
+`.protobot/project.yaml` passes both; CI path ownership does
+not catch an edit inside the correct owned path
+([What the harness layer stops][layer-stops]). No later check
+establishes the provenance of `--content-file` or `--impact-file`
+bytes ([File-source arguments][fail-open]).
+
+[layer-stops]: architecture/agent-harness/adapter-contract.md#what-the-harness-layer-stops
+[permitted-git]: architecture/git-integration.md#permitted-git-operations
+[fail-open]: architecture/agent-harness/adapter-contract.md#file-source-arguments
 
 **Enforcement:** This rule is enforced structurally, not by
 prompting alone. The mandatory enforcement layers are:
@@ -723,8 +745,11 @@ stops](architecture/agent-harness/adapter-contract.md#what-the-harness-layer-sto
 - **All specification mutations go through `ears-manager`.**
   The Drafting Table creates, reads, updates, and retires
   requirements and interfaces via `ears-manager` subcommands.
-  The Drafting Table never writes specification files directly
-  to the working tree.
+  The Drafting Table is not meant to write specification files
+  directly to the working tree; the guard enforces this on the
+  calls it checks, and a call without a guard decision is limited
+  as described in
+  [Governed tool integrations](#governed-tool-integrations).
 - **All work-item mutations go through the WMS Adapter API.**
   The Drafting Table reads work-item state for display, queries
   blocked items, and submits reviewed resolutions. Validation

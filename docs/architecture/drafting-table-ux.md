@@ -164,7 +164,11 @@ Git repository:
 
 Every mutation to this state goes through
 [`ears-manager`](ears-manager-cli.md).
-The Drafting Table never writes specification files directly.
+The Drafting Table is not meant to write specification files directly;
+the harness guard enforces this on the calls it checks, and a call
+without a guard decision is limited as
+[What the harness layer stops](agent-harness/adapter-contract.md#what-the-harness-layer-stops)
+records.
 `ears-manager check` validates well-formedness as a CI gate before merge.
 
 ### WMS lifecycle state
@@ -187,7 +191,7 @@ modify work-item fields.
 | State category | Owning authority | Drafting Table behavior |
 | :--- | :--- | :--- |
 | **Conversation messages & notes** | Local harness; ephemeral | Non-authoritative; maintained for flow but never treated as approval. |
-| **Proposed spec & change sets** | Git branch via `ears-manager` | Presents & revises; never directly edits registered spec paths. |
+| **Proposed spec & change sets** | Git branch via `ears-manager` | Presents & revises; does not directly edit registered spec paths on guard-checked calls. |
 | **Approved specifications** | Canonical Git history | Treats approved commit as current Schematic baseline. |
 | **Work items & Job Site status** | WMS via WMS Adapter | Reads for display; submits validated mutations with version checks. |
 | **Lifecycle validity** | Validation Rules at WMS gate | Preflights for feedback; never overrides an authoritative rejection. |
@@ -623,18 +627,29 @@ The Drafting Table provides visibility, not orchestration:
 
 ### Structural enforcement and security
 
-The agent operates through governed tools and cannot:
+The agent operates through governed tools. On calls that the harness
+guard checks, it cannot:
 
-- write specification files directly (bypassing `ears-manager`);
-- modify work-item state directly (bypassing the WMS write boundary);
-- commit or push without explicit user request; or
-- approve its own suggestions.
+- write specification files directly (bypassing `ears-manager`); or
+- modify work-item state directly (bypassing the WMS write boundary).
+
+A call without a guard decision is limited as
+[What the harness layer stops](agent-harness/adapter-contract.md#what-the-harness-layer-stops)
+records. Independently of the guard, the agent does not:
+
+- commit or push without explicit user request, a flow constraint on
+  the `scm` tools; or
+- approve its own suggestions, which the SCM's self-merge refusal and
+  the WMS approval boundary enforce.
 
 These constraints are enforced structurally:
 
 - **Credential isolation:** Enforced via the Alcove Bridge/Gate pattern
   ([`components.md`](components.md#authentication-and-credential-isolation)).
-  The agent never holds live credentials. In hosted modes, Bridges pre-fetch
+  On guard-checked calls the agent holds no live credential; a
+  fail-open call is bounded as its binding's row under
+  [File-source arguments](agent-harness/adapter-contract.md#file-source-arguments)
+  records. In hosted modes, Bridges pre-fetch
   scoped tokens and Gates inject them at the mutation boundary. In single-player
   mode, the user's local Git token is used without OAuth 2.1 infrastructure
   ([`architecture.md`](../architecture.md#environmental-constraints)).

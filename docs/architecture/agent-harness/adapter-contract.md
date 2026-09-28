@@ -130,8 +130,11 @@ Three rules keep the layers apart:
    [tool vocabulary](#tool-vocabulary), which has one row per harness.
 3. **A binding holds no domain logic and no policy of its own.** It
    connects the harness to the Toolkit and to the guard. Its native
-   rules may copy the core's rules as an early layer, but they never
-   allow what the core refuses.
+   rules may copy the core's rules as an early layer and add no
+   permission of their own. A native pattern can still be coarser than
+   the core, so on a call that receives no guard decision it can admit
+   a command the core refuses; each binding records those cases as
+   gaps ([File-source arguments](#file-source-arguments)).
 
 ### The session protocol is a skill
 
@@ -260,8 +263,10 @@ governed_mcp_servers:
   `wms` stub serves.
 - The `scm` list is the Drafting Table face of the
   [Source Control Manager][scm], which a binding starts with
-  `source-control-manager serve --face drafting-table`. No Git or Git
-  host operation reaches the role any other way.
+  `source-control-manager serve --face drafting-table`. On calls that
+  receive a guard decision, no Git or Git host operation reaches the
+  role any other way; a fail-open call is bounded as its binding's row
+  under [File-source arguments](#file-source-arguments) records.
 - A new Toolkit skill is one manifest line, plus the same line in each
   binding's native copy.
 - The manifest holds no credential and no path rule.
@@ -270,6 +275,11 @@ governed_mcp_servers:
 
 Each binding gives exactly one agent, profile, or session mode the
 Drafting Table role. Only that role performs governed mutations.
+The refusals in this table that the guard enforces, such as reads
+outside the project, direct file writes, and credential-file reads,
+hold on calls that receive a guard decision. A fail-open call is
+bounded only by the native rules or sandbox that its binding's row
+under [File-source arguments](#file-source-arguments) records.
 
 | Capability | Drafting Table role | Through |
 | --- | --- | --- |
@@ -548,7 +558,7 @@ performs them:
 
 | #34 names | Drafting Table role | Why |
 | --- | --- | --- |
-| Reading state with `log`, `diff`, `show`, and `ls-files` | Not an operation; `repo_state` reports what a step needs | No step needs them. `ears-manager change-set compare` shows the change, and `show` and `diff` print store files under `.protobot/`, which the role does not read. |
+| Reading state with `log`, `diff`, `show`, and `ls-files` | Not an operation; `repo_state` reports what a step needs | No step needs them. `ears-manager change-set compare` shows the change, and `show` and `diff` print store files under `.protobot/`, which the role does not read on guard-checked calls. |
 | Creating a change-set branch | Not an operation, except `cs/00001-project-init`, which the SCM's `branch_init` cuts | Target #30 behavior: `ears-manager change-set create` cuts and checks out the branch. EM-04 first release only writes the manifest and defers branch creation and reuse (see the [`ears-manager` CLI first-release scope](../ears-manager-cli.md#em-04-first-release-scope)). Initialization is the target case where the branch must exist first, and guard rule 1 lets the role run `project init` on it before `.protobot/` exists. |
 | Amending an unpushed commit on explicit request | Refused. `commit` has no amend | History stays append-only, the rule for every pushed commit, so no second rule is needed for an unpushed one. |
 | Merging one's own pull request, in single-player mode | Refused. The user merges on the Git host, then asks the role to register. | The merge is the approval event ([Registration](../git-integration.md#registration)), so a person makes it, never an agent tool call ([Compliance](../components.md#compliance-ess--aia)). |
@@ -559,8 +569,11 @@ performs them:
 
 `drafting-table-guard` is the only adapter code shared by every harness.
 It is one executable with no runtime dependency, like `ears-manager`.
-Every binding calls it before each tool call, and it answers allow or
-refuse.
+Each binding wires it into the tool-call path. Guard availability is a
+per-call fact: a hook or plugin being installed, trusted, or passing a
+startup probe does not prove that the guard returned a decision for a
+particular call. Each binding documents whether its harness blocks or
+passes a call when that invocation fails or does not run.
 
 #### Guard input and output
 
@@ -640,8 +653,10 @@ document names them, and guard rules 5 and 6 treat them as reads.
    either read fails, it refuses every file write and every shell command in
    the Drafting Table role, refuses a write under `.protobot/` in every
    role, and names the failure. Other writes outside the role are
-   allowed, because the harness layer is optional and the later layers
-   still hold ([What the harness layer stops][layer-stops]).
+   allowed, because the harness layer is optional. Unauthorized
+   persistent edits to registered paths remain subject to downstream
+   checks ([What the harness layer stops][layer-stops]); those checks
+   cannot establish the source of an `ears-manager` file-source input.
 3. **Guarded paths, every role.** A file write under `.protobot/`, to
    a registered artifact path, or below a store is refused. Paths are
    compared after symlink resolution, for reads and writes alike, a
@@ -657,7 +672,10 @@ document names them, and guard rules 5 and 6 treat them as reads.
    transition among them, and every tool of any other server is
    refused. The WMS boundary rejects such a transition in any case
    ([Validation Rules](../validation-rules.md), case VR-006), so this
-   rule is the early copy of that refusal.
+   rule is the early copy of that refusal. `scm branch_init` is the only
+   route for cutting the initialization branch, and its contract permits
+   it only while `.protobot/` is absent at the working-tree root
+   ([SCM `branch_init` precondition](../source-control-manager.md#branch_init)).
 5. **The role's tool set.** Under the Drafting Table role, the guard
    refuses every file write, subagent launch, web fetch, and web search,
    every read under `.protobot/` other than `project.yaml`, every read
@@ -668,15 +686,21 @@ document names them, and guard rules 5 and 6 treat them as reads.
    file below it, counts as a load of `<name>` in every harness. The
    outside-the-project refusal is what keeps the `gh` store and the
    harness's own credential file out of reach.
-6. **The role's shell commands.** Under the Drafting Table role, a
-   command that is neither one of the
-   [shell operations](#shell-operations) in its exact form nor a read
-   form of the harness's [vocabulary row](#tool-vocabulary) is
-   refused. The guard reads the
+6. **The role's shell commands.** Under the Drafting Table role, the
+   guard first recognizes the initialization-branch shape for its
+   lifetime check:
+   `git switch -c <prefix>00001-project-init <default>`. If
+   `.protobot/` already exists, it refuses that form with the reason
+   `Project already initialized` before applying the generic
+   shell-operation check. If `.protobot/` is absent, it falls through to
+   that check: raw Git remains outside the allowed shell operations. A
+   command that is neither one of the [shell operations](#shell-operations)
+   in its exact form nor a read form of the harness's
+   [vocabulary row](#tool-vocabulary) is refused. The guard reads the
    current branch with `git rev-parse --abbrev-ref HEAD`, the project
-   fields from `project.yaml`, and the change sets through
-   `ears-manager`, and refuses a registration whose `<nnnnn>` is not
-   the change set of `<branch>`.
+   fields from `project.yaml`, and the change sets through `ears-manager`,
+   and refuses a registration whose `<nnnnn>` is not the change set of
+   `<branch>`.
 7. **Other roles' shell commands.** A command whose output redirection
    targets a guarded path written from the project root, such as
    `> docs/vision.md`, is refused. A path in any other position is not
@@ -748,7 +772,7 @@ sequenceDiagram
     DT->>EM: requirement add
     User->>DT: Commit and open a pull request
     DT->>SCM: commit, publish
-    Note over H,G: The harness calls the guard before every tool call
+    Note over H,G: The binding invokes the guard on its hook path; failure behavior is harness-specific
 ```
 
 ---
@@ -759,16 +783,30 @@ The harness layer is the optional early layer of the
 [Governed tool integrations](../../architecture.md#governed-tool-integrations).
 The mandatory layers stay where #34 puts them
 ([Ungoverned-edit detection](../git-integration.md#ungoverned-edit-detection)),
-so a harness whose binding is weaker changes how early a violation is
-caught, never whether it is caught.
+so a harness whose binding is weaker normally changes how early an
+unauthorized persistent edit to a registered path is caught, not whether
+that edit is caught when it reaches the SCM or CI checks with the
+registry intact ([File-source arguments](#file-source-arguments)). Those later
+layers do not replace the guard's command parser, option/value checks,
+read restrictions, or shell-syntax restrictions. A call that reaches an
+allowed shell tool without a guard decision can therefore bypass any
+guard-only check, including variable-expansion and redirection checks;
+the later layers check persistent state, not the command or its inputs.
+The file-source provenance gap is described below.
 
-| Write route to a guarded path | Drafting Table role | Every other role | Caught later by |
+The guard entries below describe calls on which the guard runs. A
+binding's hook or plugin being installed does not by itself prove that it
+made a decision for a particular call; the failure cases are binding-
+specific and are not refusals.
+
+| Route to guarded state | Drafting Table role | Every other role | Caught later by |
 | --- | --- | --- | --- |
-| File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage digest comparison, `ears-manager check`, CI path ownership |
-| Shell writer, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Same |
-| Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root | Same |
-| Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | Same |
-| Subagent | Refused by the guard | Not applicable | Same |
+| File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage digest comparison, `ears-manager check`, CI path ownership, for persistent edits to registered paths |
+| Shell writer, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Same, for persistent edits to registered paths |
+| Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root | Same, for persistent edits to registered paths |
+| `ears-manager --content-file` or `--impact-file` with a value other than `-` | Refused when the guard runs; binding-specific hook failures may pass the call through | Same | None: integrity and CI cannot establish whether the bytes came from standard input or an external file |
+| Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | No tool-call check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
+| Subagent | Refused by the guard | Not applicable | No launch check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
 
 A route marked "not stopped" is real. An agent outside the role can
 still change a registered file through its shell, for example after
@@ -777,8 +815,65 @@ still change a registered file through its shell, for example after
 routes forward from [The pre-stage digest comparison][pre-stage].
 
 A user can also switch the harness layer off, by editing a binding or
-starting the harness without hooks. The later layers do not depend on
-any harness.
+starting the harness without hooks. Unauthorized persistent edits to
+registered paths remain subject to the SCM's pre-stage checks and the
+repository's `ears-manager check` and CI path-ownership checks. This does
+not make the rest of the shell path safe without the guard: those later
+checks do not enforce its command grammar, shell-syntax, read, or
+argument-value rules. File-source values are one concrete example: their
+restriction is only enforced when the guard runs or a binding has an
+equivalent native value-level rule. A hook that fails open can let the
+CLI read a non-`-` source, and no later layer detects that provenance
+loss.
+
+### File-source arguments
+
+`--content-file` and `--impact-file` are caller-owned read sources, not
+project destinations. #30 permits regular-file sources outside the project
+root as well as `-` for standard input
+([CLI file inputs](../ears-manager-cli.md)). Their contents can therefore
+be copied into authoritative specification state without changing the
+destination path: an artifact for `--content-file`, or the change-set
+impact record for `--impact-file`. The later integrity and CI checks do
+not establish that the bytes came from standard input rather than an
+external source.
+
+On every call for which it returns a decision, the shared guard rejects
+non-`-` values for these options. A binding may provide the same check as a
+native value-level restriction. The check is per call, not per process or
+session: an installed hook, a passing startup probe, or an available guard
+binary is not sufficient evidence that a particular invocation was
+checked.
+
+The shared refusal guarantee has an explicit fail-open exception where a
+harness may run the tool without a guard decision. In that case the native
+rules may still admit the shell command, `ears-manager` may read the
+external source, and the later integrity and CI layers do not catch it.
+These are recorded gaps, not protected behavior or successful H8
+enforcement:
+
+| Binding | Guard-unavailable case | Admitted without a guard decision | Still blocked by native rules or the sandbox |
+| --- | --- | --- | --- |
+| [OpenCode](opencode.md) | The plugin is absent or no hook is registered; native Bash permissions have no plugin-presence check | The `ears-manager *` allow rule still admits the command, including non-`-` file-source values, `--text "$GH_TOKEN"`, output redirection, and other shell syntax that only the guard rejects; a `read` of an in-project credential file other than `.env` | Every other shell command, including `git` and `gh` (`"*": deny`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
+| [Claude Code](claude-code.md) | The hook times out, is killed, or its shim cannot run | No status 2 is returned, so an `ears-manager` call may proceed with a non-`-` value, such as a credential file, or with variable expansion such as `--text "$GH_TOKEN"`; a `Read` of a credential file outside the native denies, including one outside the project | Every shell command without an allow rule, including `git` and `gh` (`dontAsk`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
+| [Codex](codex.md) | The hook is untrusted outside the launcher, crashes, exits other than 2, or times out | The call may proceed with a non-`-` value or variable expansion; any shell command, including Git reads; an `apply_patch` or shell write in the working tree, including `.protobot/project.yaml` and registered paths, so a compound edit can pass the later checks (see below); the sandbox bounds writes, not reads, so a host credential file can reach the model or governed state, and the sandbox does not establish the source of bytes read into governed state | Writes outside the working tree and `$TMPDIR`, writes under `.git/`, and shell network access, so Git writes and Git host calls fail; hidden web and subagent tools |
+
+The later checks compare against digests that live in the registry:
+`store_digests` and each artifact's `digest` in `.protobot/project.yaml`,
+which cannot record a digest for itself and which `ears-manager check`
+validates only structurally
+([Repository fields](../git-integration.md#repository-fields)). A fail-open
+write that changes a registered path and also rewrites its digest in
+`project.yaml` therefore passes the pre-stage digest comparison,
+`ears-manager check`, and CI path ownership. The Codex row admits such a
+write. Wherever this contract says the later checks catch an unauthorized
+persistent edit, that holds for edits that leave the registry intact; the
+compound edit is a recorded gap, and review of the pull request is the
+remaining check.
+
+The binding status and fixture must keep these failure modes visible. A
+call with no guard decision is not a refusal, and a fixture that exercises
+only the successful hook path does not establish fail-closed behavior.
 
 ---
 
@@ -792,13 +887,17 @@ any harness.
 - **A local harness uses the user's own credentials, in every mode.**
   The SCM runs Git and `gh`, which use the user's credential helper and
   `gh`'s own store, whether the project's `review_mode` is
-  single-player or multi-player. The Drafting Table role runs neither,
-  and cannot print a credential: environment and file-printing
-  commands are not shell operations, credential-file reads, reads
-  under `.git/`, and reads outside the project are refused, variable
-  expansion is refused, and the SCM prints no remote URL and refuses a
-  canonical remote whose URL carries userinfo other than the fixed
-  `git@` of the SCP form, as `ears-manager` accepts it.
+  single-player or multi-player. On every call that receives a guard
+  decision, the Drafting Table role runs neither and cannot print a
+  credential: environment and file-printing commands are not shell
+  operations, credential-file reads, reads under `.git/`, and reads
+  outside the project are refused, and variable expansion is refused.
+  Independently of the guard, the SCM prints no remote URL and refuses
+  a canonical remote whose URL carries userinfo other than the fixed
+  `git@` of the SCP form, as `ears-manager` accepts it. A call that a
+  binding passes through without a guard decision loses the guard's
+  refusals; each binding's resulting credential exposure is listed
+  under [File-source arguments](#file-source-arguments).
 - **The limit of a local harness.** The agent runs as the user, on the
   user's machine. The adapter narrows what the Drafting Table role can
   reach; it does not isolate a token from the user's own shell or from
@@ -806,10 +905,13 @@ any harness.
   property of hosted runtimes
   ([Environmental Constraints][env-constraints]). A laptop in a
   multi-player project is therefore a recorded deviation from that
-  constraint: the model never sees the token, because Git's credential
-  helper and `gh`'s store supply it to those programs, which only the
-  SCM runs, and the role cannot read or print it, but no Bridge or Gate
-  stands between the harness process and the token. #34's
+  constraint. Git's credential helper and `gh`'s store supply the token
+  to those programs, so on guard-checked calls the model never sees it
+  and the role cannot read or print it; a fail-open call can expose it
+  as that binding's row under
+  [File-source arguments](#file-source-arguments) states. In either
+  case no Bridge or Gate stands between the harness process and the
+  token. #34's
   [ceremony table](../git-integration.md#ceremony-in-each-mode) records
   both cases.
 - **The `wms` server.** In single-player mode it is a local process
@@ -821,7 +923,9 @@ any harness.
   credentials downstream
   ([Authentication and Credential Isolation][credential-isolation]).
   The harness keeps that token in its own store outside the project,
-  where the role's reads cannot reach it (H13).
+  where the role's guard-checked reads cannot reach it (H13); a
+  fail-open read outside the project can, in the bindings whose row
+  under [File-source arguments](#file-source-arguments) admits one.
 - **The harness's own model credentials** belong to the harness and its
   user. The adapter neither reads nor configures them.
 
@@ -829,16 +933,22 @@ any harness.
 
 IdeaBot material, repository files, and project instructions such as
 `AGENTS.md`, which harnesses load for every agent, all enter the
-agent's context. They can change what the agent says. They cannot
-change what the agent can do, because the guard and the native rules
-bound every effect ([Enforce constraints structurally][structural]).
+agent's context. They can change what the agent says. On calls that
+receive a guard decision, they cannot change what the agent can do,
+because the guard and the native rules bound every effect
+([Enforce constraints structurally][structural]). A call that a
+binding passes through without a guard decision is bounded only by the
+native rules and, in Codex, the sandbox; those cases are recorded gaps
+([File-source arguments](#file-source-arguments)).
 The guard and the resume steps take the project identity from the
 working tree only, never from a caller
 ([The project root](../git-integration.md#the-project-root)).
 
 IdeaBot material enters as pasted text or as a file attached to the
-user's prompt. The role does not read IdeaBot files outside the
-project, and nothing in the adapter depends on IdeaBot input
+user's prompt. On guard-checked calls the role does not read
+IdeaBot files outside the project; a fail-open call is limited as
+the paragraph above states. Nothing in the adapter depends on IdeaBot
+input
 ([IdeaBot material](../git-integration.md#ideabot-material)).
 
 ---
@@ -905,9 +1015,12 @@ The adapter places three more facts in it:
   the record lacks. The fixture captures anything missing, such as the
   resolved native rules, next to the export.
 - The adapter cannot redact a harness's record, so it keeps
-  credentials out of the role's own turns: every credential-file read,
-  every read outside the project, and every read under `.git/` are
-  refused, and no `scm` result holds a remote URL; the fixture
+  credentials out of the role's own turns: no `scm` result holds a
+  remote URL, and on calls that receive a guard decision, every
+  credential-file read, every read outside the project, and every read
+  under `.git/` are refused. A fail-open call can place a readable
+  secret in the record, as the per-binding rows under
+  [File-source arguments](#file-source-arguments) record. The fixture
   plants a token-shaped string in the in-project places among those
   and asserts that no export holds it, and vectors cover the rest
   ([harness checks](#guard-vectors)). A turn outside
@@ -979,7 +1092,11 @@ written records.
 A harness can host the Drafting Table when its binding meets these
 obligations. **Required** obligations make the binding usable at all.
 **Enforcement** obligations form the early layer: a binding that cannot
-meet one records the gap, and the later layers still hold.
+meet one records the gap. Later layers check unauthorized persistent
+edits to registered paths that leave the registry intact when they reach
+the SCM or CI, but cannot
+establish file-source provenance when a hook fails open, as described
+under [File-source arguments](#file-source-arguments).
 
 | # | Obligation | Kind | Shared by the core | Added by the binding | Fixture |
 | --- | --- | --- | --- | --- | --- |
@@ -990,7 +1107,7 @@ meet one records the gap, and the later layers still hold.
 | H5 | Do nothing when a session is idle or ends | Required | The guard has no exit action | No exit hook | 10 |
 | H6 | Keep a replayable session record with the facts in [Traces](#traces) | Required | The facts | The record and its export route | 15 |
 | H7 | Run headless with replayed model turns and no permission prompt | Required | The fixture steps | A replay mechanism and a headless command | All |
-| H8 | Call the guard before every tool call, with the harness name and the role | Enforcement | The guard | A hook, a plugin, or a shim | 6, 7, 14, vectors |
+| H8 | Invoke the guard on each tool call and enforce its decision; document any per-call fail-open path | Enforcement | The guard | A hook, a plugin, or a shim, with harness-specific failure behavior | 6, 7, 14, vectors; fail-open cases as recorded gaps ([File-source arguments](#file-source-arguments)) |
 | H9 | Hide file-writing, subagent, and web tools from the role | Enforcement | Guard rule 5 refuses them anyway | Native tool rules | 6 |
 | H10 | Offer the role's model only Toolkit skills in its skill list, and let the role load only those | Enforcement | `toolkit_skills`, guard rule 5 refuses a load | Native rules that hide and refuse every other skill | 3, 4 |
 | H11 | Hold no credential in binding files, and turn off session upload | Enforcement | — | Binding config | Vectors, harness checks |
@@ -1054,7 +1171,7 @@ yet known. Each binding verifies its column against the version it pins.
 | Remote `wms` server with OAuth 2.1 (H13) | Open | An HTTP MCP server with OAuth through `/mcp`; candidate | A streamable HTTP MCP server with `codex mcp login`; candidate |
 | Hide tools from the role (H9) | `"*": deny` in the agent | The agent's `tools` list and deny rules | `web_search = "disabled"` and `multi_agent = false`, observed; no setting hides `apply_patch` |
 | Restrict skills (H10) | `permission.skill` with `"*": deny` first hides every other skill from the model's list and refuses it; observed | `skillOverrides` with `off` hides and refuses a named skill; `Skill(<name>)` rules never change the list; a skill in another user's scope cannot be named in advance; observed | `include_instructions = false` removes the skill catalog, and the profile names the Toolkit skills; `[[skills.config]]` hides a named skill; observed. No skill tool: the guard refuses a read of another `SKILL.md` |
-| Call the guard (H8) | A plugin's `tool.execute.before` and a shim | A `PreToolUse` command hook; status 2 blocks and the reason reaches the model | A `PreToolUse` hook in `.codex/hooks.json`; status 2 blocks, observed; the hook needs trust, and an untrusted, crashing, or silent hook lets the call through; the launcher checks the hook file and the profile and starts Codex with `--dangerously-bypass-hook-trust`, so the hook runs, and the sandbox stays on |
+| Invoke the guard (H8) | A plugin's `tool.execute.before` and a shim | A `PreToolUse` command hook; status 2 blocks and the reason reaches the model | A `PreToolUse` hook in `.codex/hooks.json`; status 2 blocks, observed; the hook needs trust, and an untrusted, crashing, or silent hook lets the call through; the launcher checks the hook file and the profile and starts Codex with `--dangerously-bypass-hook-trust`, so the hook runs, and the sandbox stays on |
 | Role signal for the guard | The agent name from `chat.params` | `PROTOBOT_ROLE` from the role's settings `env`; `agent_type` in the hook input is undocumented | `PROTOBOT_ROLE` set at launch reaches the hook, observed; the input names no profile |
 | Headless run (H7) | `opencode run --format json` | `claude -p --output-format stream-json --permission-prompts none` | `codex exec --json` |
 | Continue a session (H4) | `--continue`, `--session` | `--continue`, `--resume` | `codex resume`, `codex exec resume` |
@@ -1194,7 +1311,11 @@ A session started in one bound harness and resumed in another, at step
 ### Guard vectors
 
 Each vector runs against the guard directly and through the binding's
-hook, and must be refused before it runs. Unless a row says otherwise,
+normal, active hook path, and must be refused before it runs. Hook-
+unavailable cases are recorded separately as explicit gaps in
+[File-source arguments](#file-source-arguments); a call
+that passes through without a guard decision is not a successful refusal.
+Unless a row says otherwise,
 `cs/00003-<slug>` is checked out. The SCM's own refusals, such as a
 force push, another repository, or a push to the default branch, are
 negative checks of the [SCM's fixture][scm-fixture]:
@@ -1209,6 +1330,8 @@ negative checks of the [SCM's fixture][scm-fixture]:
 | Drafting Table | `source-control-manager publish` | Not a shell operation: the role reaches the SCM only through the `scm` tools |
 | Drafting Table | An `scm` tool that the manifest does not list | Not a Drafting Table operation |
 | Drafting Table | `register-approved-change-set --change-set CS-00004` | Not the change set of the current branch |
+| Drafting Table | `git switch -c cs/00001-project-init main`, in an initialized fixture clone | `Project already initialized` |
+| Drafting Table | `git switch -c cs/00001-project-init main`, in a fixture clone without `.protobot/` | Not a shell operation: Git runs through the `scm` tools |
 | Drafting Table | `ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner <owner> --content-file ~/.netrc` | `--content-file` with a path |
 | Drafting Table | A `wms` tool that the manifest does not list, such as a lifecycle transition | Not a Drafting Table operation |
 | Drafting Table | `ears-manager --output json requirement add --change-set CS-00003 ... --text "$GH_TOKEN" ...` | Variable expansion |
