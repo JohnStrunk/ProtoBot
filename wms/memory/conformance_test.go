@@ -255,7 +255,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			assertEventCount(t, memory, 3)
 		}},
 		{"VR-015", func(t *testing.T) {
-			memory, _ := newConformanceMemory(t)
+			memory, gate := newConformanceMemory(t)
 			item := testWorkItem("wi-015", validation.StateBuilding, 4)
 			setConformanceLease(&item, "job-site", "fence-015", memoryTestTime.Add(time.Hour))
 			seedConformanceItem(t, memory, item)
@@ -273,12 +273,27 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			inspecting.FindingsTerminal = true
 			inspecting.FinalTestsPassed = true
 			replaceObservedWorkItem(memory, inspecting)
+			// The tested candidate exists only now: begin-merge carries it,
+			// and the WMS records it as the expected merge envelope.
+			testedCandidate := &validation.MergeEnvelope{
+				ProductTreeDigest: "tree-015",
+				InspectionRunID:   "inspection-015",
+				IntegrationHead:   "integration-015",
+				Target:            "main",
+				ContractVersion:   inspecting.ContractVersion + 1,
+			}
+			setConformanceAllowedRefs(gate, "job-site", testedCandidate.Target, testedCandidate.IntegrationHead, testedCandidate.InspectionRunID)
 			beginMerge := conformanceCall(validation.OperationBeginMerge, "job-site", inspecting, "vr015-begin-merge")
 			beginMerge.FencingToken = "fence-015"
+			beginMerge.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: testedCandidate})
 			merged := memory.Execute(beginMerge)
 			mergeDecision := assertAllowedDecision(t, merged, validation.AuthorityAuthoritative)
 			if mergeDecision.After.State != validation.StateMerging {
 				t.Fatalf("begin-merge after = %#v, want merging", mergeDecision.After)
+			}
+			stored, _ := memory.WorkItem(item.ID)
+			if !reflect.DeepEqual(stored.ExpectedMerge, testedCandidate) {
+				t.Fatalf("recorded expected merge = %#v, want the tested candidate %#v", stored.ExpectedMerge, testedCandidate)
 			}
 			assertEventCount(t, memory, 2)
 		}},
@@ -1150,11 +1165,13 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				assertEventCount(t, memory, 0)
 			})
 
-			t.Run("materialize checks expected merge references", func(t *testing.T) {
+			t.Run("materialize checks the merge target reference", func(t *testing.T) {
 				memory, gate := newConformanceMemory(t)
 				candidate := testWorkItem("wi-049-materialize", validation.StateInitial, 0)
 				candidate.ChangeType = "undefined"
-				candidate.ExpectedMerge = expected
+				// The materialization source carries only the merge target;
+				// the tested candidate is recorded later, at begin-merge.
+				candidate.ExpectedMerge = &validation.MergeEnvelope{Target: expected.Target}
 				result := memory.Execute(materializeCall(candidate, "vr049-materialize-unscoped", "vr049-materialize-key"))
 				assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeUnauthorizedAction)
 				if _, exists := memory.WorkItem(candidate.ID); exists {
@@ -1162,10 +1179,27 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				}
 				assertEventCount(t, memory, 0)
 
-				setConformanceAllowedRefs(gate, "materializer", expected.Target, expected.IntegrationHead, expected.InspectionRunID)
+				setConformanceAllowedRefs(gate, "materializer", expected.Target)
 				allowed := memory.Execute(materializeCall(candidate, "vr049-materialize-scoped", "vr049-materialize-key"))
 				assertAllowedDecision(t, allowed, validation.AuthorityAuthoritative)
 				assertEventCount(t, memory, 1)
+			})
+
+			t.Run("materialize rejects tested-candidate merge fields", func(t *testing.T) {
+				memory, gate := newConformanceMemory(t)
+				candidate := testWorkItem("wi-049-materialize-fields", validation.StateInitial, 0)
+				candidate.ChangeType = "undefined"
+				candidate.ExpectedMerge = expected
+				setConformanceAllowedRefs(gate, "materializer", expected.Target, expected.IntegrationHead, expected.InspectionRunID)
+				result := memory.Execute(materializeCall(candidate, "vr049-materialize-fields", "vr049-materialize-fields-key"))
+				decision := assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+				if decision.Rejection == nil || decision.Rejection.Details["required_evidence"] != "materialization-merge-target" {
+					t.Fatalf("rejection = %#v, want materialization-merge-target failure", decision.Rejection)
+				}
+				if _, exists := memory.WorkItem(candidate.ID); exists {
+					t.Fatal("tested-candidate materialization created a work item")
+				}
+				assertEventCount(t, memory, 0)
 			})
 		}},
 		{"VR-049", func(t *testing.T) {

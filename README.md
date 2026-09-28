@@ -76,7 +76,7 @@ source-control-manager/
 wms/
   go.mod
   validation/               # backend-neutral lifecycle evaluator
-  memory/                    # in-memory WMS conformance adapter
+  memory/                   # in-memory WMS conformance adapter
 ```
 
 Additional WMS backends can use their native layout under the same monorepo,

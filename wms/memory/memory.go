@@ -331,7 +331,9 @@ func (m *Memory) normalizeLifecycleRequest(call CallRequest, authorization valid
 }
 
 // lifecycleReferences returns the Git/resource references consumed from this
-// operation's caller payload. Reconciler record-merge uses WMS-observed evidence.
+// operation's caller payload: the merge target of a materialization source,
+// and the tested-candidate or merge-result envelope of a Job Site
+// begin-merge/record-merge. Reconciler record-merge uses WMS-observed evidence.
 func lifecycleReferences(operation validation.Operation, role validation.Role, payload validation.Payload) []string {
 	var envelope *validation.MergeEnvelope
 	switch operation {
@@ -339,7 +341,7 @@ func lifecycleReferences(operation validation.Operation, role validation.Role, p
 		if payload.WorkItem != nil {
 			envelope = payload.WorkItem.ExpectedMerge
 		}
-	case validation.OperationRecordMerge:
+	case validation.OperationBeginMerge, validation.OperationRecordMerge:
 		if role != validation.RoleReconciler {
 			envelope = payload.MergeEnvelope
 		}

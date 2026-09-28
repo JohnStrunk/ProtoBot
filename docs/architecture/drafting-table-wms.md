@@ -42,7 +42,9 @@ concepts to the Drafting Table.
 
 The human-maintainer priority operation is part of this integration surface
 but is invoked through a trusted human-maintainer WMS context, not through
-the Drafting Table agent role.
+the Drafting Table agent role. A human maintainer may also link a change
+set (`request.link-change-set`), an operation the Drafting Table may invoke
+as well.
 
 ### Relationship to sibling contracts
 
@@ -254,7 +256,9 @@ own policy.
 `request.update-priority` is a WMS operation in the human-maintainer
 namespace, not a Drafting Table agent tool. A trusted human-maintainer client
 may invoke it directly; the Drafting Table may display the resulting priority
-but cannot submit the mutation under its own role.
+but cannot submit the mutation under its own role. A trusted human-maintainer
+client may also invoke `request.link-change-set`, which the Drafting Table
+role may invoke as well.
 
 ### Harness operation-name mapping
 

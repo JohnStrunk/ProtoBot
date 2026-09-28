@@ -349,6 +349,9 @@ func evaluateExecutionTransition(request Request, current *WorkItem) (State, Out
 		if !current.InspectionRunSealed || !current.FindingsTerminal || !current.FinalTestsPassed {
 			return "", OutcomeRejected, nil, preconditionFailed("inspection and final test gates are incomplete", "sealed-inspection-and-final-tests")
 		}
+		if rejection := testedCandidateRejection(request, current); rejection != nil {
+			return "", OutcomeRejected, nil, rejection
+		}
 		return StateMerging, OutcomeAllowed, nil, nil
 	default:
 		return "", OutcomeRejected, nil, unauthorizedFor(request.Authorization, request.Operation, request.WorkItemID)
@@ -431,6 +434,14 @@ func evaluateMaterialization(request Request, evaluation EvaluationContext) (Sta
 	}
 	if reason := readinessContractFailure(candidate.Readiness); reason != "" {
 		return "", OutcomeRejected, nil, preconditionFailed(reason, "complete-work-item-contract")
+	}
+	// The tested candidate exists only after Building and Inspecting, so a
+	// materialization source may name only the merge target; begin-merge
+	// records the tested-candidate envelope.
+	if candidate.ExpectedMerge != nil && (candidate.ExpectedMerge.ProductTreeDigest != "" ||
+		candidate.ExpectedMerge.InspectionRunID != "" || candidate.ExpectedMerge.IntegrationHead != "" ||
+		candidate.ExpectedMerge.MergeCommit != "" || candidate.ExpectedMerge.ContractVersion != 0) {
+		return "", OutcomeRejected, nil, preconditionFailed("the materialization source may carry only the merge target; tested-candidate merge fields are recorded at begin-merge", "materialization-merge-target")
 	}
 
 	dependencies := candidate.Dependencies
@@ -797,6 +808,25 @@ func preconditionFailed(reason, evidence string) *Rejection {
 
 func reconciliationMatches(evidence ReconciliationEvidence, status, mutation string) bool {
 	return evidence.Status == status && evidence.GitMutation == mutation
+}
+
+// testedCandidateRejection validates the merge envelope a Job Site supplies
+// at begin-merge. The tested candidate exists only after Building and
+// Inspecting, so begin-merge — not the materialization source — records it
+// as the expected merge envelope for record-merge.
+func testedCandidateRejection(request Request, current *WorkItem) *Rejection {
+	envelope := request.Payload.MergeEnvelope
+	if envelope == nil || envelope.ProductTreeDigest == "" || envelope.InspectionRunID == "" ||
+		envelope.IntegrationHead == "" || envelope.Target == "" || envelope.MergeCommit != "" {
+		return preconditionFailed("begin-merge requires the tested-candidate merge envelope (tested tree digest, sealed inspection run, integration head, and target) without a merge commit", "tested-candidate-envelope")
+	}
+	if envelope.ContractVersion != current.ContractVersion+1 {
+		return preconditionFailed("the tested-candidate merge envelope must name the contract version the merge completes under", "tested-candidate-envelope")
+	}
+	if current.ExpectedMerge != nil && current.ExpectedMerge.Target != "" && current.ExpectedMerge.Target != envelope.Target {
+		return preconditionFailed("the tested-candidate merge target does not match the work-item contract", "tested-candidate-envelope")
+	}
+	return nil
 }
 
 func mergeEnvelopeMatches(expected, actual *MergeEnvelope, contractVersion uint64) bool {

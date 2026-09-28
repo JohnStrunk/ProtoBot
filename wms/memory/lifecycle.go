@@ -46,8 +46,10 @@ func (m *Memory) applyLifecycleMutationLocked(
 		item.BlockReason = ""
 		m.startLease(item, authorization.Subject, decision.FencingTokenIssued, evaluation.EvaluationTime)
 	case validation.OperationBeginMerge:
-		// Inspection sealing, terminal findings, and final test evidence are
-		// WMS observations recorded before begin-merge, not payload claims.
+		// The tested candidate exists only after Building and Inspecting:
+		// the Job Site supplies it at begin-merge and the WMS records it as
+		// the expected merge envelope record-merge compares against.
+		item.ExpectedMerge = cloneMergeEnvelope(request.Payload.MergeEnvelope)
 	case validation.OperationMergeConflict:
 		item.Reconciliation = validation.ReconciliationEvidence{}
 		if item.State == validation.StateBuilding {

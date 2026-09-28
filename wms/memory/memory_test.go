@@ -236,6 +236,60 @@ func TestSupersedingResolutionWithSameApprovalKeepsApprovalUsable(t *testing.T) 
 	assertEventCount(t, memory, 3)
 }
 
+func TestBeginMergeRecordsTestedCandidateForRecordMerge(t *testing.T) {
+	memory, gate := newConformanceMemory(t)
+	item := testWorkItem("wi-begin-merge-flow", validation.StateBuilding, 4)
+	setConformanceLease(&item, "job-site", "fence-flow", memoryTestTime.Add(time.Hour))
+	seedConformanceItem(t, memory, item)
+
+	testsPass := conformanceCall(validation.OperationTestsPass, "job-site", item, "begin-merge-flow-tests-pass")
+	testsPass.FencingToken = "fence-flow"
+	testsPass.Payload = jsonPayload(t, validation.Payload{BuildTestsPassed: true})
+	if passed := memory.Execute(testsPass); !passed.OK {
+		t.Fatalf("tests-pass result = %#v", passed)
+	}
+
+	inspecting, _ := memory.WorkItem(item.ID)
+	inspecting.InspectionRunSealed = true
+	inspecting.FindingsTerminal = true
+	inspecting.FinalTestsPassed = true
+	replaceObservedWorkItem(memory, inspecting)
+
+	testedCandidate := &validation.MergeEnvelope{
+		ProductTreeDigest: "tree-flow",
+		InspectionRunID:   "inspection-flow",
+		IntegrationHead:   "integration-flow",
+		Target:            "main",
+		ContractVersion:   inspecting.ContractVersion + 1,
+	}
+	setConformanceAllowedRefs(gate, "job-site", testedCandidate.Target, testedCandidate.IntegrationHead, testedCandidate.InspectionRunID)
+	beginMerge := conformanceCall(validation.OperationBeginMerge, "job-site", inspecting, "begin-merge-flow-begin")
+	beginMerge.FencingToken = "fence-flow"
+	beginMerge.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: testedCandidate})
+	begun := memory.Execute(beginMerge)
+	if begunDecision := assertAllowedDecision(t, begun, validation.AuthorityAuthoritative); begunDecision.After.State != validation.StateMerging {
+		t.Fatalf("begin-merge after = %#v, want merging", begunDecision.After)
+	}
+
+	// record-merge compares against the envelope begin-merge recorded.
+	merging, _ := memory.WorkItem(item.ID)
+	mergeResult := *testedCandidate
+	mergeResult.MergeCommit = "merge-flow"
+	setConformanceAllowedRefs(gate, "job-site", testedCandidate.Target, testedCandidate.IntegrationHead, testedCandidate.InspectionRunID, mergeResult.MergeCommit)
+	recordMerge := conformanceCall(validation.OperationRecordMerge, "job-site", merging, "begin-merge-flow-record")
+	recordMerge.FencingToken = "fence-flow"
+	recordMerge.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &mergeResult})
+	completed := memory.Execute(recordMerge)
+	completedDecision := assertAllowedDecision(t, completed, validation.AuthorityAuthoritative)
+	if completedDecision.After.State != validation.StateCompleted {
+		t.Fatalf("record-merge after = %#v, want completed", completedDecision.After)
+	}
+	stored, _ := memory.WorkItem(item.ID)
+	if stored.ExpectedMerge == nil || stored.ExpectedMerge.MergeCommit != "" {
+		t.Fatalf("stored expected merge = %#v, want the recorded tested candidate", stored.ExpectedMerge)
+	}
+}
+
 func TestResolveBlockRefreshesLiveDependenciesAndPersistsSnapshot(t *testing.T) {
 	memory, gate := newConformanceMemory(t)
 	dependency := testWorkItem("wi-live-dependency", validation.StateMerging, 9)
@@ -855,7 +909,7 @@ func TestRefineApprovalRejectsProjectMismatch(t *testing.T) {
 				DelegatedPrincipal: "drafting-agent",
 				ProjectID:          projectID,
 				RequestID:          created.RequestID,
-				Digest:             validation.RefinementDigest(validation.RefinementContent{
+				Digest: validation.RefinementDigest(validation.RefinementContent{
 					Intent:          "Refine this request",
 					Rationale:       "Test strict project binding.",
 					Classification:  "changes",

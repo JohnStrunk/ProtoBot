@@ -274,11 +274,11 @@ func New(config Config) (*Memory, error) {
 		approvals:           make(map[string]validation.ApprovalRecord),
 		submissions:         make(map[string]Submission),
 		activeSubmissions:   make(map[string]string),
-		idempotency:                make(map[string]idempotencyEntry),
-		materializations:           make(map[string]materializationEntry),
-		semanticRequests:           make(map[string]string),
-		observedReadiness:          make(map[string]validation.Readiness),
-		resolutionRevisions:        make(map[string]uint64),
+		idempotency:         make(map[string]idempotencyEntry),
+		materializations:    make(map[string]materializationEntry),
+		semanticRequests:    make(map[string]string),
+		observedReadiness:   make(map[string]validation.Readiness),
+		resolutionRevisions: make(map[string]uint64),
 	}, nil
 }
 

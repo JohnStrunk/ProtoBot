@@ -296,6 +296,13 @@ func validTransitionCases() []matrixCase {
 	setLiveLease(&inspecting, "subject-1", "fence-current")
 	request, context = requestFor(OperationBeginMerge, RoleJobSite, &inspecting)
 	request.FencingToken = "fence-current"
+	request.Payload.MergeEnvelope = &MergeEnvelope{
+		ProductTreeDigest: "tree-digest",
+		InspectionRunID:   "inspection-1",
+		IntegrationHead:   "integration-head",
+		Target:            "main",
+		ContractVersion:   inspecting.ContractVersion + 1,
+	}
 	add(matrixCase{name: "begin-merge", request: request, current: &inspecting, context: context, outcome: OutcomeAllowed, state: StateMerging})
 
 	merging := readyItem(StateMerging, 9)
@@ -430,6 +437,48 @@ func invalidTransitionCases() []matrixCase {
 	item = readyItem(StateReadyForBuilding, 4)
 	request, context = requestFor(OperationRevalidate, RoleMaterializer, &item)
 	add(matrixCase{name: "revalidate-without-blocker", request: request, current: &item, context: context, code: CodePreconditionFailed})
+
+	inspecting := readyItem(StateInspecting, 4)
+	inspecting.InspectionRunSealed = true
+	inspecting.FindingsTerminal = true
+	inspecting.FinalTestsPassed = true
+	setLiveLease(&inspecting, "subject-1", "fence-current")
+	request, context = requestFor(OperationBeginMerge, RoleJobSite, &inspecting)
+	request.FencingToken = "fence-current"
+	add(matrixCase{name: "begin-merge-without-tested-candidate", request: request, current: &inspecting, context: context, code: CodePreconditionFailed})
+
+	inspecting = readyItem(StateInspecting, 4)
+	inspecting.InspectionRunSealed = true
+	inspecting.FindingsTerminal = true
+	inspecting.FinalTestsPassed = true
+	setLiveLease(&inspecting, "subject-1", "fence-current")
+	request, context = requestFor(OperationBeginMerge, RoleJobSite, &inspecting)
+	request.FencingToken = "fence-current"
+	request.Payload.MergeEnvelope = &MergeEnvelope{
+		ProductTreeDigest: "tree-digest",
+		InspectionRunID:   "inspection-1",
+		IntegrationHead:   "integration-head",
+		Target:            "main",
+		ContractVersion:   inspecting.ContractVersion,
+	}
+	add(matrixCase{name: "begin-merge-wrong-envelope-version", request: request, current: &inspecting, context: context, code: CodePreconditionFailed})
+
+	inspecting = readyItem(StateInspecting, 4)
+	inspecting.InspectionRunSealed = true
+	inspecting.FindingsTerminal = true
+	inspecting.FinalTestsPassed = true
+	inspecting.ExpectedMerge = &MergeEnvelope{Target: "release"}
+	setLiveLease(&inspecting, "subject-1", "fence-current")
+	request, context = requestFor(OperationBeginMerge, RoleJobSite, &inspecting)
+	request.FencingToken = "fence-current"
+	request.Payload.MergeEnvelope = &MergeEnvelope{
+		ProductTreeDigest: "tree-digest",
+		InspectionRunID:   "inspection-1",
+		IntegrationHead:   "integration-head",
+		Target:            "main",
+		ContractVersion:   inspecting.ContractVersion + 1,
+	}
+	add(matrixCase{name: "begin-merge-wrong-merge-target", request: request, current: &inspecting, context: context, code: CodePreconditionFailed})
 	return tests
 }
 

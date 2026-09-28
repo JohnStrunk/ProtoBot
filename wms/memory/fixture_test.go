@@ -62,6 +62,7 @@ type wmsFixtureAssertions struct {
 	DraftingTableSubsetOfAdapter     bool     `json:"drafting_table_subset_of_adapter"`
 	DraftingTableJobSiteIntersection []string `json:"drafting_table_job_site_intersection"`
 	UnknownOperations                []string `json:"unknown_operations"`
+	HumanMaintainerOperations        []string `json:"human_maintainer_operations"`
 }
 
 type wmsFixtureExpected struct {
@@ -131,6 +132,10 @@ func assertFixtureDeclarations(t *testing.T, records []wmsFixtureRecord) {
 			want := harnessToolNames(DraftingTableOperations())
 			if !reflect.DeepEqual(record.WMSTools, want) {
 				t.Fatalf("WMS tool manifest = %#v, want %#v", record.WMSTools, want)
+			}
+			wantHuman := harnessToolNames(HumanMaintainerOperations())
+			if !reflect.DeepEqual(record.Assert.HumanMaintainerOperations, wantHuman) {
+				t.Fatalf("manifest human-maintainer operations = %#v, want %#v", record.Assert.HumanMaintainerOperations, wantHuman)
 			}
 		case "operation-partition":
 			assertOperationPartition(t, record)

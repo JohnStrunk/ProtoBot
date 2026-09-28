@@ -1360,8 +1360,9 @@ The line between Validation Rules and `ears-manager` is:
 ### Open design questions
 
 - **Future bindings.** The MVP uses a declarative state-machine ruleset
-  with a deterministic evaluator. A WIT binding, compiled library, or
-  separate service may improve portability later, but none may change the
+  with a deterministic evaluator, shipped as the backend-neutral Go
+  package `wms/validation`. A WIT binding or separate service may
+  improve portability later, but none may change the
   decision or rejection semantics defined by the
   [Validation Rules Contract](validation-rules.md).
 
@@ -2117,7 +2118,8 @@ confirmation.
 - [Drafting Table WMS Integration Contract](drafting-table-wms.md) —
   Backend-neutral request, query, linking, and blocked-resolution operations
 - [WMS Implementations](../../wms/README.md) — Backend-neutral Go evaluator
-  and in-memory conformance adapter placement
+  and the in-memory fake adapter used by the conformance and fixture
+  tests
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
