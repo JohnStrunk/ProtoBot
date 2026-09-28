@@ -41,20 +41,21 @@ agents:
       model: google-vertex/gemini-3.8-flash
     - name: review
       runtime: pi
-      model: sonnet
+      model: google-vertex/gemini-3.8-flash
       source: harness/review.yaml
       subagents:
           challenger: xai/grok-4.6
           correctness: xai/grok-4.6
+          cross-repo-contracts: google-vertex/gemini-3.8-flash
           docs-currency: google-vertex/gemini-3.8-flash
           intent-coherence: google-vertex/gemini-3.8-flash
           risk-assessment: google-vertex/gemini-3.8-flash
           security: xai/grok-4.6
           style-conventions: google-vertex/gemini-3.8-flash
     - name: retro
-      model: sonnet
+      model: google-vertex/gemini-3.8-flash
     - name: triage
-      model: sonnet
+      model: google-vertex/gemini-3.8-flash
       source: harness/triage.yaml
 inference:
     project: it-gcp-octo-fullsend
