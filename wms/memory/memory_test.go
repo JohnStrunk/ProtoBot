@@ -771,9 +771,9 @@ func TestRequestLinkBackfillsPrioritySetBeforeLinking(t *testing.T) {
 }
 
 func TestMissingTargetDoesNotConsumeIdempotencyKey(t *testing.T) {
-	memory, gate := newConformanceMemory(t)
+	_, gate := newConformanceMemory(t)
 	gate["job-site"] = testAuthorization("job-site", validation.RoleJobSite, validation.OperationClaim)
-	memory = newConformanceMemoryWithGate(t, gate)
+	memory := newConformanceMemoryWithGate(t, gate)
 
 	missing := memory.Execute(CallRequest{
 		Operation:               string(validation.OperationClaim),
