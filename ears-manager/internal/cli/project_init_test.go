@@ -241,6 +241,31 @@ func TestProjectInitThenArtifactPutClassifiesNewPath(t *testing.T) {
 	assertSuccess(t, code, stdout, stderr)
 }
 
+func TestArtifactPutRepairsMissingProjectionClassifications(t *testing.T) {
+	root := newUninitializedRepository(t)
+	t.Chdir(root)
+	code, stdout, stderr := runCLI(nil, initArgs...)
+	assertSuccess(t, code, stdout, stderr)
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "initialize")
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Repair projection", "--implementation-required", "false", "--implementation-rationale", "Restore the shared classifications.", "--created", "2026-09-28T12:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	if err := os.Remove(filepath.Join(root, ".protobot", "projection.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runCLI([]byte("# Existing Fixture Vision\n"), "--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "vision", "--kind", "vision", "--path", "docs/vision.md", "--owner", "user", "--content-stdin")
+	assertSuccess(t, code, stdout, stderr)
+
+	projection := specvalidation.ParseProjection([]byte(readTestFile(t, root, ".protobot/projection.yaml")))
+	if projection.Classes["docs/vision.md"] != "shared" || projection.Classes["docs/architecture.md"] != "shared" {
+		t.Fatalf("repaired projection = %#v", projection.Classes)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+}
+
 func TestProjectInitRejectsExistingControlNamespace(t *testing.T) {
 	root := newUninitializedRepository(t)
 	t.Chdir(root)
