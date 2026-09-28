@@ -107,6 +107,26 @@ func (m *Memory) ObserveIndependentInspectorConfirmation(submissionID, confirmat
 	return nil
 }
 
+// ObserveReadiness records trusted readiness evidence observed by the WMS
+// itself. This fixture hook is separate from CallRequest so a caller cannot
+// assert readiness evidence in a lifecycle payload. The observation feeds
+// refresh-dependencies, revalidate, refresh-active, and resolve-block
+// evaluation and is persisted when such a transition commits.
+func (m *Memory) ObserveReadiness(workItemID string, readiness validation.Readiness) error {
+	if isBlank(workItemID) {
+		return errors.New("work item ID must not be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.workItems[workItemID]; !exists {
+		return errors.New("work item does not exist")
+	}
+	m.observedReadiness[workItemID] = readiness
+	return nil
+}
+
 func (m *Memory) executePreflightLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	var payload struct {
 		Operation validation.Operation `json:"operation"`
@@ -159,9 +179,20 @@ func (m *Memory) executePreflightLocked(call CallRequest, authorization validati
 		EvaluationTime:    m.now(),
 		PreviewResolution: preview,
 	}
-	if current != nil && (payload.Operation == validation.OperationRefreshDependencies || payload.Operation == validation.OperationResolveBlock) {
+	if payload.Operation == validation.OperationMaterialize && payload.WorkItem != nil {
+		dependencies := m.liveDependenciesLocked(*payload.WorkItem)
+		evaluation.RefreshDependencies = &dependencies
+	}
+	if current != nil && (payload.Operation == validation.OperationRefreshDependencies || payload.Operation == validation.OperationResolveBlock ||
+		payload.Operation == validation.OperationRevalidate || payload.Operation == validation.OperationRefreshActive) {
 		dependencies := m.liveDependenciesLocked(*current)
 		evaluation.RefreshDependencies = &dependencies
+	}
+	if current != nil && (payload.Operation == validation.OperationRefreshDependencies || payload.Operation == validation.OperationResolveBlock ||
+		payload.Operation == validation.OperationRevalidate || payload.Operation == validation.OperationRefreshActive) {
+		if readiness, observed := m.observedReadiness[workItemID]; observed {
+			evaluation.RefreshReadiness = &readiness
+		}
 	}
 	decision := validation.Evaluate(request, current, evaluation)
 	if call.PolicyVersion != "" && call.PolicyVersion != authorization.PolicyVersion &&
@@ -209,14 +240,20 @@ func (m *Memory) executeLifecycleLocked(call CallRequest, authorization validati
 			copy := cloneWorkItem(item)
 			current = &copy
 		}
+		// A new materialization has no stored record yet, but the dependency
+		// states must still come from the WMS's own observation of the
+		// referenced items, never from the caller's payload copy.
+		if request.Payload.WorkItem != nil {
+			dependencies := m.liveDependenciesLocked(*request.Payload.WorkItem)
+			evaluation.RefreshDependencies = &dependencies
+		}
 	} else {
 		if !exists {
+			// A missing target is not a durable mutation: the rejection is
+			// deterministic while the item stays missing, so it is not
+			// recorded under the caller's idempotency key.
 			decision := validation.Evaluate(request, nil, evaluation)
-			result := resultFromDecision(call.Operation, decision)
-			if request.IdempotencyKey != "" {
-				m.rememberIdempotencyLocked(request.IdempotencyKey, validation.RequestFingerprint(request), result)
-			}
-			return result
+			return resultFromDecision(call.Operation, decision)
 		}
 		copy := cloneWorkItem(item)
 		copy.ActiveResolutionSubmissionID = m.activeSubmissions[request.WorkItemID]
@@ -245,9 +282,17 @@ func (m *Memory) executeLifecycleLocked(call CallRequest, authorization validati
 	if result, handled := m.replayLifecycleRequest(call, request, fingerprint); handled {
 		return result
 	}
-	if current != nil && (request.Operation == validation.OperationRefreshDependencies || request.Operation == validation.OperationResolveBlock) {
+	if current != nil && (request.Operation == validation.OperationRefreshDependencies || request.Operation == validation.OperationResolveBlock ||
+		request.Operation == validation.OperationRevalidate || request.Operation == validation.OperationRefreshActive ||
+		request.Operation == validation.OperationMaterialize) {
 		dependencies := m.liveDependenciesLocked(*current)
 		evaluation.RefreshDependencies = &dependencies
+	}
+	if current != nil && (request.Operation == validation.OperationRefreshDependencies || request.Operation == validation.OperationResolveBlock ||
+		request.Operation == validation.OperationRevalidate || request.Operation == validation.OperationRefreshActive) {
+		if readiness, observed := m.observedReadiness[request.WorkItemID]; observed {
+			evaluation.RefreshReadiness = &readiness
+		}
 	}
 	return m.applyLifecycleRequest(call.Operation, request, current, authorization, fingerprint, evaluation)
 }
@@ -352,6 +397,20 @@ func (m *Memory) applyLifecycleRequest(
 			item.MaterializationKey = request.MaterializationKey
 			item.Owner = ""
 			item.Lease = nil
+			// The Materializer's payload copy is caller evidence. The stored
+			// record keeps the dependency states the WMS itself observed.
+			if evaluation.RefreshDependencies != nil {
+				item.Dependencies = append([]validation.Dependency(nil), (*evaluation.RefreshDependencies)...)
+			}
+			// Observed execution evidence belongs to Building/Inspecting
+			// phases; a materialized record starts with none.
+			item.Reconciliation = validation.ReconciliationEvidence{}
+			item.InspectionRunSealed = false
+			item.FindingsTerminal = false
+			item.FinalTestsPassed = false
+			if item.State == validation.StateBlocked {
+				item.BlockReason = validation.ReadinessFailure(item.Readiness)
+			}
 			m.workItems[item.ID] = item
 			result.WorkItemID = item.ID
 			result.WorkItemState = item.State
@@ -371,6 +430,8 @@ func (m *Memory) applyLifecycleRequest(
 			Subject:                authorization.Subject,
 			AuthorizedHumanSubject: m.approvalSubject(request.Payload.HumanApprovalID, request.Operation),
 			WorkItemID:             request.WorkItemID,
+			IdempotencyKey:         request.IdempotencyKey,
+			Outcome:                result.Outcome,
 			RuleVersion:            decision.RuleVersion,
 			PolicyVersion:          decision.PolicyVersion,
 			Before:                 cloneStateVersion(decision.Before),
@@ -382,6 +443,9 @@ func (m *Memory) applyLifecycleRequest(
 			Operation:              string(request.Operation),
 			Subject:                authorization.Subject,
 			AuthorizedHumanSubject: m.approvalSubject(request.Payload.HumanApprovalID, request.Operation),
+			WorkItemID:             request.WorkItemID,
+			IdempotencyKey:         request.IdempotencyKey,
+			Outcome:                result.Outcome,
 			RuleVersion:            decision.RuleVersion,
 			PolicyVersion:          decision.PolicyVersion,
 			Before:                 cloneStateVersion(decision.Before),
@@ -427,15 +491,6 @@ func requestMaterializationKey(call CallRequest, payload validation.Payload) str
 	}
 	if payload.MaterializationKey != "" {
 		return payload.MaterializationKey
-	}
-	var envelope struct {
-		MaterializationKey string `json:"materialization_key"`
-	}
-	if len(call.Payload) > 0 {
-		_ = json.Unmarshal(call.Payload, &envelope)
-	}
-	if envelope.MaterializationKey != "" {
-		return envelope.MaterializationKey
 	}
 	if payload.WorkItem != nil {
 		return payload.WorkItem.MaterializationKey

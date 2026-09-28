@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"slices"
+	"strings"
 	"time"
 )
 
@@ -27,7 +28,8 @@ func RequestFingerprint(request Request) string {
 }
 
 // SourceFingerprint identifies the complete source contract bound to a
-// materialization key. Mutable lifecycle state and lease fields are excluded.
+// materialization key. Mutable lifecycle state, lease fields, and observed
+// dependency states are excluded; only dependency identities participate.
 func SourceFingerprint(item WorkItem) string {
 	item.State = ""
 	item.ContractVersion = 0
@@ -42,7 +44,47 @@ func SourceFingerprint(item WorkItem) string {
 	item.FinalTestsPassed = false
 	item.ExpectedMerge = nil
 	item.Reconciliation = ReconciliationEvidence{}
+	for index := range item.Dependencies {
+		item.Dependencies[index].State = ""
+	}
 	return fingerprint(item)
+}
+
+// RefinementDigest returns the canonical digest of refined request content.
+// A Gate approval bound to this digest authorizes exactly this content. Nil
+// and empty slices digest identically.
+func RefinementDigest(content RefinementContent) string {
+	if len(content.AffectedInterfaces) == 0 {
+		content.AffectedInterfaces = nil
+	} else {
+		content.AffectedInterfaces = sortedCopy(content.AffectedInterfaces)
+	}
+	if len(content.AffectedScopes) == 0 {
+		content.AffectedScopes = nil
+	} else {
+		content.AffectedScopes = sortedCopy(content.AffectedScopes)
+	}
+	if len(content.Relationships) == 0 {
+		content.Relationships = nil
+	} else {
+		content.Relationships = append([]RefinementRelationship(nil), content.Relationships...)
+		slices.SortFunc(content.Relationships, func(a, b RefinementRelationship) int {
+			if a.Type != b.Type {
+				return strings.Compare(a.Type, b.Type)
+			}
+			return strings.Compare(a.Target, b.Target)
+		})
+	}
+	return fingerprint(struct {
+		RuleVersion string
+		Content     RefinementContent
+	}{RuleVersion: RuleVersion, Content: content})
+}
+
+func sortedCopy(values []string) []string {
+	result := append([]string(nil), values...)
+	slices.Sort(result)
+	return result
 }
 
 // CanonicalMaterializationSource applies the payload-level change-type

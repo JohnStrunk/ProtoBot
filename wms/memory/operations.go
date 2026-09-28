@@ -21,7 +21,7 @@ var draftingTableOperations = []string{
 	"blocked-work.acknowledge",
 }
 
-var humanMaintainerOperations = []string{"request.update-priority"}
+var humanMaintainerOperations = []string{"request.update-priority", "request.link-change-set"}
 
 var jobSiteOperations = []string{
 	"claim",

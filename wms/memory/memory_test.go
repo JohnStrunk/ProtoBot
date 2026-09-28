@@ -2,7 +2,9 @@ package memory
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -206,7 +208,7 @@ func TestSupersedingResolutionWithSameApprovalKeepsApprovalUsable(t *testing.T) 
 	item := testWorkItem("wi-same-approval", validation.StateBlocked, 7)
 	seedConformanceItem(t, memory, item)
 	seedCompletedDependencyAndChangeSet(t, memory, "wi-same-approval-dependency", "CS-same-approval")
-	approval := conformanceApproval(item, "same-approval", "human-same", "materializer-1", "add-requirement")
+	approval := conformanceApproval(item, "same-approval", "human-same", "materializer-1", "add-requirement", "CS-same-approval")
 	if err := memory.SeedApproval(approval); err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +256,7 @@ func TestResolveBlockRefreshesLiveDependenciesAndPersistsSnapshot(t *testing.T) 
 	blocked.Dependencies = []validation.Dependency{{ID: dependency.ID, State: validation.StateWaiting}}
 	seedConformanceItem(t, memory, blocked)
 	seedCompletedDependencyAndChangeSet(t, memory, "wi-live-planned-dependency", "CS-live-dependency")
-	approval := conformanceApproval(blocked, "live-dependency-approval", "human-live-dependency", "materializer-1", "add-requirement")
+	approval := conformanceApproval(blocked, "live-dependency-approval", "human-live-dependency", "materializer-1", "add-requirement", "CS-live-dependency")
 	if err := memory.SeedApproval(approval); err != nil {
 		t.Fatal(err)
 	}
@@ -313,7 +315,7 @@ func TestOutOfScopeResolutionUsesObservedInspectorConfirmation(t *testing.T) {
 	memory, _ := newConformanceMemory(t)
 	item := testWorkItem("wi-out-of-scope-confirmation", validation.StateBlocked, 7)
 	seedConformanceItem(t, memory, item)
-	approval := conformanceApproval(item, "out-of-scope-approval", "human-out-of-scope", "materializer-1", "out-of-scope")
+	approval := conformanceApproval(item, "out-of-scope-approval", "human-out-of-scope", "materializer-1", "out-of-scope", "")
 	if err := memory.SeedApproval(approval); err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +524,12 @@ func TestRefinementRejectsWhitespaceOnlyIntentAndRationale(t *testing.T) {
 				t.Fatalf("request create result = %#v", created)
 			}
 			before, _ := memory.Request(created.RequestID)
-			approval := seedRefinementApproval(t, memory, "blank-refine-approval", created.RequestID, "blank-refine-digest")
+			approval := seedRefinementApproval(t, memory, "blank-refine-approval", created.RequestID, validation.RefinementContent{
+				Intent:          "Keep this request",
+				Rationale:       "Keep this rationale",
+				Classification:  "changes",
+				RefinementState: "ready-for-dimensioning",
+			})
 
 			payload := refineRequestPayload{
 				Classification:           "changes",
@@ -560,7 +567,13 @@ func TestRefinementMaintainsSemanticDuplicateIndex(t *testing.T) {
 	}
 
 	firstBefore, _ := memory.Request(first.RequestID)
-	duplicateApproval := seedRefinementApproval(t, memory, "semantic-duplicate-approval", first.RequestID, "semantic-duplicate-digest")
+	duplicateApproval := seedRefinementApproval(t, memory, "semantic-duplicate-approval", first.RequestID, validation.RefinementContent{
+		Intent:             "Request beta",
+		AffectedInterfaces: []string{"interface-b"},
+		AffectedScopes:     []string{"scope-b"},
+		Classification:     "changes",
+		RefinementState:    "ready-for-dimensioning",
+	})
 	duplicatePayload := refineRequestPayload{
 		Intent:                   "Request beta",
 		AffectedInterfaces:       []string{"interface-b"},
@@ -580,7 +593,14 @@ func TestRefinementMaintainsSemanticDuplicateIndex(t *testing.T) {
 		t.Fatalf("duplicate refinement changed request or consumed approval: request=%#v approval=%#v", unchanged, approvalAfterDuplicate)
 	}
 
-	refinementApproval := seedRefinementApproval(t, memory, "semantic-refinement-approval", first.RequestID, "semantic-refinement-digest")
+	refinementApproval := seedRefinementApproval(t, memory, "semantic-refinement-approval", first.RequestID, validation.RefinementContent{
+		Intent:             "Request gamma",
+		Rationale:          "Alpha rationale",
+		AffectedInterfaces: []string{"interface-c"},
+		AffectedScopes:     []string{"scope-c"},
+		Classification:     "changes",
+		RefinementState:    "ready-for-dimensioning",
+	})
 	refinement := refineRequestPayload{
 		Intent:                   "Request gamma",
 		AffectedInterfaces:       []string{"interface-c"},
@@ -696,6 +716,210 @@ func TestRequestLinkBackfillsPrioritySetBeforeLinking(t *testing.T) {
 	}
 }
 
+func TestMissingTargetDoesNotConsumeIdempotencyKey(t *testing.T) {
+	memory, gate := newConformanceMemory(t)
+	gate["job-site"] = testAuthorization("job-site", validation.RoleJobSite, validation.OperationClaim)
+	memory = newConformanceMemoryWithGate(t, gate)
+
+	missing := memory.Execute(CallRequest{
+		Operation:               string(validation.OperationClaim),
+		ActorContextRef:         "job-site",
+		WorkItemID:              "missing-item",
+		ExpectedState:           validation.StateReadyForBuilding,
+		ExpectedContractVersion: ptrUint64(4),
+		IdempotencyKey:          "missing-target-key",
+	})
+	assertRejectedDecision(t, missing, validation.AuthorityAuthoritative, validation.CodeNotFound)
+	if len(memory.Events()) != 0 {
+		t.Fatalf("missing target recorded %d lifecycle events, want none", len(memory.Events()))
+	}
+
+	// The key was not consumed by the missing-target rejection: the same key
+	// may still carry a legitimate claim against an existing work item.
+	item := testWorkItem("wi-late-arrival", validation.StateReadyForBuilding, 4)
+	seedConformanceItem(t, memory, item)
+	late := memory.Execute(CallRequest{
+		Operation:               string(validation.OperationClaim),
+		ActorContextRef:         "job-site",
+		WorkItemID:              item.ID,
+		ExpectedState:           validation.StateReadyForBuilding,
+		ExpectedContractVersion: ptrUint64(4),
+		IdempotencyKey:          "missing-target-key",
+	})
+	assertAllowedDecision(t, late, validation.AuthorityAuthoritative)
+}
+
+func ptrUint64(value uint64) *uint64 {
+	return &value
+}
+
+func TestObserveReadinessFeedsRevalidation(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	item := testWorkItem("wi-observe-readiness", validation.StateReadyForBuilding, 4)
+	seedConformanceItem(t, memory, item)
+
+	// Revalidation with no observed blocker changes nothing.
+	unblocked := memory.Execute(conformanceCall(validation.OperationRevalidate, "materializer", item, "observe-readiness-revalidate-clean"))
+	assertRejectedDecision(t, unblocked, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+
+	readiness := item.Readiness
+	readiness.PolicyCompatible = false
+	readiness.UnresolvedReasons = []string{"observed-policy-conflict", "another-reason"}
+	if err := memory.ObserveReadiness(item.ID, readiness); err != nil {
+		t.Fatal(err)
+	}
+
+	blocked := memory.Execute(conformanceCall(validation.OperationRevalidate, "materializer", item, "observe-readiness-revalidate-blocked"))
+	decision := assertAllowedDecision(t, blocked, validation.AuthorityAuthoritative)
+	if decision.After.State != validation.StateBlocked {
+		t.Fatalf("revalidated state = %q, want blocked from the observed readiness", decision.After.State)
+	}
+	stored, _ := memory.WorkItem(item.ID)
+	if stored.BlockReason != "the work item is not compatible with current project policy" {
+		t.Fatalf("blocked reason = %q, want the observed policy blocker", stored.BlockReason)
+	}
+	if !reflect.DeepEqual(stored.Readiness.UnresolvedReasons, []string{"another-reason", "observed-policy-conflict"}) {
+		t.Fatalf("stored unresolved reasons = %#v, want the persisted observed readiness", stored.Readiness.UnresolvedReasons)
+	}
+}
+
+func TestHumanMaintainerCanLinkChangeSet(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	if err := memory.SeedChangeSet(ChangeSet{ID: "CS-human-link", Revision: "proposed"}); err != nil {
+		t.Fatal(err)
+	}
+	created := createTestRequest(t, memory, "Human links the change set", "Exercise the human-maintainer link operation.", nil, nil, "human-link-create")
+	if !created.OK {
+		t.Fatalf("request create result = %#v", created)
+	}
+
+	linked := memory.Execute(CallRequest{
+		Operation:               "request.link-change-set",
+		ActorContextRef:         "human-maintainer",
+		RequestID:               created.RequestID,
+		ExpectedRequestRevision: &created.RequestRevision,
+		IdempotencyKey:          "human-link-change-set",
+		Payload:                 jsonPayload(t, changeSetLinkPayload{ChangeSetID: "CS-human-link", TargetRevision: "proposed"}),
+	})
+	if !linked.OK || linked.Link["change_set_id"] != "CS-human-link" {
+		t.Fatalf("human-maintainer change-set link = %#v, want applied link", linked)
+	}
+	if !slices.Contains(HumanMaintainerOperations(), "request.link-change-set") {
+		t.Fatal("human-maintainer operation set does not include request.link-change-set")
+	}
+}
+
+func TestRefinementClassificationIsOptional(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	created := createTestRequest(t, memory, "Classify later", "The classification arrives with a later refinement.", nil, nil, "classify-later-create")
+	if !created.OK {
+		t.Fatalf("request create result = %#v", created)
+	}
+
+	// The approval digest is computed from the refinement content without a
+	// classification; the payload may omit it entirely.
+	content := validation.RefinementContent{
+		Intent:          "Classify later",
+		Rationale:       "The classification arrives with a later refinement.",
+		Owner:           "human-001",
+		RefinementState: "refining",
+	}
+	approval := seedRefinementApproval(t, memory, "classify-later-approval", created.RequestID, content)
+
+	refined := memory.Execute(refineTestRequest(t, created.RequestID, created.RequestRevision, "classify-later-refine", refineRequestPayload{
+		Owner:                    "human-001",
+		RefinementState:          "refining",
+		HumanApprovalID:          approval.ID,
+		ApprovalRefinementDigest: approval.Digest,
+	}))
+	if !refined.OK {
+		t.Fatalf("classification-free refinement = %#v, want success", refined)
+	}
+	request, _ := memory.Request(created.RequestID)
+	if request.Classification != "" || request.Owner != "human-001" || request.RefinementState != "refining" {
+		t.Fatalf("refined request = %#v, want preserved classification with owner and state applied", request)
+	}
+}
+
+func TestRefineApprovalRejectsProjectMismatch(t *testing.T) {
+	for _, projectID := range []string{"", "another-project"} {
+		t.Run(fmt.Sprintf("approval project %q", projectID), func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			created := createTestRequest(t, memory, "Refine this request", "Test strict project binding.", nil, nil, "project-binding-create-"+projectID)
+			if !created.OK {
+				t.Fatalf("create request result = %#v", created)
+			}
+			approval := validation.ApprovalRecord{
+				ID:                 "project-binding-approval-" + projectID,
+				ApprovedSubject:    "human-049",
+				DelegatedPrincipal: "drafting-agent",
+				ProjectID:          projectID,
+				RequestID:          created.RequestID,
+				Digest:             validation.RefinementDigest(validation.RefinementContent{
+					Intent:          "Refine this request",
+					Rationale:       "Test strict project binding.",
+					Classification:  "changes",
+					RefinementState: "ready-for-dimensioning",
+				}),
+				Action:        validation.Operation("request.refine"),
+				PolicyVersion: "wms-policy/v1",
+				ExpiresAt:     memoryTestTime.Add(time.Hour),
+				Status:        validation.ApprovalStatusUnused,
+			}
+			if err := memory.SeedApproval(approval); err != nil {
+				t.Fatal(err)
+			}
+			before, _ := memory.Request(created.RequestID)
+			revision := created.RequestRevision
+			refined := memory.Execute(refineTestRequest(t, created.RequestID, revision, "project-binding-refine-"+projectID, refineRequestPayload{
+				Classification:           "changes",
+				RefinementState:          "ready-for-dimensioning",
+				HumanApprovalID:          approval.ID,
+				ApprovalRefinementDigest: approval.Digest,
+			}))
+			assertRequestRejection(t, refined, validation.CodeUnauthorizedAction)
+			after, _ := memory.Request(created.RequestID)
+			approvalAfter, _ := memory.Approval(approval.ID)
+			if !reflect.DeepEqual(after, before) || approvalAfter.Status != validation.ApprovalStatusUnused {
+				t.Fatalf("failed project binding changed request or approval: request=%#v approval=%#v", after, approvalAfter)
+			}
+			assertEventCount(t, memory, 1)
+		})
+	}
+}
+
+func TestRefineApprovalDigestBindsRefinementContent(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	created := createTestRequest(t, memory, "Digest bound request", "The approval must bind the exact refinement content.", nil, nil, "digest-bound-create")
+	if !created.OK {
+		t.Fatalf("request create result = %#v", created)
+	}
+	// The approval authorizes different content than the payload applies.
+	approval := seedRefinementApproval(t, memory, "digest-bound-approval", created.RequestID, validation.RefinementContent{
+		Intent:          "Digest bound request",
+		Rationale:       "The approval must bind the exact refinement content.",
+		Owner:           "human-001",
+		Classification:  "changes",
+		RefinementState: "ready-for-dimensioning",
+	})
+	before, _ := memory.Request(created.RequestID)
+
+	// Apply a different owner than the approval digested.
+	refined := memory.Execute(refineTestRequest(t, created.RequestID, created.RequestRevision, "digest-bound-refine", refineRequestPayload{
+		Owner:                    "human-002",
+		Classification:           "changes",
+		RefinementState:          "ready-for-dimensioning",
+		HumanApprovalID:          approval.ID,
+		ApprovalRefinementDigest: approval.Digest,
+	}))
+	assertRequestRejection(t, refined, validation.CodeUnauthorizedAction)
+	after, _ := memory.Request(created.RequestID)
+	approvalAfter, _ := memory.Approval(approval.ID)
+	if !reflect.DeepEqual(after, before) || approvalAfter.Status != validation.ApprovalStatusUnused {
+		t.Fatalf("digest mismatch changed request or consumed approval: request=%#v approval=%#v", after, approvalAfter)
+	}
+}
+
 func createTestRequest(
 	t *testing.T,
 	memory *Memory,
@@ -717,7 +941,7 @@ func createTestRequest(
 	})
 }
 
-func seedRefinementApproval(t *testing.T, memory *Memory, id, requestID, digest string) validation.ApprovalRecord {
+func seedRefinementApproval(t *testing.T, memory *Memory, id, requestID string, content validation.RefinementContent) validation.ApprovalRecord {
 	t.Helper()
 	approval := validation.ApprovalRecord{
 		ID:                 id,
@@ -725,7 +949,7 @@ func seedRefinementApproval(t *testing.T, memory *Memory, id, requestID, digest 
 		DelegatedPrincipal: "drafting-agent",
 		ProjectID:          "fixture-project",
 		RequestID:          requestID,
-		Digest:             digest,
+		Digest:             validation.RefinementDigest(content),
 		Action:             validation.Operation("request.refine"),
 		PolicyVersion:      "wms-policy/v1",
 		ExpiresAt:          memoryTestTime.Add(time.Hour),

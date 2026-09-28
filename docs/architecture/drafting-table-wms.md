@@ -114,23 +114,26 @@ subject; untrusted actor fields cannot widen them.
 For a blocked-work submission, `human_approval_id` and
 `approval_resolution_digest` are required inputs. The WMS Adapter resolves
 the approval from trusted Gate state and verifies the approved subject,
-delegated principal, work-item ID, resolution kind, expected state/version,
-request fingerprint, policy version, expiry, and single-use status. For
+delegated principal, project, work-item ID, change-set binding, resolution
+kind, expected state/version, resolution digest, policy version, expiry,
+and single-use status. For
 `blocked-work.submit-resolution`, the delegated principal must match the
 configured Materializer subject from trusted project/Gate configuration (the
 same identity `resolve-block` will later present). For
 `blocked-work.acknowledge`, the delegated principal must match the trusted
 Drafting Table subject that writes the acknowledgement. Missing, unknown,
-cross-item, wrong-kind, digest-mismatched, expired, consumed, revoked, or
-delegated-principal-mismatched approvals return `UNAUTHORIZED_ACTION`
-before any resource write. The same checks apply to an informational
-acknowledgement.
+cross-item, cross-change-set, wrong-kind, digest-mismatched, expired,
+consumed, revoked, or delegated-principal-mismatched approvals return
+`UNAUTHORIZED_ACTION` before any resource write. The same checks apply to
+an informational acknowledgement.
 
 Acceptance of `blocked-work.submit-resolution` verifies the approval binding
 and stores it with the durable submission; it does not consume or reserve
 the single-use approval. A new reviewed submission may supersede the one
 pending submission; that write marks the prior submission `superseded` and
-revokes its Gate approval so the approval is terminal. Authoritative
+revokes its Gate approval so the approval is terminal, except when the new
+submission reuses the same approval: a shared approval stays `unused`
+because its single consumption is still pending for the item. Authoritative
 `resolve-block` must name the currently-active `resolution_submission_id`
 and consume only that submission's approval. A superseded submission's
 revoked approval cannot unblock the item.
@@ -293,12 +296,18 @@ state, `expected_contract_version`, and any required approval or fencing
 token.
 
 For `request.refine`, the Gate binds `human_approval_id` and
-`approval_refinement_digest` to the approved human subject, request ID,
-proposed refinement fields, delegated Drafting Table subject, expiry, and
-single-use state. The adapter rejects a missing, mismatched, expired, or
-already-consumed approval before changing the request. A successful refine
-consumes `human_approval_id` in the same durable write as the request
-revision; an exact idempotent replay does not consume it again.
+`approval_refinement_digest` to the approved human subject, project,
+request ID, the delegated Drafting Table subject, expiry, and single-use
+state. The digest is the canonical refinement-content digest computed from
+the complete refined record — intent, rationale, owner, affected
+interfaces and scopes, relationships, classification, and refinement
+state — so the approval authorizes exactly the refinement content the
+request will hold after the operation applies. The adapter rejects a
+missing, mismatched, expired, or already-consumed approval before changing
+the request, and re-verifies the recomputed post-refinement digest against
+the approval before committing. A successful refine consumes
+`human_approval_id` in the same durable write as the request revision; an
+exact idempotent replay does not consume it again.
 _(Note: Corrected from prior contract text, which did not explicitly
 require `approval_status: consumed` on successful refinement or verify that
 a consumed refine approval cannot be replayed under a different idempotency
@@ -415,11 +424,13 @@ work item at a time. An exact key/fingerprint retry returns the frozen
 original result without a second mutation; current submission status
 (`superseded` or `consumed`) is visible only on a subsequent read of the
 submission record. A new reviewed lifecycle resolution atomically marks
-the prior pending submission `superseded`, revokes that submission's Gate
-approval, and becomes the active submission. Informational acknowledgements
-are separate audit records and do not compete with the lifecycle
-submission. A submission becomes `consumed` only when the Materializer's
-authoritative `resolve-block` succeeds against it.
+the prior pending submission `superseded` and revokes that submission's
+Gate approval, and becomes the active submission. When the new submission
+reuses the same Gate approval, the shared approval is not revoked: it
+stays `unused` until the active submission consumes it. Informational
+acknowledgements are separate audit records and do not compete with the
+lifecycle submission. A submission becomes `consumed` only when the
+Materializer's authoritative `resolve-block` succeeds against it.
 
 ---
 
@@ -460,15 +471,18 @@ is a harness-neutral transcript for a fake adapter. It contains no
 backend-specific fields and requires no WMS service, Git host, OAuth token,
 or network.
 
-The `base-state` record defines fake Gate contexts. Operation records use
-their role/project fields as references to those trusted contexts; they do
-not model caller-supplied authorization claims.
+The `base-state` record defines fake Gate contexts, the seeded work items
+(with explicit `block_reason` and dependency state), the seeded change sets,
+and illustrative approval records. Operation records use their role/project
+fields as references to those trusted contexts; they do not model
+caller-supplied authorization claims.
 
 The `approval-validation-state` record supplies the fixed
-`evaluation_time` and complete approval bindings used by the transcript. It
-replaces the illustrative approval records in `base-state` before operations
-run, so expiry, delegated-principal, expected-state/version, digest, and
-single-use checks are deterministic.
+`evaluation_time` and complete approval bindings — including project,
+change-set, and refinement-content digest bindings — used by the
+transcript. It replaces the illustrative approval records in `base-state`
+before operations run, so expiry, delegated-principal, expected
+state/version, digest, and single-use checks are deterministic.
 
 The fixture asserts:
 
@@ -476,7 +490,8 @@ The fixture asserts:
 - only a human maintainer can update business priority;
 - linked priority snapshots update without changing lifecycle state;
 - request-to-change-set and existing request-to-build-item links are
-  possible without implicit materialization;
+  possible without implicit materialization, and work-item read
+  projections expose the linked `request_id` and `change_set_id`;
 - status, dependency, and blocked-work queries are read-only;
 - preflight is advisory and the authoritative resolution preserves
   `blocked` state/version checks;
@@ -485,8 +500,11 @@ The fixture asserts:
 - a new lifecycle resolution supersedes the pending one atomically and
   revokes the prior approval, while an acknowledgement remains an
   independent audit record;
-- approval checks reject missing, forged, cross-item, wrong-digest, expired,
-  consumed, revoked, and delegated-principal-mismatched approvals;
+- approval checks reject missing, forged, cross-item, cross-change-set,
+  wrong-digest, expired, consumed, revoked, and
+  delegated-principal-mismatched approvals;
+- the refine approval digest binds to the canonical refinement content the
+  request holds after the refinement applies;
 - an exact resolution retry replays the frozen original result;
 - Materializer `resolve-block` independently rejects a revoked prior
   approval and a non-active submission ID;
@@ -499,6 +517,11 @@ The fixture asserts:
   mutate findings, and direct `resolve-block` is rejected; and
 - the Drafting Table operation set is a proper subset of the adapter API
   and disjoint from the Job Site execution set.
+
+Refine-approval project binding is exercised by the in-memory adapter
+tests (`wms/memory`) rather than the golden transcript: an approval whose
+`project_id` is missing or belongs to another project is rejected with
+`UNAUTHORIZED_ACTION` while the request and approval remain unchanged.
 
 Every fixture result records the actor role, expected revision/version,
 outcome, mutation status, and structured diagnostic. The fake adapter

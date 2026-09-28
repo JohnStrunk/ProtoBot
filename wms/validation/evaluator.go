@@ -246,7 +246,7 @@ func resultingVersion(current *WorkItem, state State) *StateVersion {
 func evaluateTransition(request Request, current *WorkItem, evaluation EvaluationContext) (State, Outcome, *MaterializationReservation, *Rejection) {
 	switch request.Operation {
 	case OperationMaterialize:
-		return evaluateMaterialization(request)
+		return evaluateMaterialization(request, evaluation)
 	case OperationRefreshDependencies, OperationRevalidate, OperationResolveBlock:
 		return evaluatePlanningTransition(request, current, evaluation)
 	case OperationClaim, OperationRenewLease, OperationRefreshActive, OperationReturnToBuilding:
@@ -272,7 +272,7 @@ func evaluatePlanningTransition(request Request, current *WorkItem, evaluation E
 		if reason := readinessBlocker(readiness); reason != "" {
 			return "", OutcomeRejected, nil, preconditionFailed(reason, "readiness-evidence")
 		}
-		if dependency, incomplete := firstIncompleteDependency(effectiveDependencies(current, evaluation)); incomplete {
+		if dependency, incomplete := FirstIncompleteDependency(effectiveDependencies(current, evaluation)); incomplete {
 			return "", OutcomeRejected, nil, dependencyFailed(dependency)
 		}
 		return StateReadyForBuilding, OutcomeAllowed, nil, nil
@@ -291,7 +291,7 @@ func evaluatePlanningTransition(request Request, current *WorkItem, evaluation E
 		if reason := readinessBlocker(effectiveReadiness(current, evaluation)); reason != "" {
 			return "", OutcomeRejected, nil, preconditionFailed(reason, "readiness-evidence")
 		}
-		if dependency, incomplete := firstIncompleteDependency(effectiveDependencies(current, evaluation)); incomplete {
+		if dependency, incomplete := FirstIncompleteDependency(effectiveDependencies(current, evaluation)); incomplete {
 			return "", OutcomeRejected, nil, dependencyFailed(dependency)
 		}
 		return StateReadyForBuilding, OutcomeAllowed, nil, nil
@@ -309,14 +309,14 @@ func evaluateLeaseTransition(request Request, current *WorkItem, evaluation Eval
 		if reason := readinessBlocker(current.Readiness); reason != "" {
 			return "", OutcomeRejected, nil, preconditionFailed(reason, "readiness-evidence")
 		}
-		if dependency, incomplete := firstIncompleteDependency(current.Dependencies); incomplete {
+		if dependency, incomplete := FirstIncompleteDependency(current.Dependencies); incomplete {
 			return "", OutcomeRejected, nil, dependencyFailed(dependency)
 		}
 		return StateBuilding, OutcomeAllowed, nil, nil
 	case OperationRenewLease:
 		return current.State, OutcomeAllowed, nil, nil
 	case OperationRefreshActive:
-		_, incompleteDependency := firstIncompleteDependency(effectiveDependencies(current, evaluation))
+		_, incompleteDependency := FirstIncompleteDependency(effectiveDependencies(current, evaluation))
 		if readinessContractFailure(effectiveReadiness(current, evaluation)) != "" ||
 			readinessBlocker(effectiveReadiness(current, evaluation)) != "" ||
 			incompleteDependency {
@@ -373,10 +373,10 @@ func evaluateMergeTransition(request Request, current *WorkItem) (State, Outcome
 	case OperationRecordMerge:
 		if request.Authorization.Role == RoleReconciler {
 			if !reconciliationMatches(current.Reconciliation, "merge-recorded", "merged") ||
-				!mergeEnvelopeMatches(current.ExpectedMerge, current.Reconciliation.MergeEnvelope, current.ContractVersion, false) {
+				!mergeEnvelopeMatches(current.ExpectedMerge, current.Reconciliation.MergeEnvelope, current.ContractVersion) {
 				return "", OutcomeRejected, nil, preconditionFailed("the WMS merge observation does not match the work-item contract", "reconciliation-merge-envelope")
 			}
-		} else if !mergeEnvelopeMatches(current.ExpectedMerge, request.Payload.MergeEnvelope, current.ContractVersion, false) {
+		} else if !mergeEnvelopeMatches(current.ExpectedMerge, request.Payload.MergeEnvelope, current.ContractVersion) {
 			return "", OutcomeRejected, nil, preconditionFailed("the tested candidate and merge result do not match", "tested-merge-envelope")
 		}
 		return StateCompleted, OutcomeAllowed, nil, nil
@@ -405,7 +405,10 @@ func evaluateRecoveryTransition(request Request, current *WorkItem, evaluation E
 	}
 }
 
-func evaluateMaterialization(request Request) (State, Outcome, *MaterializationReservation, *Rejection) {
+// evaluateMaterialization evaluates the create-or-return transition. The
+// dependency states it checks come from the evaluation context the WMS
+// supplies from its own observation, never from the caller's payload copy.
+func evaluateMaterialization(request Request, evaluation EvaluationContext) (State, Outcome, *MaterializationReservation, *Rejection) {
 	if request.MaterializationKey == "" {
 		return "", OutcomeRejected, nil, preconditionFailed("materialization_key is required", "materialization_key")
 	}
@@ -430,6 +433,10 @@ func evaluateMaterialization(request Request) (State, Outcome, *MaterializationR
 		return "", OutcomeRejected, nil, preconditionFailed(reason, "complete-work-item-contract")
 	}
 
+	dependencies := candidate.Dependencies
+	if evaluation.RefreshDependencies != nil {
+		dependencies = *evaluation.RefreshDependencies
+	}
 	fingerprint := SourceFingerprint(candidate)
 	if !candidate.ImplementationRequired {
 		return "", OutcomeOmitted, &MaterializationReservation{
@@ -445,7 +452,7 @@ func evaluateMaterialization(request Request) (State, Outcome, *MaterializationR
 			Outcome:           MaterializationOutcomeBlocked,
 		}, nil
 	}
-	if _, incomplete := firstIncompleteDependency(candidate.Dependencies); incomplete {
+	if _, incomplete := FirstIncompleteDependency(dependencies); incomplete {
 		return StateWaiting, OutcomeAllowed, &MaterializationReservation{
 			Key:               request.MaterializationKey,
 			SourceFingerprint: fingerprint,
@@ -484,6 +491,7 @@ func validateResolutionBinding(request Request, current *WorkItem, evaluation Ev
 		DelegatedPrincipal:      request.Authorization.Subject,
 		ProjectID:               request.ProjectID,
 		WorkItemID:              request.WorkItemID,
+		ChangeSetID:             submission.ChangeSetID,
 		ResolutionKind:          request.Payload.ResolutionKind,
 		Digest:                  request.Payload.ApprovalDigest,
 		ExpectedState:           request.ExpectedState,
@@ -735,7 +743,9 @@ func effectiveDependencies(current *WorkItem, evaluation EvaluationContext) []De
 	return current.Dependencies
 }
 
-func firstIncompleteDependency(dependencies []Dependency) (string, bool) {
+// FirstIncompleteDependency returns the lexicographically first dependency
+// that is not completed, and whether one exists.
+func FirstIncompleteDependency(dependencies []Dependency) (string, bool) {
 	blocking := ""
 	found := false
 	for _, dependency := range dependencies {
@@ -745,6 +755,20 @@ func firstIncompleteDependency(dependencies []Dependency) (string, bool) {
 		}
 	}
 	return blocking, found
+}
+
+// ReadinessFailure returns the first unresolved readiness condition for a
+// work item: contract failures first, then readiness blockers, then the
+// lexicographically first unresolved reason. It returns "" when the record
+// is ready.
+func ReadinessFailure(readiness Readiness) string {
+	if reason := readinessContractFailure(readiness); reason != "" {
+		return reason
+	}
+	if reason := readinessBlocker(readiness); reason != "" {
+		return reason
+	}
+	return ""
 }
 
 func dependencyFailed(dependency string) *Rejection {
@@ -775,21 +799,18 @@ func reconciliationMatches(evidence ReconciliationEvidence, status, mutation str
 	return evidence.Status == status && evidence.GitMutation == mutation
 }
 
-func mergeEnvelopeMatches(expected, actual *MergeEnvelope, contractVersion uint64, requireCommitMatch bool) bool {
+func mergeEnvelopeMatches(expected, actual *MergeEnvelope, contractVersion uint64) bool {
 	if expected == nil || actual == nil || actual.ProductTreeDigest == "" ||
 		actual.InspectionRunID == "" || actual.IntegrationHead == "" ||
 		actual.Target == "" || actual.MergeCommit == "" ||
 		actual.ContractVersion != contractVersion {
 		return false
 	}
-	if expected.ProductTreeDigest != actual.ProductTreeDigest ||
-		expected.InspectionRunID != actual.InspectionRunID ||
-		expected.IntegrationHead != actual.IntegrationHead ||
-		expected.Target != actual.Target ||
-		expected.ContractVersion != actual.ContractVersion {
-		return false
-	}
-	return !requireCommitMatch || expected.MergeCommit == actual.MergeCommit
+	return expected.ProductTreeDigest == actual.ProductTreeDigest &&
+		expected.InspectionRunID == actual.InspectionRunID &&
+		expected.IntegrationHead == actual.IntegrationHead &&
+		expected.Target == actual.Target &&
+		expected.ContractVersion == actual.ContractVersion
 }
 
 func validChangeType(changeType string) bool {

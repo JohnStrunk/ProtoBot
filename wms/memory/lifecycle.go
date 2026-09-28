@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"sort"
 	"time"
 
 	"github.com/redhat-et/protobot/wms/validation"
@@ -17,6 +18,9 @@ func (m *Memory) applyLifecycleMutationLocked(
 	item.ContractVersion = decision.After.ContractVersion
 	switch request.Operation {
 	case validation.OperationClaim:
+		// A lease handoff clears stale reconciliation evidence: the new lease
+		// holder must produce fresh WMS observations.
+		item.Reconciliation = validation.ReconciliationEvidence{}
 		m.startLease(item, authorization.Subject, decision.FencingTokenIssued, evaluation.EvaluationTime)
 	case validation.OperationRenewLease:
 		if item.Lease != nil {
@@ -26,7 +30,8 @@ func (m *Memory) applyLifecycleMutationLocked(
 		item.BlockReason = request.Payload.Question
 		m.releaseLease(item)
 	case validation.OperationRevalidate:
-		item.BlockReason = readinessFailure(item.Readiness)
+		m.applyRefresh(item, evaluation)
+		item.BlockReason = validation.ReadinessFailure(effectiveReadiness(item, evaluation))
 	case validation.OperationRefreshDependencies:
 		m.applyRefresh(item, evaluation)
 	case validation.OperationRefreshActive:
@@ -41,9 +46,8 @@ func (m *Memory) applyLifecycleMutationLocked(
 		item.BlockReason = ""
 		m.startLease(item, authorization.Subject, decision.FencingTokenIssued, evaluation.EvaluationTime)
 	case validation.OperationBeginMerge:
-		item.InspectionRunSealed = true
-		item.FindingsTerminal = true
-		item.FinalTestsPassed = true
+		// Inspection sealing, terminal findings, and final test evidence are
+		// WMS observations recorded before begin-merge, not payload claims.
 	case validation.OperationMergeConflict:
 		item.Reconciliation = validation.ReconciliationEvidence{}
 		if item.State == validation.StateBuilding {
@@ -53,6 +57,10 @@ func (m *Memory) applyLifecycleMutationLocked(
 			m.releaseLease(item)
 		}
 	case validation.OperationMergeNotApplied, validation.OperationRecoverLease:
+		// Leaving merging or recovering a lease invalidates the reconciliation
+		// evidence that authorized it; the next transition needs a fresh WMS
+		// observation.
+		item.Reconciliation = validation.ReconciliationEvidence{}
 		item.BlockReason = ""
 		m.releaseLease(item)
 	case validation.OperationRecordMerge:
@@ -94,6 +102,7 @@ func (m *Memory) applyRefresh(item *validation.WorkItem, evaluation validation.E
 	if evaluation.RefreshReadiness != nil {
 		item.Readiness = *evaluation.RefreshReadiness
 		item.Readiness.UnresolvedReasons = append([]string(nil), evaluation.RefreshReadiness.UnresolvedReasons...)
+		sort.Strings(item.Readiness.UnresolvedReasons)
 	}
 	if evaluation.RefreshDependencies != nil {
 		item.Dependencies = append([]validation.Dependency(nil), (*evaluation.RefreshDependencies)...)
@@ -101,18 +110,15 @@ func (m *Memory) applyRefresh(item *validation.WorkItem, evaluation validation.E
 }
 
 func refreshedBlockReason(item *validation.WorkItem, evaluation validation.EvaluationContext) string {
-	readiness := item.Readiness
-	if evaluation.RefreshReadiness != nil {
-		readiness = *evaluation.RefreshReadiness
-	}
-	if reason := readinessFailure(readiness); reason != "" {
+	readiness := effectiveReadiness(item, evaluation)
+	if reason := validation.ReadinessFailure(readiness); reason != "" {
 		return reason
 	}
 	dependencies := item.Dependencies
 	if evaluation.RefreshDependencies != nil {
 		dependencies = *evaluation.RefreshDependencies
 	}
-	if dependency, incomplete := firstIncompleteDependency(dependencies); incomplete {
+	if dependency, incomplete := validation.FirstIncompleteDependency(dependencies); incomplete {
 		if dependency == "" {
 			return "an unnamed dependency is incomplete"
 		}
@@ -121,42 +127,9 @@ func refreshedBlockReason(item *validation.WorkItem, evaluation validation.Evalu
 	return "refresh found unresolved work"
 }
 
-func readinessFailure(readiness validation.Readiness) string {
-	if !readiness.ContractComplete {
-		return "the complete work-item contract is missing"
+func effectiveReadiness(item *validation.WorkItem, evaluation validation.EvaluationContext) validation.Readiness {
+	if evaluation.RefreshReadiness != nil {
+		return *evaluation.RefreshReadiness
 	}
-	if !readiness.SourceImmutable {
-		return "the source specification is not immutable"
-	}
-	if !readiness.SpecificationValidated {
-		return "the specification has not been validated"
-	}
-	if !readiness.RequirementReferencesValid {
-		return "requirement references do not resolve"
-	}
-	if !readiness.PipelineEntrySatisfied {
-		return "the pipeline entry conditions are incomplete"
-	}
-	if !readiness.ImpactDispositioned {
-		return "impact candidates remain undispositioned"
-	}
-	if !readiness.PolicyCompatible {
-		return "current project policy is incompatible"
-	}
-	if len(readiness.UnresolvedReasons) > 0 {
-		return readiness.UnresolvedReasons[0]
-	}
-	return ""
-}
-
-func firstIncompleteDependency(dependencies []validation.Dependency) (string, bool) {
-	blocking := ""
-	found := false
-	for _, dependency := range dependencies {
-		if dependency.State != validation.StateCompleted && (!found || dependency.ID < blocking) {
-			blocking = dependency.ID
-			found = true
-		}
-	}
-	return blocking, found
+	return item.Readiness
 }

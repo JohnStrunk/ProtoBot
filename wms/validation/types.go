@@ -208,7 +208,9 @@ type ReconciliationEvidence struct {
 	MergeEnvelope *MergeEnvelope `json:"merge_envelope,omitempty"`
 }
 
-// Payload contains command-specific, typed lifecycle data.
+// Payload contains command-specific, typed lifecycle data. WMS-observed
+// evidence (inspection sealing, terminal findings, final tests, and
+// reconciliation) is intentionally absent: callers cannot assert it.
 type Payload struct {
 	WorkItem               *WorkItem      `json:"work_item,omitempty"`
 	MaterializationKey     string         `json:"materialization_key,omitempty"`
@@ -220,9 +222,6 @@ type Payload struct {
 	ResolutionSubmissionID string         `json:"resolution_submission_id,omitempty"`
 	BuildTestsPassed       bool           `json:"build_tests_passed,omitempty"`
 	Question               string         `json:"question,omitempty"`
-	InspectionRunSealed    bool           `json:"inspection_run_sealed,omitempty"`
-	FindingsTerminal       bool           `json:"findings_terminal,omitempty"`
-	FinalTestsPassed       bool           `json:"final_tests_passed,omitempty"`
 	InContractDefect       bool           `json:"in_contract_defect,omitempty"`
 	FinalTestsFailed       bool           `json:"final_tests_failed,omitempty"`
 	CancellationConfirmed  bool           `json:"cancellation_confirmed,omitempty"`
@@ -253,6 +252,7 @@ type ApprovalRecord struct {
 	ProjectID               string         `json:"project_id,omitempty"`
 	WorkItemID              string         `json:"work_item_id,omitempty"`
 	RequestID               string         `json:"request_id,omitempty"`
+	ChangeSetID             string         `json:"change_set_id,omitempty"`
 	Digest                  string         `json:"resolution_digest"`
 	Action                  Operation      `json:"action"`
 	ResolutionKind          string         `json:"resolution_kind,omitempty"`
@@ -270,6 +270,7 @@ type ApprovalRequirement struct {
 	ProjectID               string
 	WorkItemID              string
 	RequestID               string
+	ChangeSetID             string
 	ResolutionKind          string
 	Digest                  string
 	ExpectedState           State
@@ -291,6 +292,26 @@ type ResolutionSubmission struct {
 	PlannedDependencyComplete          bool                       `json:"planned_dependency_complete"`
 	IndependentInspectorConfirmed      bool                       `json:"independent_inspector_confirmed"`
 	IndependentInspectorConfirmationID string                     `json:"independent_inspector_confirmation_id,omitempty"`
+}
+
+// RefinementRelationship is one typed relationship in a refinement digest.
+type RefinementRelationship struct {
+	Type   string `json:"type"`
+	Target string `json:"target"`
+}
+
+// RefinementContent is the canonical refinement content a Gate approval
+// digest binds to. The digest is recomputed from the stored request after a
+// refinement is applied, so the approval cannot authorize different content.
+type RefinementContent struct {
+	Intent             string                   `json:"intent"`
+	Rationale          string                   `json:"rationale"`
+	Owner              string                   `json:"owner"`
+	AffectedInterfaces []string                 `json:"affected_interfaces,omitempty"`
+	AffectedScopes     []string                 `json:"affected_scopes,omitempty"`
+	Relationships      []RefinementRelationship `json:"relationships,omitempty"`
+	Classification     string                   `json:"classification"`
+	RefinementState    string                   `json:"refinement_state"`
 }
 
 // ResolutionPreview is hypothetical preflight data; it never becomes a

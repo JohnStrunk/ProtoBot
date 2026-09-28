@@ -203,6 +203,8 @@ type AuditEvent struct {
 	AuthorizedHumanSubject string
 	RequestID              string
 	WorkItemID             string
+	IdempotencyKey         string
+	Outcome                Outcome
 	RuleVersion            string
 	PolicyVersion          string
 	Before                 *validation.StateVersion
@@ -237,6 +239,7 @@ type Memory struct {
 	idempotency                map[string]idempotencyEntry
 	materializations           map[string]materializationEntry
 	semanticRequests           map[string]string
+	observedReadiness          map[string]validation.Readiness
 	events                     []AuditEvent
 	nextRequestID              uint64
 	nextResolutionSubmissionID uint64
@@ -271,10 +274,11 @@ func New(config Config) (*Memory, error) {
 		approvals:           make(map[string]validation.ApprovalRecord),
 		submissions:         make(map[string]Submission),
 		activeSubmissions:   make(map[string]string),
-		idempotency:         make(map[string]idempotencyEntry),
-		materializations:    make(map[string]materializationEntry),
-		semanticRequests:    make(map[string]string),
-		resolutionRevisions: make(map[string]uint64),
+		idempotency:                make(map[string]idempotencyEntry),
+		materializations:           make(map[string]materializationEntry),
+		semanticRequests:           make(map[string]string),
+		observedReadiness:          make(map[string]validation.Readiness),
+		resolutionRevisions:        make(map[string]uint64),
 	}, nil
 }
 

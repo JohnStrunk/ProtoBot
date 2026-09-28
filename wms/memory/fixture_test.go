@@ -18,6 +18,7 @@ type wmsFixtureRecord struct {
 	Step                    string                                     `json:"step"`
 	ProjectID               string                                     `json:"project_id"`
 	WorkItems               []wmsFixtureWorkItem                       `json:"work_items"`
+	ChangeSets              []wmsFixtureChangeSet                      `json:"change_sets"`
 	FakeGateContexts        map[string]validation.AuthorizationContext `json:"fake_gate_contexts"`
 	ApprovalRecords         map[string]validation.ApprovalRecord       `json:"approval_records"`
 	EvaluationTime          string                                     `json:"evaluation_time"`
@@ -49,6 +50,12 @@ type wmsFixtureWorkItem struct {
 	State           validation.State `json:"state"`
 	ContractVersion uint64           `json:"contract_version"`
 	Dependencies    []string         `json:"dependencies"`
+	BlockReason     string           `json:"block_reason,omitempty"`
+}
+
+type wmsFixtureChangeSet struct {
+	ID       string `json:"change_set_id"`
+	Revision string `json:"revision"`
 }
 
 type wmsFixtureAssertions struct {
@@ -102,6 +109,8 @@ type wmsFixtureItem struct {
 	State             validation.State `json:"state"`
 	ContractVersion   uint64           `json:"contract_version"`
 	Dependencies      []string         `json:"dependencies"`
+	RequestID         string           `json:"request_id"`
+	ChangeSetID       string           `json:"change_set_id"`
 	ReasonKind        string           `json:"reason_kind"`
 	ResolutionOptions []string         `json:"resolution_options"`
 }
@@ -144,8 +153,10 @@ func newFixtureMemory(t *testing.T, records []wmsFixtureRecord) *Memory {
 	}
 	memory := newFixtureAdapter(t, base.ProjectID, contexts, approvals, evalTime)
 	seedFixtureWorkItems(t, memory, base.ProjectID, base.WorkItems)
-	if err := memory.SeedChangeSet(ChangeSet{ID: "CS-00001", Revision: "proposed"}); err != nil {
-		t.Fatal(err)
+	for _, changeSet := range base.ChangeSets {
+		if err := memory.SeedChangeSet(ChangeSet{ID: changeSet.ID, Revision: changeSet.Revision}); err != nil {
+			t.Fatalf("seed change set %s: %v", changeSet.ID, err)
+		}
 	}
 	return memory
 }
@@ -158,14 +169,6 @@ func newFixtureAdapter(
 	evalTime time.Time,
 ) *Memory {
 	t.Helper()
-	// The golden fixture stores its trusted project binding once on the base
-	// state; materialize it into each Gate context before constructing StaticGate.
-	for name, context := range contexts {
-		if context.ProjectID == "" {
-			context.ProjectID = projectID
-		}
-		contexts[name] = context
-	}
 	materializer := ""
 	for _, context := range contexts {
 		if context.Role == validation.RoleMaterializer {
@@ -185,9 +188,6 @@ func newFixtureAdapter(
 	}
 	for id, approval := range approvals {
 		approval.ID = id
-		if approval.ProjectID == "" {
-			approval.ProjectID = projectID
-		}
 		if err := memory.SeedApproval(approval); err != nil {
 			t.Fatalf("seed approval %s: %v", id, err)
 		}
@@ -216,9 +216,7 @@ func seedFixtureWorkItems(t *testing.T, memory *Memory, projectID string, items 
 			State:           item.State,
 			ContractVersion: item.ContractVersion,
 			Dependencies:    dependencies,
-		}
-		if item.ID == "wi-001" {
-			workItem.BlockReason = "undefined-behavior"
+			BlockReason:     item.BlockReason,
 		}
 		if err := memory.SeedWorkItem(workItem); err != nil {
 			t.Fatalf("seed %s: %v", item.ID, err)
@@ -465,6 +463,8 @@ func assertGoldenItem(t *testing.T, step string, index int, got, want wmsFixture
 	if want.Dependencies != nil && !reflect.DeepEqual(got.Dependencies, want.Dependencies) {
 		t.Errorf("%s item %d dependencies = %#v, want %#v", step, index, got.Dependencies, want.Dependencies)
 	}
+	checkGoldenString(t, step, fmt.Sprintf("item[%d].request_id", index), want.RequestID, got.RequestID)
+	checkGoldenString(t, step, fmt.Sprintf("item[%d].change_set_id", index), want.ChangeSetID, got.ChangeSetID)
 	checkGoldenString(t, step, fmt.Sprintf("item[%d].reason_kind", index), want.ReasonKind, got.ReasonKind)
 	if want.ResolutionOptions != nil && !reflect.DeepEqual(got.ResolutionOptions, want.ResolutionOptions) {
 		t.Errorf("%s item %d resolution options = %#v, want %#v", step, index, got.ResolutionOptions, want.ResolutionOptions)

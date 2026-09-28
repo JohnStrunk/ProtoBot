@@ -1,7 +1,6 @@
 package memory
 
 import (
-	"fmt"
 	"reflect"
 	"testing"
 	"time"
@@ -433,7 +432,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			item := testWorkItem("wi-023", validation.StateBlocked, 7)
 			seedConformanceItem(t, memory, item)
 			seedCompletedDependencyAndChangeSet(t, memory, "vr023-dependency", "CS-023")
-			approval := conformanceApproval(item, "vr023-approval", "human-023", "materializer-1", "add-requirement")
+			approval := conformanceApproval(item, "vr023-approval", "human-023", "materializer-1", "add-requirement", "CS-023")
 			if err := memory.SeedApproval(approval); err != nil {
 				t.Fatal(err)
 			}
@@ -596,7 +595,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 					memory, _ := newConformanceMemory(t)
 					item := testWorkItem("wi-030", validation.StateBlocked, 7)
 					seedConformanceItem(t, memory, item)
-					approval := conformanceApproval(item, "vr030-approval", "human-030", "materializer-1", "add-requirement")
+					approval := conformanceApproval(item, "vr030-approval", "human-030", "materializer-1", "add-requirement", "")
 					test.mutate(&approval)
 					seedActiveResolution(t, memory, item, "vr030-submission", approval, "add-requirement", "CS-030", true)
 					call := conformanceResolveCall(t, item, approval.ID, "vr030-submission", approval.Digest, "vr030-resolve")
@@ -625,7 +624,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 					memory, _ := newConformanceMemory(t)
 					item := testWorkItem("wi-031", validation.StateBlocked, 7)
 					seedConformanceItem(t, memory, item)
-					approval := conformanceApproval(item, "vr031-approval", "human-031", "materializer-1", "add-requirement")
+					approval := conformanceApproval(item, "vr031-approval", "human-031", "materializer-1", "add-requirement", "")
 					test.mutate(&approval)
 					seedActiveResolution(t, memory, item, "vr031-submission", approval, "add-requirement", "CS-031", true)
 					call := conformanceResolveCall(t, item, approval.ID, "vr031-submission", "vr031-approval-digest", "vr031-resolve")
@@ -642,7 +641,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 					memory, _ := newConformanceMemory(t)
 					item := testWorkItem("wi-032", validation.StateBlocked, 7)
 					seedConformanceItem(t, memory, item)
-					approval := conformanceApproval(item, "vr032-approval", "human-032", "materializer-1", "add-requirement")
+					approval := conformanceApproval(item, "vr032-approval", "human-032", "materializer-1", "add-requirement", "")
 					seedActiveResolution(t, memory, item, "vr032-submission", approval, "add-requirement", "CS-032", true)
 					call := conformanceResolveCall(t, item, approval.ID, "vr032-submission", approval.Digest, "vr032-resolve-"+test)
 					switch test {
@@ -681,7 +680,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			item := testWorkItem("wi-033", validation.StateBlocked, 7)
 			seedConformanceItem(t, memory, item)
 			seedCompletedDependencyAndChangeSet(t, memory, "vr033-dependency", "CS-033")
-			approval := conformanceApproval(item, "vr033-approval", "human-033", "materializer-1", "add-requirement")
+			approval := conformanceApproval(item, "vr033-approval", "human-033", "materializer-1", "add-requirement", "CS-033")
 			if err := memory.SeedApproval(approval); err != nil {
 				t.Fatal(err)
 			}
@@ -897,7 +896,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 					memory, _ := newConformanceMemory(t)
 					item := testWorkItem("wi-042", validation.StateBlocked, 7)
 					seedConformanceItem(t, memory, item)
-					approval := conformanceApproval(item, "vr042-approval", test.humanRef, "materializer-1", "add-requirement")
+					approval := conformanceApproval(item, "vr042-approval", test.humanRef, "materializer-1", "add-requirement", "")
 					test.mutate(&approval)
 					seedActiveResolution(t, memory, item, "vr042-submission", approval, "add-requirement", "CS-042", true)
 					// The durable submission records which human the Gate-bound
@@ -925,8 +924,8 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				item := testWorkItem("wi-043", validation.StateBlocked, 7)
 				seedConformanceItem(t, memory, item)
 				seedCompletedDependencyAndChangeSet(t, memory, "vr043-dependency", "CS-043")
-				firstApproval := conformanceApproval(item, "vr043-approval-1", "human-043", "materializer-1", "add-requirement")
-				secondApproval := conformanceApproval(item, "vr043-approval-2", "human-043", "materializer-1", "add-requirement")
+				firstApproval := conformanceApproval(item, "vr043-approval-1", "human-043", "materializer-1", "add-requirement", "CS-043")
+				secondApproval := conformanceApproval(item, "vr043-approval-2", "human-043", "materializer-1", "add-requirement", "CS-043")
 				if err := memory.SeedApproval(firstApproval); err != nil {
 					t.Fatal(err)
 				}
@@ -949,7 +948,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				memory, _ := newConformanceMemory(t)
 				item := testWorkItem("wi-043-inactive", validation.StateBlocked, 7)
 				seedConformanceItem(t, memory, item)
-				approval := conformanceApproval(item, "vr043-inactive-approval", "human-043", "materializer-1", "add-requirement")
+				approval := conformanceApproval(item, "vr043-inactive-approval", "human-043", "materializer-1", "add-requirement", "CS-043")
 				seedActiveResolution(t, memory, item, "vr043-active", approval, "add-requirement", "CS-043", true)
 				call := conformanceResolveCall(t, item, approval.ID, "vr043-other-submission", approval.Digest, "vr043-inactive-id")
 				result := memory.Execute(call)
@@ -970,7 +969,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			if err := memory.SeedChangeSet(ChangeSet{ID: "CS-044", Revision: "approved", BuildWorkItemID: incomplete.ID}); err != nil {
 				t.Fatal(err)
 			}
-			approval := conformanceApproval(item, "vr044-approval", "human-044", "materializer-1", "add-requirement")
+			approval := conformanceApproval(item, "vr044-approval", "human-044", "materializer-1", "add-requirement", "CS-044")
 			if err := memory.SeedApproval(approval); err != nil {
 				t.Fatal(err)
 			}
@@ -1045,7 +1044,7 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			if err := memory.SeedChangeSet(ChangeSet{ID: "CS-046", Revision: "approved", BuildWorkItemID: planned.ID}); err != nil {
 				t.Fatal(err)
 			}
-			approval := conformanceApproval(blocked, "vr046-approval", "human-046", "materializer-1", "add-requirement")
+			approval := conformanceApproval(blocked, "vr046-approval", "human-046", "materializer-1", "add-requirement", "CS-046")
 			if err := memory.SeedApproval(approval); err != nil {
 				t.Fatal(err)
 			}
@@ -1093,59 +1092,6 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			assertEventCount(t, memory, 1)
 		}},
 		{"VR-048", func(t *testing.T) {
-			for _, projectID := range []string{"", "another-project"} {
-				t.Run(fmt.Sprintf("approval project %q", projectID), func(t *testing.T) {
-					memory, _ := newConformanceMemory(t)
-					created := memory.Execute(CallRequest{
-						Operation:       "request.create",
-						ActorContextRef: "drafting-table",
-						IdempotencyKey:  "vr048-create-" + projectID,
-						Payload:         jsonPayload(t, createRequestPayload{Intent: "Refine this request", Rationale: "Test strict project binding."}),
-					})
-					if !created.OK {
-						t.Fatalf("create request result = %#v", created)
-					}
-					approval := validation.ApprovalRecord{
-						ID:                 "vr048-approval-" + projectID,
-						ApprovedSubject:    "human-049",
-						DelegatedPrincipal: "drafting-agent",
-						ProjectID:          projectID,
-						RequestID:          created.RequestID,
-						Digest:             "vr048-refinement-digest",
-						Action:             validation.Operation("request.refine"),
-						PolicyVersion:      "wms-policy/v1",
-						ExpiresAt:          memoryTestTime.Add(time.Hour),
-						Status:             validation.ApprovalStatusUnused,
-					}
-					if err := memory.SeedApproval(approval); err != nil {
-						t.Fatal(err)
-					}
-					before, _ := memory.Request(created.RequestID)
-					revision := created.RequestRevision
-					refined := memory.Execute(CallRequest{
-						Operation:               "request.refine",
-						ActorContextRef:         "drafting-table",
-						RequestID:               created.RequestID,
-						ExpectedRequestRevision: &revision,
-						IdempotencyKey:          "vr048-refine-" + projectID,
-						Payload: jsonPayload(t, refineRequestPayload{
-							Classification:           "changes",
-							RefinementState:          "ready-for-dimensioning",
-							HumanApprovalID:          approval.ID,
-							ApprovalRefinementDigest: approval.Digest,
-						}),
-					})
-					assertRequestRejection(t, refined, validation.CodeUnauthorizedAction)
-					after, _ := memory.Request(created.RequestID)
-					approvalAfter, _ := memory.Approval(approval.ID)
-					if !reflect.DeepEqual(after, before) || approvalAfter.Status != validation.ApprovalStatusUnused {
-						t.Fatalf("failed project binding changed request or approval: request=%#v approval=%#v", after, approvalAfter)
-					}
-					assertEventCount(t, memory, 1)
-				})
-			}
-		}},
-		{"VR-049", func(t *testing.T) {
 			expected := &validation.MergeEnvelope{
 				ProductTreeDigest: "tree-049",
 				InspectionRunID:   "inspection-049",
@@ -1222,13 +1168,13 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				assertEventCount(t, memory, 1)
 			})
 		}},
-		{"VR-050", func(t *testing.T) {
+		{"VR-049", func(t *testing.T) {
 			memory, _ := newConformanceMemory(t)
-			candidate := testWorkItem("wi-050", validation.StateInitial, 0)
+			candidate := testWorkItem("wi-049", validation.StateInitial, 0)
 			candidate.ChangeType = "undefined"
 			candidate.Dependencies = []validation.Dependency{{State: validation.StateWaiting}}
 
-			materialized := memory.Execute(materializeCall(candidate, "vr050-materialize", "vr050-key"))
+			materialized := memory.Execute(materializeCall(candidate, "vr049-materialize", "vr049-key"))
 			decision := assertAllowedDecision(t, materialized, validation.AuthorityAuthoritative)
 			if decision.After.State != validation.StateWaiting {
 				t.Fatalf("materialized decision = %#v, want waiting for incomplete dependency without an ID", decision)
@@ -1238,10 +1184,101 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				t.Fatalf("stored work item = %#v, exists=%t; want waiting", stored, exists)
 			}
 
-			refresh := memory.Execute(conformanceCall(validation.OperationRefreshDependencies, "materializer", stored, "vr050-refresh"))
+			refresh := memory.Execute(conformanceCall(validation.OperationRefreshDependencies, "materializer", stored, "vr049-refresh"))
 			assertRejectedDecision(t, refresh, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
 			assertItemUnchanged(t, memory, stored)
 			assertEventCount(t, memory, 1)
+		}},
+		{"VR-050", func(t *testing.T) {
+			for _, test := range []struct {
+				name   string
+				mutate func(*validation.ApprovalRecord)
+			}{
+				{name: "cross change-set approval", mutate: func(approval *validation.ApprovalRecord) { approval.ChangeSetID = "CS-other" }},
+				{name: "unbound change-set approval", mutate: func(approval *validation.ApprovalRecord) { approval.ChangeSetID = "" }},
+			} {
+				t.Run(test.name, func(t *testing.T) {
+					memory, _ := newConformanceMemory(t)
+					item := testWorkItem("wi-050-"+test.name, validation.StateBlocked, 7)
+					seedConformanceItem(t, memory, item)
+					approval := conformanceApproval(item, "vr050-approval-"+test.name, "human-050", "materializer-1", "add-requirement", "CS-050")
+					test.mutate(&approval)
+					seedActiveResolution(t, memory, item, "vr050-submission-"+test.name, approval, "add-requirement", "CS-050", true)
+					call := conformanceResolveCall(t, item, approval.ID, "vr050-submission-"+test.name, approval.Digest, "vr050-resolve-"+test.name)
+					result := memory.Execute(call)
+					assertRejectedDecision(t, result, validation.AuthorityAuthoritative, validation.CodeUnauthorizedAction)
+					assertItemUnchanged(t, memory, item)
+					storedApproval, _ := memory.Approval(approval.ID)
+					if storedApproval.Status != validation.ApprovalStatusUnused {
+						t.Fatalf("approval status = %q, want unused", storedApproval.Status)
+					}
+					assertEventCount(t, memory, 0)
+				})
+			}
+		}},
+		{"VR-051", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			item := testWorkItem("wi-051", validation.StateBuilding, 9)
+			setConformanceLease(&item, "job-site-old", "fence-expired", memoryTestTime.Add(-time.Second))
+			item.Reconciliation = validation.ReconciliationEvidence{Status: "lease-recovered", GitMutation: "none"}
+			seedConformanceItem(t, memory, item)
+
+			first := memory.Execute(conformanceCall(validation.OperationRecoverLease, "reconciler", item, "vr051-first-recovery"))
+			assertAllowedDecision(t, first, validation.AuthorityAuthoritative)
+
+			// The reconciliation evidence that authorized the first recovery
+			// is cleared with the lease: a second recovery must not be
+			// authorized by the stale observation.
+			stored, _ := memory.WorkItem(item.ID)
+			if stored.Reconciliation != (validation.ReconciliationEvidence{}) {
+				t.Fatalf("recovery retained stale reconciliation evidence: %#v", stored.Reconciliation)
+			}
+			assertEventCount(t, memory, 1)
+		}},
+		{"VR-052", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			candidate := testWorkItem("wi-052", validation.StateInitial, 0)
+			candidate.ChangeType = "undefined"
+			// Caller-asserted execution evidence must not survive
+			// materialization; only WMS observation may record it.
+			candidate.InspectionRunSealed = true
+			candidate.FindingsTerminal = true
+			candidate.FinalTestsPassed = true
+			candidate.Reconciliation = validation.ReconciliationEvidence{Status: "merge-recorded", GitMutation: "merged"}
+
+			materialized := memory.Execute(materializeCall(candidate, "vr052-materialize", "vr052-key"))
+			decision := assertAllowedDecision(t, materialized, validation.AuthorityAuthoritative)
+			if decision.After.State != validation.StateReadyForBuilding {
+				t.Fatalf("materialized decision = %#v, want ready-for-building", decision)
+			}
+			stored, _ := memory.WorkItem(candidate.ID)
+			if stored.InspectionRunSealed || stored.FindingsTerminal || stored.FinalTestsPassed {
+				t.Fatalf("materialization kept caller-asserted inspection evidence: %#v", stored)
+			}
+			if stored.Reconciliation != (validation.ReconciliationEvidence{}) {
+				t.Fatalf("materialization kept caller-asserted reconciliation evidence: %#v", stored.Reconciliation)
+			}
+		}},
+		{"VR-053", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			dependency := testWorkItem("wi-053-dependency", validation.StateBlocked, 3)
+			seedConformanceItem(t, memory, dependency)
+
+			candidate := testWorkItem("wi-053", validation.StateInitial, 0)
+			candidate.ChangeType = "undefined"
+			// The payload's dependency state is caller evidence; the WMS
+			// observes blocked and must store that state instead.
+			candidate.Dependencies = []validation.Dependency{{ID: dependency.ID, State: validation.StateCompleted}}
+
+			materialized := memory.Execute(materializeCall(candidate, "vr053-materialize", "vr053-key"))
+			decision := assertAllowedDecision(t, materialized, validation.AuthorityAuthoritative)
+			if decision.After.State != validation.StateWaiting {
+				t.Fatalf("materialized decision = %#v, want waiting from the WMS-observed blocked dependency", decision)
+			}
+			stored, _ := memory.WorkItem(candidate.ID)
+			if len(stored.Dependencies) != 1 || stored.Dependencies[0].State != validation.StateBlocked {
+				t.Fatalf("stored dependencies = %#v, want the WMS-observed blocked state", stored.Dependencies)
+			}
 		}},
 	}
 
@@ -1332,7 +1369,8 @@ func conformanceGate() StaticGate {
 			validation.OperationRecordMerge),
 		"human-maintainer": testAuthorization("human-1", validation.RoleHumanMaintainer,
 			validation.OperationAbandon,
-			validation.Operation("request.update-priority")),
+			validation.Operation("request.update-priority"),
+			validation.Operation("request.link-change-set")),
 	}
 }
 
@@ -1489,7 +1527,7 @@ func seedCompletedDependencyAndChangeSet(t *testing.T, memory *Memory, dependenc
 	}
 }
 
-func conformanceApproval(item validation.WorkItem, id, human, delegated, kind string) validation.ApprovalRecord {
+func conformanceApproval(item validation.WorkItem, id, human, delegated, kind, changeSetID string) validation.ApprovalRecord {
 	version := item.ContractVersion
 	return validation.ApprovalRecord{
 		ID:                      id,
@@ -1497,6 +1535,7 @@ func conformanceApproval(item validation.WorkItem, id, human, delegated, kind st
 		DelegatedPrincipal:      delegated,
 		ProjectID:               item.ProjectID,
 		WorkItemID:              item.ID,
+		ChangeSetID:             changeSetID,
 		Digest:                  id + "-digest",
 		Action:                  validation.OperationResolveBlock,
 		ResolutionKind:          kind,

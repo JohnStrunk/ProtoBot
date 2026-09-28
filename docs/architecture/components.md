@@ -1314,7 +1314,10 @@ gateway in front of thin backend translators.
 
 The MVP contract for this boundary is the versioned declarative
 `validation-rules/v1` ruleset and deterministic evaluator in the
-[Validation Rules Contract](validation-rules.md). The evaluator's
+[Validation Rules Contract](validation-rules.md). The shipped MVP
+evaluator is the backend-neutral Go package `wms/validation`, and the
+first adapter that enforces it is the in-memory fake adapter
+(`wms/memory`) used by the conformance and fixture tests. The evaluator's
 decision is advisory during preflight and authoritative only when the WMS
 boundary evaluates the fresh record and commits the conditional mutation.
 

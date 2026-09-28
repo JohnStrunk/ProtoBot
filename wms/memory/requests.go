@@ -141,10 +141,12 @@ func (m *Memory) createRequestLocked(call CallRequest, authorization validation.
 	m.requests[request.ID] = request
 	m.semanticRequests[semanticKey] = request.ID
 	m.events = append(m.events, AuditEvent{
-		Operation:     call.Operation,
-		Subject:       authorization.Subject,
-		RequestID:     request.ID,
-		PolicyVersion: authorization.PolicyVersion,
+		Operation:      call.Operation,
+		Subject:        authorization.Subject,
+		RequestID:      request.ID,
+		IdempotencyKey: call.IdempotencyKey,
+		Outcome:        outcomeApplied,
+		PolicyVersion:  authorization.PolicyVersion,
 	})
 	result := newResult(call.Operation)
 	result.Outcome = outcomeApplied
@@ -168,8 +170,11 @@ func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.
 	if err := decodePayload(call.Payload, &payload); err != nil {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
-	if !validClassification(payload.Classification) || !validRefinementState(payload.RefinementState) {
-		return rejectedResult(call.Operation, invalidRequest("classification/refinement_state", "the value is outside the request vocabulary"))
+	if payload.Classification != "" && !validClassification(payload.Classification) {
+		return rejectedResult(call.Operation, invalidRequest("classification", "the value is outside the request vocabulary"))
+	}
+	if !validRefinementState(payload.RefinementState) {
+		return rejectedResult(call.Operation, invalidRequest("refinement_state", "the value is outside the request vocabulary"))
 	}
 	if (payload.Intent != "" && isBlank(payload.Intent)) || (payload.Rationale != "" && isBlank(payload.Rationale)) {
 		return rejectedResult(call.Operation, invalidRequest("intent/rationale", "supplied intent and rationale must not be blank"))
@@ -194,31 +199,38 @@ func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.
 	if rejection := validation.ValidateApproval(approval, requirement, m.now()); rejection != nil {
 		return rejectedResult(call.Operation, rejection)
 	}
+
+	// Apply the refinement to a copy so a rejection below leaves the stored
+	// request, its semantic index entry, and the approval untouched.
+	refined := cloneRequest(request)
 	if payload.Intent != "" {
-		request.Intent = strings.TrimSpace(payload.Intent)
+		refined.Intent = strings.TrimSpace(payload.Intent)
 	}
 	if payload.Rationale != "" {
-		request.Rationale = strings.TrimSpace(payload.Rationale)
+		refined.Rationale = strings.TrimSpace(payload.Rationale)
 	}
 	if payload.Owner != "" {
-		request.Owner = payload.Owner
+		refined.Owner = payload.Owner
 	}
 	if payload.AffectedInterfaces != nil {
-		request.AffectedInterfaces = sortedUnique(payload.AffectedInterfaces)
+		refined.AffectedInterfaces = sortedUnique(payload.AffectedInterfaces)
 	}
 	if payload.AffectedScopes != nil {
-		request.AffectedScopes = sortedUnique(payload.AffectedScopes)
+		refined.AffectedScopes = sortedUnique(payload.AffectedScopes)
 	}
 	if payload.Relationships != nil {
-		if rejection := validateRelationships(payload.Relationships, m.requests, request.ID); rejection != nil {
+		if rejection := validateRelationships(payload.Relationships, m.requests, refined.ID); rejection != nil {
 			return rejectedResult(call.Operation, rejection)
 		}
-		request.Relationships = append([]RequestRelationship(nil), payload.Relationships...)
+		refined.Relationships = append([]RequestRelationship(nil), payload.Relationships...)
 	}
-	request.Classification = payload.Classification
-	request.RefinementState = payload.RefinementState
-	nextSemanticKey := requestSemanticKeyFor(request.Intent, request.AffectedInterfaces, request.AffectedScopes)
-	if duplicateID, exists := m.semanticRequests[nextSemanticKey]; exists && duplicateID != request.ID {
+	if payload.Classification != "" {
+		refined.Classification = payload.Classification
+	}
+	refined.RefinementState = payload.RefinementState
+
+	nextSemanticKey := requestSemanticKeyFor(refined.Intent, refined.AffectedInterfaces, refined.AffectedScopes)
+	if duplicateID, exists := m.semanticRequests[nextSemanticKey]; exists && duplicateID != refined.ID {
 		return rejectedResult(call.Operation, wmsRejection(
 			CodeDuplicateRequest,
 			"A semantically equivalent request already exists.",
@@ -226,8 +238,32 @@ func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.
 			validation.RetryQuery,
 		))
 	}
-	request.Revision++
-	m.requests[request.ID] = request
+	// The approval digest must bind to the exact content this refinement
+	// produces; otherwise it authorized different refinement content.
+	relationships := make([]validation.RefinementRelationship, 0, len(refined.Relationships))
+	for _, relationship := range refined.Relationships {
+		relationships = append(relationships, validation.RefinementRelationship{
+			Type:   relationship.Type,
+			Target: relationship.Target,
+		})
+	}
+	digest := validation.RefinementDigest(validation.RefinementContent{
+		Intent:             refined.Intent,
+		Rationale:          refined.Rationale,
+		Owner:              refined.Owner,
+		AffectedInterfaces: refined.AffectedInterfaces,
+		AffectedScopes:     refined.AffectedScopes,
+		Relationships:      relationships,
+		Classification:     refined.Classification,
+		RefinementState:    refined.RefinementState,
+	})
+	if digest != approval.Digest {
+		return rejectedResult(call.Operation, approvalRejected(call.Operation, authorization, "request"))
+	}
+
+	refined.Revision++
+	m.requests[refined.ID] = refined
+	request = refined
 	if priorSemanticKey != nextSemanticKey {
 		delete(m.semanticRequests, priorSemanticKey)
 	}
@@ -239,6 +275,8 @@ func (m *Memory) refineRequestLocked(call CallRequest, authorization validation.
 		Subject:                authorization.Subject,
 		AuthorizedHumanSubject: approval.ApprovedSubject,
 		RequestID:              request.ID,
+		IdempotencyKey:         call.IdempotencyKey,
+		Outcome:                outcomeApplied,
 		PolicyVersion:          authorization.PolicyVersion,
 	})
 	result := newResult(call.Operation)
@@ -294,11 +332,13 @@ func (m *Memory) updatePriorityLocked(call CallRequest, authorization validation
 		workItemPriority = workItem.Priority
 	}
 	m.events = append(m.events, AuditEvent{
-		Operation:     call.Operation,
-		Subject:       authorization.Subject,
-		RequestID:     request.ID,
-		WorkItemID:    request.BuildWorkItemID,
-		PolicyVersion: authorization.PolicyVersion,
+		Operation:      call.Operation,
+		Subject:        authorization.Subject,
+		RequestID:      request.ID,
+		WorkItemID:     request.BuildWorkItemID,
+		IdempotencyKey: call.IdempotencyKey,
+		Outcome:        outcomeApplied,
+		PolicyVersion:  authorization.PolicyVersion,
 	})
 	result := newResult(call.Operation)
 	result.Outcome = outcomeApplied
@@ -346,10 +386,12 @@ func (m *Memory) linkChangeSetLocked(call CallRequest, authorization validation.
 	m.changeSets[changeSet.ID] = changeSet
 	m.requests[request.ID] = request
 	m.events = append(m.events, AuditEvent{
-		Operation:     call.Operation,
-		Subject:       authorization.Subject,
-		RequestID:     request.ID,
-		PolicyVersion: authorization.PolicyVersion,
+		Operation:      call.Operation,
+		Subject:        authorization.Subject,
+		RequestID:      request.ID,
+		IdempotencyKey: call.IdempotencyKey,
+		Outcome:        outcomeApplied,
+		PolicyVersion:  authorization.PolicyVersion,
 	})
 	result := newResult(call.Operation)
 	result.Outcome = outcomeApplied
@@ -389,11 +431,13 @@ func (m *Memory) linkWorkItemLocked(call CallRequest, authorization validation.A
 	m.workItems[workItem.ID] = workItem
 	m.requests[request.ID] = request
 	m.events = append(m.events, AuditEvent{
-		Operation:     call.Operation,
-		Subject:       authorization.Subject,
-		RequestID:     request.ID,
-		WorkItemID:    payload.BuildWorkItemID,
-		PolicyVersion: authorization.PolicyVersion,
+		Operation:      call.Operation,
+		Subject:        authorization.Subject,
+		RequestID:      request.ID,
+		WorkItemID:     payload.BuildWorkItemID,
+		IdempotencyKey: call.IdempotencyKey,
+		Outcome:        outcomeApplied,
+		PolicyVersion:  authorization.PolicyVersion,
 	})
 	result := newResult(call.Operation)
 	result.Outcome = outcomeApplied
@@ -444,7 +488,7 @@ func (m *Memory) getWorkItemLocked(call CallRequest) Result {
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("work-item"))
 	}
-	projection := projectWorkItem(item)
+	projection := m.projectWorkItem(item)
 	result := newResult(call.Operation)
 	result.Resource = projection
 	result.Items = []WorkItemProjection{projection}
@@ -464,7 +508,7 @@ func (m *Memory) queryWorkItemsLocked(call CallRequest) Result {
 	result := newResult(call.Operation)
 	for _, id := range ids {
 		item := m.workItems[id]
-		projection := projectWorkItem(item)
+		projection := m.projectWorkItem(item)
 		if matchesWorkItemQuery(projection, payload) {
 			result.Items = append(result.Items, projection)
 		}
@@ -485,7 +529,7 @@ func (m *Memory) queryBlockedWorkLocked(call CallRequest) Result {
 		if item.State != validation.StateBlocked {
 			continue
 		}
-		projection := projectWorkItem(item)
+		projection := m.projectWorkItem(item)
 		projection.ReasonKind = sanitizedReasonKind(item.BlockReason)
 		projection.NextAction = "review-resolution"
 		projection.ResolutionOptions = []string{
@@ -607,12 +651,16 @@ func matchesWorkItemQuery(item WorkItemProjection, query workItemQueryPayload) b
 	return query.Priority == "" || item.Priority == query.Priority
 }
 
-func projectWorkItem(item validation.WorkItem) WorkItemProjection {
+// projectWorkItem returns the sanitized Drafting Table view of a work item.
+// Request and change-set links are resolved from the request backlog: a work
+// item is linked to the request whose BuildWorkItemID it matches.
+func (m *Memory) projectWorkItem(item validation.WorkItem) WorkItemProjection {
 	dependencies := make([]string, 0, len(item.Dependencies))
 	for _, dependency := range item.Dependencies {
 		dependencies = append(dependencies, dependency.ID)
 	}
 	sort.Strings(dependencies)
+	requestID, changeSetID := m.workItemLinksLocked(item.ID)
 	return WorkItemProjection{
 		ID:              item.ID,
 		State:           item.State,
@@ -620,15 +668,31 @@ func projectWorkItem(item validation.WorkItem) WorkItemProjection {
 		Dependencies:    dependencies,
 		Priority:        item.Priority,
 		ContractVersion: item.ContractVersion,
+		RequestID:       requestID,
+		ChangeSetID:     changeSetID,
 	}
+}
+
+// workItemLinksLocked returns the request and change-set IDs linked to a work
+// item by the request backlog, preferring the first linked request by ID.
+func (m *Memory) workItemLinksLocked(workItemID string) (string, string) {
+	requestIDs := make([]string, 0, len(m.requests))
+	for id := range m.requests {
+		if m.requests[id].BuildWorkItemID == workItemID {
+			requestIDs = append(requestIDs, id)
+		}
+	}
+	if len(requestIDs) == 0 {
+		return "", ""
+	}
+	sort.Strings(requestIDs)
+	request := m.requests[requestIDs[0]]
+	return request.ID, request.ChangeSetID
 }
 
 func sanitizedReasonKind(reason string) string {
 	if strings.Contains(strings.ToLower(reason), "undefined") {
 		return "undefined-behavior"
-	}
-	if reason == "" {
-		return "unresolved-precondition"
 	}
 	return "unresolved-precondition"
 }

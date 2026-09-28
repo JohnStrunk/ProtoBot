@@ -153,6 +153,7 @@ func approvalBindingMatches(approval ApprovalRecord, requirement ApprovalRequire
 	return matchesOptionalBinding(approval.ProjectID, requirement.ProjectID) &&
 		matchesOptionalBinding(approval.WorkItemID, requirement.WorkItemID) &&
 		matchesOptionalBinding(approval.RequestID, requirement.RequestID) &&
+		matchesOptionalBinding(approval.ChangeSetID, requirement.ChangeSetID) &&
 		matchesOptionalBinding(approval.ResolutionKind, requirement.ResolutionKind) &&
 		matchesOptionalBinding(string(approval.ExpectedState), string(requirement.ExpectedState)) &&
 		matchesApprovalVersion(approval.ExpectedContractVersion, requirement.ExpectedContractVersion) &&

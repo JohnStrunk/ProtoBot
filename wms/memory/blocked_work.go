@@ -43,6 +43,7 @@ func (m *Memory) submitResolutionLocked(call CallRequest, authorization validati
 		DelegatedPrincipal:      m.materializerSubject,
 		ProjectID:               m.projectID,
 		WorkItemID:              call.WorkItemID,
+		ChangeSetID:             payload.ChangeSetID,
 		ResolutionKind:          payload.ResolutionKind,
 		Digest:                  payload.ApprovalResolutionDigest,
 		ExpectedState:           call.ExpectedState,
@@ -112,6 +113,8 @@ func (m *Memory) submitResolutionLocked(call CallRequest, authorization validati
 		Subject:                authorization.Subject,
 		AuthorizedHumanSubject: approval.ApprovedSubject,
 		WorkItemID:             item.ID,
+		IdempotencyKey:         call.IdempotencyKey,
+		Outcome:                outcomeApplied,
 		PolicyVersion:          authorization.PolicyVersion,
 	})
 	return result
@@ -170,6 +173,8 @@ func (m *Memory) acknowledgeBlockedWorkLocked(call CallRequest, authorization va
 		Subject:                authorization.Subject,
 		AuthorizedHumanSubject: approval.ApprovedSubject,
 		WorkItemID:             item.ID,
+		IdempotencyKey:         call.IdempotencyKey,
+		Outcome:                outcomeApplied,
 		PolicyVersion:          authorization.PolicyVersion,
 	})
 	result := newResult(call.Operation)
