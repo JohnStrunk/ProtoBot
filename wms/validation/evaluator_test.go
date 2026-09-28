@@ -60,6 +60,19 @@ func TestInvalidLifecycleTransitionMatrix(t *testing.T) {
 	}
 }
 
+func TestSourceFingerprintDoesNotMutateCallerDependencies(t *testing.T) {
+	item := readyItem(StateInitial, 0)
+	item.Dependencies = []Dependency{
+		{ID: "wi-dep-a", State: StateCompleted},
+		{ID: "wi-dep-b", State: StateBlocked},
+	}
+	before := cloneForTest(item)
+	SourceFingerprint(item)
+	if !reflect.DeepEqual(item, before) {
+		t.Fatalf("SourceFingerprint mutated the caller's work item: %#v, want %#v", item, before)
+	}
+}
+
 func TestPreflightIsAdvisoryAndDoesNotMutate(t *testing.T) {
 	item := readyItem(StateReadyForBuilding, 4)
 	original := cloneForTest(item)
@@ -173,12 +186,22 @@ func validTransitionCases() []matrixCase {
 		request, context := materializeRequest(candidate)
 		add(matrixCase{name: "materialize-" + string(test.state), request: request, context: context, outcome: OutcomeAllowed, state: test.state})
 	}
+	// A completed dependency keeps the materialized item ready for building
+	// when the evaluator runs without a WMS-supplied dependency refresh:
+	// SourceFingerprint must not blank the caller's dependency states.
+	completedDependency := readyItem(StateInitial, 0)
+	completedDependency.ID = "wi-materialized-completed-dependency"
+	completedDependency.ProjectID = "fixture-project"
+	completedDependency.ChangeType = "undefined"
+	completedDependency.Dependencies = []Dependency{{ID: "wi-dep", State: StateCompleted}}
+	request, context := materializeRequest(completedDependency)
+	add(matrixCase{name: "materialize-completed-dependency", request: request, context: context, outcome: OutcomeAllowed, state: StateReadyForBuilding})
 	omitted := readyItem(StateInitial, 0)
 	omitted.ID = "wi-omitted"
 	omitted.ProjectID = "fixture-project"
 	omitted.ChangeType = "changes"
 	omitted.ImplementationRequired = false
-	request, context := materializeRequest(omitted)
+	request, context = materializeRequest(omitted)
 	add(matrixCase{name: "materialize-omitted", request: request, context: context, outcome: OutcomeOmitted})
 
 	waiting := readyItem(StateWaiting, 4)

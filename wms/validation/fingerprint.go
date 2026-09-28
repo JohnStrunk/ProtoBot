@@ -30,6 +30,8 @@ func RequestFingerprint(request Request) string {
 // SourceFingerprint identifies the complete source contract bound to a
 // materialization key. Mutable lifecycle state, lease fields, and observed
 // dependency states are excluded; only dependency identities participate.
+// The item is fingerprinted by value: the caller's dependency slice is not
+// modified.
 func SourceFingerprint(item WorkItem) string {
 	item.State = ""
 	item.ContractVersion = 0
@@ -44,6 +46,7 @@ func SourceFingerprint(item WorkItem) string {
 	item.FinalTestsPassed = false
 	item.ExpectedMerge = nil
 	item.Reconciliation = ReconciliationEvidence{}
+	item.Dependencies = slices.Clone(item.Dependencies)
 	for index := range item.Dependencies {
 		item.Dependencies[index].State = ""
 	}
