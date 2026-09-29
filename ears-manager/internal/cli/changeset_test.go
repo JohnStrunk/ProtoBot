@@ -284,6 +284,222 @@ func TestChangeSetMutationFailsClosedWhenDefaultBranchRefMissing(t *testing.T) {
 	}
 }
 
+func TestChangeSetWritesAfterCommitsOnChangeSetBranch(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	git(t, root, "checkout", "-b", "cs/00001-several-commits")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Several commits", "--implementation-required", "true", "--created", "2026-09-29T10:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	baseCommit := jsonString(t, stdout, "data", "change_set", "base_commit")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+
+	runAll := func(commands ...[]string) {
+		t.Helper()
+		for _, args := range commands {
+			code, stdout, stderr := runCLI(nil, append([]string{"--output", "json"}, args...)...)
+			if code != 0 || stderr != "" {
+				t.Fatalf("%v result = code %d stdout %s stderr %s", args, code, stdout, stderr)
+			}
+		}
+	}
+	runAll(
+		[]string{"interface", "add", "--change-set", changeSetID, "--id", "cli-main", "--name", "CLI", "--type", "cli", "--spec-approach", "prose", "--created", "2026-09-29T10:01:00Z"},
+		[]string{"requirement", "add", "--change-set", changeSetID, "--id", "REQ-CLI-00001", "--type", "ubiquitous", "--text", "The CLI shall print help.", "--interface", "cli-main", "--scope", "cli", "--verification-mode", "isolated-interface", "--provenance", "user-authored", "--created", "2026-09-29T10:02:00Z"},
+		[]string{"requirement", "add", "--change-set", changeSetID, "--id", "REQ-CLI-00002", "--type", "ubiquitous", "--text", "The CLI shall print a banner.", "--scope", "cli", "--verification-mode", "isolated-interface", "--provenance", "user-authored", "--created", "2026-09-29T10:03:00Z"},
+	)
+	commitAll(t, root, "spec(CS-00001): add the CLI records")
+
+	runAll(
+		[]string{"requirement", "update", "--change-set", changeSetID, "--id", "REQ-CLI-00001", "--text", "The CLI shall print usage."},
+		[]string{"requirement", "retire", "--change-set", changeSetID, "--id", "REQ-CLI-00002"},
+		[]string{"change-set", "update", "--change-set", changeSetID, "--intent", "Several commits on one branch"},
+	)
+	code, stdout, stderr = runCLI([]byte("# Vision after two commits\n"), "--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "vision", "--kind", "vision", "--path", "docs/vision.md", "--owner", "user", "--content-stdin")
+	assertSuccess(t, code, stdout, stderr)
+
+	if head := gitOutput(t, root, "rev-parse", "HEAD"); head == baseCommit {
+		t.Fatalf("HEAD %s did not advance past the base commit", head)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "change_set", "base_commit") != baseCommit {
+		t.Fatalf("writes changed the base commit: %s", stdout)
+	}
+}
+
+func TestChangeSetRefreshAfterDefaultBranchMerge(t *testing.T) {
+	root := newAnalysisFixture(t)
+	commitAll(t, root, "fixture requirements")
+	t.Chdir(root)
+	git(t, root, "checkout", "-b", "cs/00001-refresh")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Refresh from main", "--affected-scope", "cli", "--implementation-required", "true", "--created", "2026-09-29T11:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "add", "--change-set", changeSetID, "--id", "REQ-CLI-00001", "--type", "ubiquitous", "--text", "The fixture CLI shall print usage.", "--scope", "cli", "--verification-mode", "isolated-interface", "--provenance", "user-authored", "--created", "2026-09-29T11:01:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	review, err := json.Marshal([]impactAssessmentJSON{
+		{RequirementID: "REQ-CLI-00002", Disposition: "applicable", Rationale: "The existing help obligation constrains this CLI change.", Origin: "mechanical"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runCLI(review, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--impact-file", "-")
+	assertSuccess(t, code, stdout, stderr)
+	commitAll(t, root, "spec(CS-00001): refresh from main")
+
+	git(t, root, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(root, "unrelated.txt"), []byte("default branch change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAll(t, root, "unrelated default-branch change")
+	defaultHead := gitOutput(t, root, "rev-parse", "HEAD")
+	git(t, root, "checkout", "cs/00001-refresh")
+	git(t, root, "merge", "--no-ff", "--no-edit", "main")
+
+	// A write after the merge and before the base update is accepted.
+	code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "add", "--change-set", changeSetID, "--id", "REQ-CLI-00003", "--type", "ubiquitous", "--text", "The fixture CLI shall print its version.", "--scope", "cli", "--verification-mode", "isolated-interface", "--provenance", "user-authored", "--created", "2026-09-29T11:02:00Z")
+	assertSuccess(t, code, stdout, stderr)
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--base-commit", defaultHead)
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "after", "base_commit") != defaultHead {
+		t.Fatalf("refreshed base = %s, want %s", stdout, defaultHead)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "impact", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "against_commit") != defaultHead {
+		t.Fatalf("impact against_commit = %s", stdout)
+	}
+	code, stdout, stderr = runCLI(review, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--impact-file", "-")
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "assessment_status") != specvalidation.AssessmentComplete {
+		t.Fatalf("refreshed assessment = %s", stdout)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+}
+
+func TestChangeSetBaseRefreshRefusesCommitOutsideBranchHistory(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	firstCommit := gitOutput(t, root, "rev-parse", "HEAD")
+	git(t, root, "checkout", "-b", "cs/00001-refuse")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Refuse bad bases", "--implementation-required", "true", "--created", "2026-09-29T12:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+	git(t, root, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(root, "unrelated.txt"), []byte("default branch change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAll(t, root, "unrelated default-branch change")
+	defaultHead := gitOutput(t, root, "rev-parse", "HEAD")
+	git(t, root, "checkout", "cs/00001-refuse")
+
+	assertBaseMismatch := func(baseCommit string) {
+		t.Helper()
+		code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--base-commit", baseCommit)
+		if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.base_mismatch" {
+			t.Fatalf("--base-commit %s result = code %d stdout %s stderr %s", baseCommit, code, stdout, stderr)
+		}
+	}
+	// The default head is not merged, so HEAD does not descend from it.
+	assertBaseMismatch(defaultHead)
+
+	git(t, root, "merge", "--no-ff", "--no-edit", "main")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--base-commit", defaultHead)
+	assertSuccess(t, code, stdout, stderr)
+	// The first commit is an ancestor of HEAD but not a descendant of the
+	// recorded base, so the base cannot move back to it.
+	assertBaseMismatch(firstCommit)
+}
+
+func TestChangeSetBaseRefreshRefusesTagObject(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	git(t, root, "checkout", "-b", "cs/00001-tag")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Refuse a tag", "--implementation-required", "true", "--created", "2026-09-29T13:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+	git(t, root, "tag", "-a", "v1", "-m", "a tag on the change-set branch")
+	tagObject := gitOutput(t, root, "rev-parse", "v1")
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--base-commit", tagObject)
+	if code != 4 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.invalid_base" {
+		t.Fatalf("tag base result = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+}
+
+func TestChangeSetWriteRefusesUnusableRecordedBase(t *testing.T) {
+	for _, test := range []struct {
+		name, baseCommit string
+	}{
+		{name: "not an object ID", baseCommit: "main token=ghp_example"},
+		{name: "not a local commit", baseCommit: strings.Repeat("f", 40)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := newFixtureProject(t)
+			t.Chdir(root)
+			code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Unusable base", "--implementation-required", "true", "--created", "2026-09-29T14:00:00Z")
+			assertSuccess(t, code, stdout, stderr)
+			changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+			manifestPath := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+			var changeSet records.ChangeSet
+			if err := storage.ReadFile(manifestPath, &changeSet); err != nil {
+				t.Fatal(err)
+			}
+			changeSet.BaseCommit = test.baseCommit
+			data, err := storage.Encode(changeSet)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			refreshProjectDigests(t, root)
+
+			for _, args := range [][]string{
+				{"change-set", "update", "--change-set", changeSetID, "--intent", "Still unusable"},
+				{"change-set", "update", "--change-set", changeSetID, "--base-commit", gitOutput(t, root, "rev-parse", "HEAD")},
+			} {
+				code, stdout, stderr = runCLI(nil, append([]string{"--output", "json"}, args...)...)
+				if code != 4 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.invalid_base" || strings.Contains(stdout, "ghp_example") {
+					t.Fatalf("%v result = code %d stdout %s stderr %s", args, code, stdout, stderr)
+				}
+			}
+		})
+	}
+}
+
+func TestChangeSetWriteInShallowCloneReportsIncompleteHistory(t *testing.T) {
+	root := newFixtureProject(t)
+	git(t, root, "checkout", "-b", "cs/00001-shallow")
+	t.Chdir(root)
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Shallow clone", "--implementation-required", "true", "--created", "2026-09-29T15:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+	git(t, root, "commit", "--allow-empty", "-m", "spec(CS-00001): a later commit")
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, root, "clone", "-q", "--depth", "1", "--no-single-branch", "--branch", "cs/00001-shallow", "file://"+root, clone)
+	t.Chdir(clone)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--intent", "Shallow write")
+	if code != 6 || stderr != "" || jsonString(t, stdout, "error", "code") != "git.read_failed" || jsonString(t, stdout, "error", "mutation") != "none" {
+		t.Fatalf("shallow clone result = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+}
+
+func commitAll(t *testing.T, root, message string) {
+	t.Helper()
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", message)
+}
+
 func newAnalysisFixture(t *testing.T) string {
 	t.Helper()
 	root := newFixtureProject(t)

@@ -180,21 +180,38 @@ func TestCLIArtifactPutGetAndAtomicInvalidWrite(t *testing.T) {
 	}
 }
 
-func TestCLIRejectsStaleChangeSetBase(t *testing.T) {
+func TestCLIRejectsWriteOffChangeSetBase(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Stale base", "--implementation-required", "true", "--created", "2026-09-18T14:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
-	if err := os.WriteFile(filepath.Join(root, "unrelated.txt"), []byte("new commit\n"), 0o644); err != nil {
+	git(t, root, "checkout", "--orphan", "unrelated")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "unrelated history")
+	head := gitOutput(t, root, "rev-parse", "HEAD")
+	manifestPath := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+	manifestBefore, err := os.ReadFile(manifestPath)
+	if err != nil {
 		t.Fatal(err)
 	}
-	git(t, root, "add", "unrelated.txt")
-	git(t, root, "commit", "-m", "advance base")
 
-	code, stdout, stderr = runCLI(nil, "--output", "json", "interface", "add", "--change-set", changeSetID, "--id", "stale", "--name", "Stale", "--type", "cli", "--created", "2026-09-18T14:01:00Z")
-	if code != 5 || stderr != "" || !strings.Contains(stdout, "change_set.base_mismatch") {
-		t.Fatalf("stale base result = code %d stdout %s stderr %s", code, stdout, stderr)
+	for _, args := range [][]string{
+		{"interface", "add", "--change-set", changeSetID, "--id", "stale", "--name", "Stale", "--type", "cli", "--created", "2026-09-18T14:01:00Z"},
+		{"change-set", "update", "--change-set", changeSetID, "--intent", "Moved off base"},
+		{"change-set", "update", "--change-set", changeSetID, "--base-commit", head},
+	} {
+		code, stdout, stderr = runCLI(nil, append([]string{"--output", "json"}, args...)...)
+		if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.base_mismatch" || jsonString(t, stdout, "error", "mutation") != "none" {
+			t.Fatalf("%v result = code %d stdout %s stderr %s", args, code, stdout, stderr)
+		}
+	}
+	manifestAfter, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(manifestBefore) != string(manifestAfter) {
+		t.Fatal("a refused write changed the change-set manifest")
 	}
 }
 
@@ -410,6 +427,15 @@ func git(t *testing.T, root string, args ...string) {
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v failed: %v\n%s", args, err, output)
 	}
+}
+
+func gitOutput(t *testing.T, root string, args ...string) string {
+	t.Helper()
+	output, err := exec.Command("git", append([]string{"-C", root}, args...)...).Output()
+	if err != nil {
+		t.Fatalf("git %v failed: %v", args, err)
+	}
+	return strings.TrimSpace(string(output))
 }
 
 func runCLI(stdin []byte, args ...string) (int, string, string) {
