@@ -543,7 +543,8 @@ immutable after approval. Its machine-readable manifest records:
 - whether implementation work is required, with rationale; and
 - the impact assessment, including each candidate's `applicable` or
   `not-applicable` disposition, rationale, and whether it was found
-  mechanically or added through semantic review.
+  mechanically or added through semantic review, and the base commit it
+  was recorded against.
 
 `ears-manager impact` generates a conservative candidate applicable set
 from interface and scope intersections plus explicit requirement

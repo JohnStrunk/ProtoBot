@@ -600,18 +600,22 @@ explicit.
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit (deferred to follow-on scope) | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
 In the EM-04 first release, `change-set create` allocates the next unused
-sequence number, records a full 40-character `base_commit`, and writes the
-manifest. It does not create or check out a branch. Branch creation and branch
+sequence number, records a full 40-character `base_commit` and the same value
+as `impact_assessment_base_commit`, and writes the manifest. It does not
+create or check out a branch. Branch creation and branch
 reuse are deferred to the follow-on Git integration. A failed creation leaves
 no manifest.
 
 Every successful `change-set update` returns a `before` and `after` manifest
 summary, the resulting `assessment_status`, and sorted `changed_paths`.
 `change-set update --impact-file` replaces the complete impact assessment in
-one operation. The file must contain a final `applicable` or
+one operation and sets `impact_assessment_base_commit` to the `base_commit`
+that the same update leaves in the manifest. The file must contain a final
+`applicable` or
 `not-applicable` disposition, a rationale, and an origin of `mechanical` or
 `semantic` for every entry. A semantic entry must name an unchanged active
-requirement not already in the changed operations.
+requirement not already in the changed operations. An empty list is the
+reviewed assessment of a change set with no candidates.
 
 #### Approved and proposed change sets
 
@@ -684,7 +688,9 @@ Then it applies the ancestry rule:
   `HEAD` and the recorded `base_commit` is an ancestor of `X`. After the
   refresh merge, `X` is the default-branch head that the merge brought in.
   So `base_commit` moves forward along the change-set branch, never back or
-  sideways.
+  sideways. A new `base_commit` makes the impact assessment `stale` until a
+  reviewed `change-set update --impact-file` records the assessment against
+  the new base ([Impact review protocol](#impact-review-protocol)).
 
 `change_set.base_mismatch`, status `5`, and `mutation: "none"` refuse a write
 in each of these cases:
@@ -800,8 +806,10 @@ from records that could still be read.
 `--change-set` narrows that impact check to the named proposed manifest.
 "Matches" means that every current mechanical candidate has exactly one final
 recorded disposition, every recorded `mechanical` entry is still a current
-mechanical candidate, and every `semantic` entry names an unchanged active
-requirement that is not in the change-set operations. Semantic entries are
+mechanical candidate, every `semantic` entry names an unchanged active
+requirement that is not in the change-set operations, and
+`impact_assessment_base_commit` equals `base_commit`
+([Impact review protocol](#impact-review-protocol)). Semantic entries are
 permitted extras; unreviewed or duplicate entries are not.
 
 Success data contains:
@@ -981,7 +989,8 @@ Retired requirements are retained in the change-set delta but are never
 delivery obligations.
 
 If `impact` finds no candidates, `assessment_status` is `complete` only when
-the change set has no unreviewed recorded entries. A prior complete assessment
+the change set has no unreviewed recorded entries and its assessment was
+recorded against the current base commit. A prior complete assessment
 becomes `stale` whenever any input that can alter the mechanical candidate set
 changes: the base commit, affected interfaces, affected scopes, changed
 requirement/interface/artifact operations, or relevant requirement
@@ -990,6 +999,26 @@ when current candidates lack final dispositions, `stale` when the recorded
 assessment was computed from different inputs, and `complete` only when the
 matching rule above passes. Approval is blocked for either incomplete or
 stale status.
+
+`impact` recomputes the candidate set from every input except the base
+commit, which it does not read. For the base commit, the manifest records
+`impact_assessment_base_commit`
+([ADR-0002](../decisions/0002-ears-specification-record-schema.md#change-set-manifests)):
+
+- `change-set create` sets it to `base_commit`;
+- a reviewed `change-set update --impact-file` sets it to the `base_commit`
+  that the same update leaves in the manifest; and
+- `change-set update --base-commit` leaves it unchanged.
+
+A proposed change set whose `impact_assessment_base_commit` is missing or
+differs from `base_commit`, ignoring letter case, has a `stale` assessment,
+even when it has no candidates and no entries. So after a base update,
+`impact` and
+`change-set update` report `stale`, and `check` returns
+`change_set.assessment_incomplete`, status `5`, with a
+`change_set.stale_impact` diagnostic on `impact_assessment_base_commit`,
+until a reviewed `change-set update --impact-file` records the assessment
+against the new base.
 
 ---
 
