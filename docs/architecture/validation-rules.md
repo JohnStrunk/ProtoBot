@@ -379,8 +379,12 @@ the same idempotency key.
    work item or an `omitted` materialization reservation. Reusing it with
    a different source contract is an `IDEMPOTENCY_CONFLICT`, even when the
    per-command key is new.
-6. A rejected request is also idempotent. The caller must use a refreshed
-   expected version and a new key after correcting the cause.
+6. A rejected request is also idempotent, including a `NOT_FOUND`
+   rejection when the target is not visible. A retry with the same key
+   and identical fingerprint returns the original rejection with
+   `replayed: true` even if target visibility later changes. The caller
+   must use a refreshed expected version and a new key after correcting
+   the cause.
 
 Authorization expiry is checked before replay and is not part of the
 fingerprint. A lost-response retry therefore obtains a fresh context with
@@ -657,7 +661,7 @@ authorities:
 | --- | --- | --- |
 | Request backlog, request revisions, and blocked-resolution submissions | WMS Adapter/backend | Validate request-namespace preconditions and supply durable submission records; consume only the currently-active submission's approval and lifecycle fields during authoritative `resolve-block`. |
 | Work-item state, contract versions, leases, and fencing tokens | WMS Adapter and its claim coordinator | Validate all reads used for a mutation and require atomic compare-and-swap semantics. |
-| Idempotency results, materialization reservations, and lifecycle audit events | WMS Adapter / external coordinator | Ensure retries return the original result and never duplicate a mutation, including `omitted` outcomes. |
+| Idempotency results, materialization reservations, and lifecycle audit events | WMS Adapter / external coordinator | Ensure retries return the original result and never duplicate a mutation, including `omitted` outcomes and `NOT_FOUND` rejections. |
 | Specification records and impact dispositions | Git through `ears-manager` | Consume successful validation/check evidence; do not parse or mutate records. |
 | Project/deployment policy | `.protobot/policy.yaml` or deployment configuration | Select the compatible rule/policy version; changes are reviewed. |
 | Web session state | Web Drafting Table deployment | Supply authenticated project/session context only; never become lifecycle state or an alternate write authority. |
@@ -736,6 +740,7 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-052` | Materialize a complete contract whose payload copy asserts inspection or reconciliation evidence. | The materialized record stores no caller-asserted evidence; only WMS-observed evidence may be recorded. |
 | `VR-053` | Materialize a complete contract whose payload copy states a dependency is completed while the WMS observes that dependency as blocked. | Materialization follows the WMS-observed dependency state and returns `waiting`; the caller's dependency states are not stored. |
 | `VR-054` | An `inspecting` work item with observed inspection evidence returns to building through rework, passes the Building test gate again, and requests `begin-merge` before a fresh inspection observation. | `begin-merge` is rejected with `PRECONDITION_FAILED`; the rework cleared the observed inspection evidence, so merging requires a fresh WMS inspection observation. |
+| `VR-055` | Claim a work item that is not visible with idempotency key K; retry K while it stays not visible; make the same target visible as `ready-for-building`; retry K; reuse K against a different visible item; make the original target not visible again and retry K. | The first result is `NOT_FOUND` and is recorded; retries with the same key and identical fingerprint replay that `NOT_FOUND` with `replayed: true` and no mutation after the target becomes visible or is no longer visible; a different target is `IDEMPOTENCY_CONFLICT`. A later successful claim of the now-visible item requires a new key. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests

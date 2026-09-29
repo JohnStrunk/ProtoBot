@@ -782,37 +782,111 @@ func TestRequestLinkBackfillsPrioritySetBeforeLinking(t *testing.T) {
 	}
 }
 
-func TestMissingTargetDoesNotConsumeIdempotencyKey(t *testing.T) {
-	_, gate := newConformanceMemory(t)
-	gate["job-site"] = testAuthorization("job-site", validation.RoleJobSite, validation.OperationClaim)
-	memory := newConformanceMemoryWithGate(t, gate)
+func TestMissingTargetNotFoundIsIdempotentOnRequestPaths(t *testing.T) {
+	t.Run("request.refine", func(t *testing.T) {
+		memory, _ := newConformanceMemory(t)
+		missingID := "request-missing"
+		revision := uint64(1)
+		payload := refineRequestPayload{RefinementState: "refining"}
+		call := refineTestRequest(t, missingID, revision, "missing-refine-key", payload)
 
-	missing := memory.Execute(CallRequest{
-		Operation:               string(validation.OperationClaim),
-		ActorContextRef:         "job-site",
-		WorkItemID:              "missing-item",
-		ExpectedState:           validation.StateReadyForBuilding,
-		ExpectedContractVersion: ptrUint64(4),
-		IdempotencyKey:          "missing-target-key",
-	})
-	assertRejectedDecision(t, missing, validation.AuthorityAuthoritative, validation.CodeNotFound)
-	if len(memory.Events()) != 0 {
-		t.Fatalf("missing target recorded %d lifecycle events, want none", len(memory.Events()))
-	}
+		first := memory.Execute(call)
+		assertRequestRejection(t, first, validation.CodeNotFound)
+		if first.Idempotency == idempotencyReplayed {
+			t.Fatal("first missing-target NOT_FOUND must not be a replay")
+		}
 
-	// The key was not consumed by the missing-target rejection: the same key
-	// may still carry a legitimate claim against an existing work item.
-	item := testWorkItem("wi-late-arrival", validation.StateReadyForBuilding, 4)
-	seedConformanceItem(t, memory, item)
-	late := memory.Execute(CallRequest{
-		Operation:               string(validation.OperationClaim),
-		ActorContextRef:         "job-site",
-		WorkItemID:              item.ID,
-		ExpectedState:           validation.StateReadyForBuilding,
-		ExpectedContractVersion: ptrUint64(4),
-		IdempotencyKey:          "missing-target-key",
+		replay := memory.Execute(call)
+		assertReplayedRequestRejection(t, replay, validation.CodeNotFound)
+
+		seedStoredRequest(t, memory, RequestRecord{
+			ID:              missingID,
+			Intent:          "Late arriving request",
+			Rationale:       "The target became visible after NOT_FOUND.",
+			RefinementState: "unrefined",
+			Revision:        revision,
+		})
+		afterAppear := memory.Execute(call)
+		assertReplayedRequestRejection(t, afterAppear, validation.CodeNotFound)
+		stored, _ := memory.Request(missingID)
+		if stored.Revision != revision || stored.RefinementState != "unrefined" {
+			t.Fatalf("appeared request mutated by replayed NOT_FOUND: %#v", stored)
+		}
+
+		existing := createTestRequest(t, memory, "Visible request", "Used for key reuse.", nil, nil, "refine-visible-create")
+		if !existing.OK {
+			t.Fatalf("visible request create = %#v", existing)
+		}
+		reuse := refineTestRequest(t, existing.RequestID, existing.RequestRevision, "missing-refine-key", payload)
+		conflict := memory.Execute(reuse)
+		assertRequestRejection(t, conflict, validation.CodeIdempotencyConflict)
+
+		deleteStoredRequest(memory, missingID)
+		afterDisappear := memory.Execute(call)
+		assertReplayedRequestRejection(t, afterDisappear, validation.CodeNotFound)
+		if _, exists := memory.Request(missingID); exists {
+			t.Fatal("replayed NOT_FOUND recreated the removed request")
+		}
+
+		fresh := memory.Execute(refineTestRequest(t, existing.RequestID, existing.RequestRevision, "fresh-refine-key", payload))
+		assertRequestRejection(t, fresh, validation.CodeUnauthorizedAction)
 	})
-	assertAllowedDecision(t, late, validation.AuthorityAuthoritative)
+
+	t.Run("blocked-work.submit-resolution", func(t *testing.T) {
+		memory, _ := newConformanceMemory(t)
+		missingID := "wi-missing-blocked"
+		version := uint64(4)
+		call := CallRequest{
+			Operation:               "blocked-work.submit-resolution",
+			ActorContextRef:         "drafting-table",
+			WorkItemID:              missingID,
+			ExpectedState:           validation.StateBlocked,
+			ExpectedContractVersion: &version,
+			IdempotencyKey:          "missing-blocked-key",
+			Payload: jsonPayload(t, blockedResolutionPayload{
+				ResolutionKind: "out-of-scope",
+			}),
+		}
+
+		first := memory.Execute(call)
+		assertRequestRejection(t, first, validation.CodeNotFound)
+		if first.Idempotency == idempotencyReplayed {
+			t.Fatal("first missing-target NOT_FOUND must not be a replay")
+		}
+
+		replay := memory.Execute(call)
+		assertReplayedRequestRejection(t, replay, validation.CodeNotFound)
+
+		item := testWorkItem(missingID, validation.StateBlocked, 4)
+		seedConformanceItem(t, memory, item)
+		afterAppear := memory.Execute(call)
+		assertReplayedRequestRejection(t, afterAppear, validation.CodeNotFound)
+		assertItemUnchanged(t, memory, item)
+		if len(memory.Events()) != 0 {
+			t.Fatalf("replayed NOT_FOUND recorded %d events, want none", len(memory.Events()))
+		}
+
+		other := testWorkItem("wi-blocked-other", validation.StateBlocked, 4)
+		seedConformanceItem(t, memory, other)
+		reuse := call
+		reuse.WorkItemID = other.ID
+		conflict := memory.Execute(reuse)
+		assertRequestRejection(t, conflict, validation.CodeIdempotencyConflict)
+		assertItemUnchanged(t, memory, other)
+
+		deleteStoredWorkItem(memory, missingID)
+		afterDisappear := memory.Execute(call)
+		assertReplayedRequestRejection(t, afterDisappear, validation.CodeNotFound)
+		if _, exists := memory.WorkItem(missingID); exists {
+			t.Fatal("replayed NOT_FOUND recreated the removed work item")
+		}
+
+		fresh := call
+		fresh.WorkItemID = other.ID
+		fresh.IdempotencyKey = "fresh-blocked-key"
+		evaluated := memory.Execute(fresh)
+		assertRequestRejection(t, evaluated, validation.CodeUnauthorizedAction)
+	})
 }
 
 func ptrUint64(value uint64) *uint64 {
@@ -1036,6 +1110,33 @@ func refineTestRequest(t *testing.T, requestID string, revision uint64, key stri
 		ExpectedRequestRevision: &revision,
 		IdempotencyKey:          key,
 		Payload:                 jsonPayload(t, payload),
+	}
+}
+
+func seedStoredRequest(t *testing.T, memory *Memory, request RequestRecord) {
+	t.Helper()
+	if request.ID == "" {
+		t.Fatal("seeded request must have an ID")
+	}
+	memory.mu.Lock()
+	defer memory.mu.Unlock()
+	if _, exists := memory.requests[request.ID]; exists {
+		t.Fatalf("request %q is already stored", request.ID)
+	}
+	memory.requests[request.ID] = cloneRequest(request)
+}
+
+func deleteStoredRequest(memory *Memory, id string) {
+	memory.mu.Lock()
+	defer memory.mu.Unlock()
+	delete(memory.requests, id)
+}
+
+func assertReplayedRequestRejection(t *testing.T, result Result, code string) {
+	t.Helper()
+	assertRequestRejection(t, result, code)
+	if result.Outcome != outcomeReplayed || result.Idempotency != idempotencyReplayed {
+		t.Fatalf("request rejection replay = %#v, want replayed %s", result, code)
 	}
 }
 

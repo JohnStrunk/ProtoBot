@@ -252,11 +252,19 @@ func (m *Memory) executeLifecycleLocked(call CallRequest, authorization validati
 		}
 	} else {
 		if !exists {
-			// A missing target is not a durable mutation: the rejection is
-			// deterministic while the item stays missing, so it is not
-			// recorded under the caller's idempotency key.
-			decision := validation.Evaluate(request, nil, evaluation)
-			return resultFromDecision(call.Operation, decision)
+			// A missing target is a rejected mutating request: record the
+			// NOT_FOUND under the idempotency key so a later appearance of
+			// the target cannot re-evaluate that key.
+			if request.IdempotencyKey != "" {
+				fingerprint := validation.RequestFingerprint(request)
+				if result, handled := m.replayLifecycleRequest(call, request, fingerprint); handled {
+					return result
+				}
+				result := resultFromDecision(call.Operation, validation.Evaluate(request, nil, evaluation))
+				m.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, result)
+				return result
+			}
+			return resultFromDecision(call.Operation, validation.Evaluate(request, nil, evaluation))
 		}
 		copy := cloneWorkItem(item)
 		copy.ActiveResolutionSubmissionID = m.activeSubmissions[request.WorkItemID]

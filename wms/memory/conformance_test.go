@@ -1475,6 +1475,62 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			}
 			assertEventCount(t, memory, 4)
 		}},
+		{"VR-055", func(t *testing.T) {
+			memory, _ := newConformanceMemory(t)
+			missingID := "wi-055-missing"
+			call := CallRequest{
+				Operation:               string(validation.OperationClaim),
+				ActorContextRef:         "job-site",
+				WorkItemID:              missingID,
+				ExpectedState:           validation.StateReadyForBuilding,
+				ExpectedContractVersion: ptrUint64(4),
+				IdempotencyKey:          "vr055-missing-claim",
+			}
+
+			first := memory.Execute(call)
+			decision := assertRejectedDecision(t, first, validation.AuthorityAuthoritative, validation.CodeNotFound)
+			if first.Idempotency == idempotencyReplayed || decision.Replayed {
+				t.Fatal("first missing-target NOT_FOUND must not be a replay")
+			}
+			assertEventCount(t, memory, 0)
+
+			stillMissing := memory.Execute(call)
+			assertReplayedDecision(t, stillMissing, validation.AuthorityAuthoritative)
+			if stillMissing.Error == nil || stillMissing.Error.Code != validation.CodeNotFound {
+				t.Fatalf("still-missing replay error = %#v, want NOT_FOUND", stillMissing.Error)
+			}
+
+			item := testWorkItem(missingID, validation.StateReadyForBuilding, 4)
+			seedConformanceItem(t, memory, item)
+			afterAppear := memory.Execute(call)
+			assertReplayedDecision(t, afterAppear, validation.AuthorityAuthoritative)
+			if afterAppear.Error == nil || afterAppear.Error.Code != validation.CodeNotFound {
+				t.Fatalf("after-appear replay error = %#v, want NOT_FOUND", afterAppear.Error)
+			}
+			assertItemUnchanged(t, memory, item)
+			assertEventCount(t, memory, 0)
+
+			other := testWorkItem("wi-055-other", validation.StateReadyForBuilding, 4)
+			seedConformanceItem(t, memory, other)
+			reuse := conformanceCall(validation.OperationClaim, "job-site", other, "vr055-missing-claim")
+			conflict := memory.Execute(reuse)
+			assertRejectedDecision(t, conflict, validation.AuthorityAuthoritative, validation.CodeIdempotencyConflict)
+			assertItemUnchanged(t, memory, other)
+
+			deleteStoredWorkItem(memory, missingID)
+			afterDisappear := memory.Execute(call)
+			assertReplayedDecision(t, afterDisappear, validation.AuthorityAuthoritative)
+			if afterDisappear.Error == nil || afterDisappear.Error.Code != validation.CodeNotFound {
+				t.Fatalf("after-disappear replay error = %#v, want NOT_FOUND", afterDisappear.Error)
+			}
+			if _, exists := memory.WorkItem(missingID); exists {
+				t.Fatal("replayed NOT_FOUND recreated the removed work item")
+			}
+
+			claimed := memory.Execute(conformanceCall(validation.OperationClaim, "job-site", other, "vr055-fresh-claim"))
+			assertAllowedDecision(t, claimed, validation.AuthorityAuthoritative)
+			assertEventCount(t, memory, 1)
+		}},
 	}
 
 	for _, test := range tests {
@@ -1627,6 +1683,12 @@ func replaceObservedWorkItem(memory *Memory, item validation.WorkItem) {
 	memory.mu.Lock()
 	defer memory.mu.Unlock()
 	memory.workItems[item.ID] = cloneWorkItem(item)
+}
+
+func deleteStoredWorkItem(memory *Memory, id string) {
+	memory.mu.Lock()
+	defer memory.mu.Unlock()
+	delete(memory.workItems, id)
 }
 
 func assertAllowedDecision(t *testing.T, result Result, authority validation.Authority) *validation.Decision {
