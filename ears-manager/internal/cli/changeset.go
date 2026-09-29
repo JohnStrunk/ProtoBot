@@ -55,7 +55,10 @@ func runChangeSetCreate(args []string) (any, Mutation, *commandFailure) {
 		AffectedScopes:          append([]string(nil), parsed.list("affected-scope")...),
 		ImplementationRequired:  implementationRequired,
 		ImplementationRationale: parsed.one("implementation-rationale"),
-		Created:                 created,
+		// A new change set has no reviewed entry yet. Its empty
+		// assessment is recorded against the base it starts from.
+		ImpactAssessmentBaseCommit: baseCommit,
+		Created:                    created,
 	}
 	staged := cloneSnapshot(state.snapshot)
 	changeSetPath, err := upsertChangeSet(&staged, changeSet)
@@ -313,6 +316,9 @@ func runChangeSetUpdate(args []string, stdin io.Reader) (any, Mutation, *command
 			return nil, Mutation{}, failure
 		}
 		updated.ImpactAssessment = assessment
+		// The reviewed assessment holds for the base commit that this
+		// update leaves in the manifest.
+		updated.ImpactAssessmentBaseCommit = updated.BaseCommit
 	}
 	updated = records.CanonicalChangeSet(updated)
 	staged := cloneSnapshot(state.snapshot)

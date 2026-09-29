@@ -17,7 +17,8 @@ const (
 	// recorded disposition.
 	AssessmentIncomplete = "incomplete"
 	// AssessmentStale means the recorded assessment was computed from a
-	// different mechanical candidate set.
+	// different mechanical candidate set, or recorded against a different
+	// base commit.
 	AssessmentStale = "stale"
 )
 
@@ -157,10 +158,10 @@ func ImpactForChangeSet(changeSet records.ChangeSet, against string, snapshot Sn
 }
 
 // ChangeSetAssessmentStatus classifies a recorded impact assessment against
-// the current mechanical candidate set.
+// the current mechanical candidate set and the current base commit.
 func ChangeSetAssessmentStatus(changeSet records.ChangeSet, candidates map[string]bool, requirements map[string]records.Requirement) string {
 	changed := changedRequirements(changeSet.Operations)
-	stale := false
+	stale := !assessmentBaseCurrent(changeSet)
 	incomplete := false
 	seen := make(map[string]int, len(changeSet.ImpactAssessment))
 	final := make(map[string]bool, len(changeSet.ImpactAssessment))
@@ -203,6 +204,13 @@ func ChangeSetAssessmentStatus(changeSet records.ChangeSet, candidates map[strin
 		return AssessmentIncomplete
 	}
 	return AssessmentComplete
+}
+
+// assessmentBaseCurrent reports whether the impact assessment was recorded
+// against the manifest's current base commit. A manifest that does not
+// record the base of its assessment is not current.
+func assessmentBaseCurrent(changeSet records.ChangeSet) bool {
+	return changeSet.ImpactAssessmentBaseCommit != "" && strings.EqualFold(changeSet.ImpactAssessmentBaseCommit, changeSet.BaseCommit)
 }
 
 func impactMatches(value records.ChangeSet, documents []Document[records.Requirement], requirements map[string]records.Requirement, changed map[string]bool) []impactMatch {

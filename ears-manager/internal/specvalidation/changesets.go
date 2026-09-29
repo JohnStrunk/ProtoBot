@@ -53,6 +53,9 @@ func validateChangeSetMetadata(result *Result, document Document[records.ChangeS
 	if value.BaseCommit != "" && !baseCommitPattern.MatchString(value.BaseCommit) {
 		result.add(diagnostic("change_set.invalid_base_commit", path, value.ID, "base_commit", "Base commit must be a full 40-character hexadecimal Git object ID.", "Use the full commit SHA, not a branch name or short SHA."))
 	}
+	if value.ImpactAssessmentBaseCommit != "" && !baseCommitPattern.MatchString(value.ImpactAssessmentBaseCommit) {
+		result.add(diagnostic("change_set.invalid_base_commit", path, value.ID, "impact_assessment_base_commit", "The base commit of the impact assessment must be a full 40-character hexadecimal Git object ID.", "Record the assessment with change-set update --impact-file."))
+	}
 	validateRequiredString(result, document.Fields, path, value.ID, "intent", value.Intent, "change_set.missing_field")
 	validateRequiredList(result, document.Fields, path, value.ID, "operations", value.Operations != nil)
 	validateRequiredList(result, document.Fields, path, value.ID, "affected_interfaces", value.AffectedInterfaces != nil)
@@ -162,6 +165,9 @@ func validateArtifactOperations(result *Result, path string, value records.Chang
 }
 
 func validateImpactAssessment(result *Result, path string, value records.ChangeSet, requirementDocuments []Document[records.Requirement], requirements map[string]records.Requirement) {
+	if !assessmentBaseCurrent(value) {
+		result.add(diagnostic("change_set.stale_impact", path, value.ID, "impact_assessment_base_commit", "The impact assessment was not recorded against the current base commit.", "Rerun impact and record a new reviewed assessment."))
+	}
 	changed := changedRequirements(value.Operations)
 	candidates := mechanicalImpactCandidates(value, requirementDocuments, requirements, changed)
 	if len(candidates) > 0 && len(value.ImpactAssessment) == 0 {

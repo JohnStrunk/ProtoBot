@@ -27,6 +27,36 @@ func TestValidateAcceptsCompleteSnapshot(t *testing.T) {
 	}
 }
 
+func TestValidateMarksAssessmentStaleOnAMovedBase(t *testing.T) {
+	moved := validSnapshot(t)
+	moved.ChangeSets[0].Value.BaseCommit = strings.Repeat("b", 40)
+	result := Validate(moved)
+	if !hasDiagnostic(result, "change_set.stale_impact", "impact_assessment_base_commit") {
+		t.Fatalf("a moved base did not make the proposed assessment stale: %#v", result.Diagnostics)
+	}
+
+	missing := validSnapshot(t)
+	missing.ChangeSets[0].Value.ImpactAssessmentBaseCommit = ""
+	result = Validate(missing)
+	if !hasDiagnostic(result, "change_set.stale_impact", "impact_assessment_base_commit") {
+		t.Fatalf("a proposed assessment without a recorded base was not stale: %#v", result.Diagnostics)
+	}
+
+	// An approved manifest is historical evidence. Its assessment base is
+	// not compared with its base commit.
+	moved.Context = ValidationContext{}
+	if result := Validate(moved); len(result.Diagnostics) != 0 {
+		t.Fatalf("approved manifest returned diagnostics: %#v", result.Diagnostics)
+	}
+
+	malformed := validSnapshot(t)
+	malformed.Context = ValidationContext{}
+	malformed.ChangeSets[0].Value.ImpactAssessmentBaseCommit = "main"
+	if result := Validate(malformed); !hasDiagnostic(result, "change_set.invalid_base_commit", "impact_assessment_base_commit") {
+		t.Fatalf("a malformed assessment base was accepted: %#v", result.Diagnostics)
+	}
+}
+
 func TestValidateRejectsRequiredFieldsAndEARSForms(t *testing.T) {
 	root := t.TempDir()
 	missing := validRequirement("REQ-BAD-00001", records.EARSEventDriven, "When a user acts, the system shall respond.")
@@ -856,7 +886,8 @@ func validSnapshot(t *testing.T) Snapshot {
 					{RequirementID: fourth.ID, Disposition: "not-applicable", Rationale: "Token expiry behavior is unrelated to this change.", Origin: "mechanical"},
 					{RequirementID: fifth.ID, Disposition: "not-applicable", Rationale: "Caching behavior is unrelated to authentication.", Origin: "mechanical"},
 				},
-				Created: "2026-09-15T10:00:00Z",
+				ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
+				Created:                    "2026-09-15T10:00:00Z",
 			}},
 		},
 	}

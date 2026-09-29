@@ -448,10 +448,21 @@ func TestChangeSetRefreshAfterDefaultBranchMerge(t *testing.T) {
 	if jsonString(t, stdout, "data", "after", "base_commit") != defaultHead {
 		t.Fatalf("refreshed base = %s, want %s", stdout, defaultHead)
 	}
+	// The assessment was reviewed against the old base, so the base update
+	// makes it stale until a new reviewed assessment is recorded.
+	if jsonString(t, stdout, "data", "before", "assessment_status") != specvalidation.AssessmentComplete || jsonString(t, stdout, "data", "assessment_status") != specvalidation.AssessmentStale {
+		t.Fatalf("base update assessment = %s", stdout)
+	}
 	code, stdout, stderr = runCLI(nil, "--output", "json", "impact", "--change-set", changeSetID)
 	assertSuccess(t, code, stdout, stderr)
-	if jsonString(t, stdout, "data", "against_commit") != defaultHead {
-		t.Fatalf("impact against_commit = %s", stdout)
+	if jsonString(t, stdout, "data", "against_commit") != defaultHead || jsonString(t, stdout, "data", "assessment_status") != specvalidation.AssessmentStale {
+		t.Fatalf("impact after the base update = %s", stdout)
+	}
+	for _, args := range [][]string{{"check", "--change-set", changeSetID}, {"check"}} {
+		code, stdout, stderr = runCLI(nil, append([]string{"--output", "json"}, args...)...)
+		if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.assessment_incomplete" || !strings.Contains(stdout, "change_set.stale_impact") {
+			t.Fatalf("%v after the base update = code %d stdout %s stderr %s", args, code, stdout, stderr)
+		}
 	}
 	code, stdout, stderr = runCLI(review, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--impact-file", "-")
 	assertSuccess(t, code, stdout, stderr)
@@ -462,6 +473,85 @@ func TestChangeSetRefreshAfterDefaultBranchMerge(t *testing.T) {
 	assertSuccess(t, code, stdout, stderr)
 	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
 	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "change_set", "impact_assessment_base_commit") != defaultHead {
+		t.Fatalf("recorded assessment base = %s, want %s", stdout, defaultHead)
+	}
+}
+
+// TestChangeSetBaseRefreshWithoutCandidates follows step 7 of the Source
+// Control Manager golden fixture: an artifact-only change set has no impact
+// candidates, and a base update still makes its empty assessment stale.
+func TestChangeSetBaseRefreshWithoutCandidates(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	git(t, root, "checkout", "-b", "cs/00001-add-the-initial-sketch")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add the initial Sketch", "--implementation-required", "false", "--implementation-rationale", "The Sketch changes no interface yet.", "--created", "2026-09-29T17:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	code, stdout, stderr = runCLI([]byte("# Fixture Vision\n\nThe Sketch.\n"), "--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "vision", "--kind", "vision", "--path", "docs/vision.md", "--owner", "user", "--content-stdin")
+	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	commitAll(t, root, "spec(CS-00001): add the initial Sketch")
+
+	git(t, root, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(root, "unrelated.txt"), []byte("default branch change\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	commitAll(t, root, "unrelated default-branch change")
+	defaultHead := gitOutput(t, root, "rev-parse", "HEAD")
+	git(t, root, "checkout", "cs/00001-add-the-initial-sketch")
+	git(t, root, "merge", "--no-ff", "--no-edit", "main")
+
+	// 7-change-set-update, 7-impact, and a check before the review.
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--base-commit", defaultHead)
+	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "impact", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	if len(jsonArray(t, stdout, "data", "candidates")) != 0 || jsonString(t, stdout, "data", "assessment_status") != specvalidation.AssessmentStale {
+		t.Fatalf("impact after the base update = %s", stdout)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", changeSetID)
+	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.assessment_incomplete" {
+		t.Fatalf("check after the base update = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+
+	// 7-impact-file with the reviewed dispositions of zero candidates, then
+	// 7-check.
+	code, stdout, stderr = runCLI([]byte("[]"), "--output", "json", "change-set", "update", "--change-set", changeSetID, "--impact-file", "-")
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "assessment_status") != specvalidation.AssessmentComplete {
+		t.Fatalf("reviewed assessment = %s", stdout)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+}
+
+func TestChangeSetBaseAndImpactInOneUpdate(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	git(t, root, "checkout", "-b", "cs/00001-one-update")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "One update", "--implementation-required", "true", "--created", "2026-09-29T18:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+	git(t, root, "commit", "--allow-empty", "-m", "spec(CS-00001): a later commit")
+	head := gitOutput(t, root, "rev-parse", "HEAD")
+
+	// The reviewed assessment of this update holds for the base that the
+	// same update records.
+	code, stdout, stderr = runCLI([]byte("[]"), "--output", "json", "change-set", "update", "--change-set", changeSetID, "--base-commit", head, "--impact-file", "-")
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "assessment_status") != specvalidation.AssessmentComplete {
+		t.Fatalf("base and impact update = %s", stdout)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "change_set", "base_commit") != head || jsonString(t, stdout, "data", "change_set", "impact_assessment_base_commit") != head {
+		t.Fatalf("show after one update = %s", stdout)
+	}
 }
 
 func TestChangeSetBaseRefreshRefusesCommitOutsideBranchHistory(t *testing.T) {

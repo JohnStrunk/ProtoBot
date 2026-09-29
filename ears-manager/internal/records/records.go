@@ -208,7 +208,11 @@ type ChangeSet struct {
 	ImplementationRequired  bool                   `yaml:"implementation_required"`
 	ImplementationRationale string                 `yaml:"implementation_rationale,omitempty"`
 	ImpactAssessment        []ImpactAssessment     `yaml:"impact_assessment,omitempty"`
-	Created                 string                 `yaml:"created"`
+	// ImpactAssessmentBaseCommit is the base commit that the impact
+	// assessment was last recorded against. A proposed manifest whose value
+	// differs from BaseCommit has a stale assessment.
+	ImpactAssessmentBaseCommit string `yaml:"impact_assessment_base_commit,omitempty"`
+	Created                    string `yaml:"created"`
 }
 
 var (
