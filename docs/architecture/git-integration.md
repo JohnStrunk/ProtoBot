@@ -135,6 +135,10 @@ written. The committed file in the working tree is the only
 source. This is the same rule the Gate applies at hosted mutation
 boundaries
 ([Authentication and Credential Isolation][credential-isolation]).
+A read-only `ears-manager` read at a full commit hash (`--at`) takes
+the committed file of that commit instead, in the same repository,
+and writes nothing ([Read
+authority](ears-manager-cli.md#read-authority)).
 
 A hosted deployment keeps its own registry of project
 registrations and adapter configurations outside any project's

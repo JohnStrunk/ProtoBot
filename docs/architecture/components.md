@@ -439,8 +439,9 @@ It is used by these callers:
   work-item contract.
 - **Source Control Manager** — reads a change set's paths, comparison,
   impact candidates, and validation result to stage a commit and render
-  a PR body, and an approved change set's manifest path to find its
-  merge commit. It writes nothing through `ears-manager`.
+  a PR body, and a change set's manifest and status at a commit to
+  resume its branch and to find its merge commit. It writes nothing
+  through `ears-manager`.
 - **Humans** — a developer or architect can run `ears-manager`
   directly to inspect or change registered specification artifacts
   without involving an agent.
@@ -479,7 +480,7 @@ scope](ears-manager-cli.md#em-04-first-release-scope).
 | `ears-manager interface update` | Modify interfaces through a proposed change set. |
 | `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest and invokes the selected code-controlled validator adapter without requiring `ears-manager` to understand every format. |
 | `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by ID or unique kind through the governed path registry. |
-| `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, requirement operations, and reviewed impact dispositions. EM-04 implemented minimal creation; EM-05 adds list/show/update. Neither cuts a branch; see the [`ears-manager` CLI first-release scope](ears-manager-cli.md#em-04-first-release-scope). Approved change sets are immutable. |
+| `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, requirement operations, and reviewed impact dispositions. EM-04 implemented minimal creation; EM-05 adds list/show/update; #206 adds a `show` read at an immutable `--at` revision. None of them cuts a branch; see the [`ears-manager` CLI first-release scope](ears-manager-cli.md#em-04-first-release-scope). Approved change sets are immutable. |
 | `ears-manager change-set compare` | Compare a proposed change set with the current Schematic and open deltas. Reports exact duplicates, stable-ID before/after changes, declared conflicts/supersession, and dependency cycles for agent/user review. |
 | `ears-manager impact` | Read-only comparison of a proposed change set with the Schematic that produces potentially applicable requirements from scope intersections and explicit relationships. Reviewed dispositions are written by `change-set update`. |
 
@@ -916,7 +917,7 @@ The SCM does **not**:
 - **To callers:** The MCP tools of the Drafting Table face, and a CLI,
   `source-control-manager`, for people and services.
 - **To `ears-manager`:** Reads only: change-set paths, comparison,
-  impact, and validation.
+  impact, validation, and a change-set manifest at a commit.
 - **To the project repository:** `git`, with argument lists, never
   through a shell, and with no Git hook.
 - **To the Git host:** One host adapter per host. The first is GitHub,
