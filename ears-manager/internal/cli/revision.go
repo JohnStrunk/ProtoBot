@@ -45,23 +45,17 @@ type treeEntry struct {
 // revision. The hash is returned in lowercase.
 func parseRevisionOption(value string) (string, *commandFailure) {
 	value = strings.TrimSpace(value)
-	if len(value) != 40 {
+	if !fullCommitID(value) {
 		return "", validationFailure("revision.invalid", "Option --at must be a full 40-character hexadecimal commit hash.", nil)
-	}
-	for _, character := range value {
-		if !strings.ContainsRune("0123456789abcdefABCDEF", character) {
-			return "", validationFailure("revision.invalid", "Option --at must be a full 40-character hexadecimal commit hash.", nil)
-		}
 	}
 	return strings.ToLower(value), nil
 }
 
 // requireRevisionCommit refuses a parsed --at hash that names no commit in
-// the local repository. The object must be a commit itself: an annotated tag
-// is refused too, although Git would peel it to the commit it tags.
+// the local repository. commitExists refuses an annotated tag too, although
+// Git would peel it to the commit it tags.
 func requireRevisionCommit(root, commit string) *commandFailure {
-	output, err := exec.Command("git", "-C", root, "cat-file", "-t", commit).Output()
-	if err != nil || strings.TrimSpace(string(output)) != "commit" {
+	if !commitExists(root, commit) {
 		return validationFailure("revision.not_found", fmt.Sprintf("Commit %s is not present in the local repository.", commit), nil)
 	}
 	return nil
@@ -170,7 +164,7 @@ func listRevisionTree(root, commit string, paths []string) ([]treeEntry, *comman
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	args := append([]string{"-C", root, "--literal-pathspecs", "ls-tree", "-r", "-t", "-z", "--full-tree", commit, "--"}, paths...)
+	args := append([]string{"--no-replace-objects", "-C", root, "--literal-pathspecs", "ls-tree", "-r", "-t", "-z", "--full-tree", commit, "--"}, paths...)
 	output, err := exec.Command("git", args...).Output()
 	if err != nil {
 		return nil, ioFailure("revision.read_failed", fmt.Sprintf("The tree of commit %s could not be read.", commit))
@@ -232,7 +226,7 @@ func readRevisionBlobs(root string, entries []treeEntry) (map[string][]byte, *co
 	if request.Len() == 0 {
 		return contents, nil
 	}
-	command := exec.Command("git", "-C", root, "cat-file", "--batch")
+	command := exec.Command("git", "--no-replace-objects", "-C", root, "cat-file", "--batch")
 	command.Stdin = &request
 	output, err := command.Output()
 	if err != nil {
@@ -298,7 +292,8 @@ func writeRevisionEntries(target string, entries []treeEntry, contents map[strin
 // resolvable default-branch ref points at commit or at a descendant of it.
 // The refs are the ones resolveDefaultBranchRef tries, and all of them count,
 // so a local branch that is behind its remote-tracking branch does not hide
-// a merge.
+// a merge. isAncestor ignores replace refs, as the change-set ancestry check
+// does.
 func commitOnDefaultBranch(root, defaultBranch, commit string) (bool, *commandFailure) {
 	branch, failure := defaultBranchName(defaultBranch)
 	if failure != nil {
@@ -306,17 +301,17 @@ func commitOnDefaultBranch(root, defaultBranch, commit string) (bool, *commandFa
 	}
 	resolved := false
 	for _, ref := range defaultBranchRefs(branch) {
-		if exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Run() != nil {
+		output, err := exec.Command("git", "--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Output()
+		if err != nil {
 			continue
 		}
 		resolved = true
-		err := exec.Command("git", "-C", root, "merge-base", "--is-ancestor", commit, ref).Run()
-		if err == nil {
-			return true, nil
+		onBranch, failure := isAncestor(root, commit, strings.TrimSpace(string(output)))
+		if failure != nil {
+			return false, failure
 		}
-		var exitErr *exec.ExitError
-		if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
-			return false, ioFailure("revision.read_failed", fmt.Sprintf("Git could not check whether commit %s is on %s.", commit, ref))
+		if onBranch {
+			return true, nil
 		}
 	}
 	if !resolved {

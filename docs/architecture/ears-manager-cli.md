@@ -105,9 +105,9 @@ still resolves the Git repository from the working tree, but it takes
 from the tree of that commit. The working tree need not contain
 `.protobot/project.yaml`, and an uncommitted, untracked, or deleted file there
 does not change the result. The CLI reads the commit through the local `git`
-executable and writes nothing under `.git/`. It may stage that tree in a
-private temporary directory outside the project root and removes it before it
-exits; that copy is not a governed write.
+executable, ignores Git replace refs, and writes nothing under `.git/`. It
+may stage that tree in a private temporary directory outside the project root
+and removes it before it exits; that copy is not a governed write.
 
 ### Write authority
 
@@ -592,7 +592,7 @@ explicit.
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, or project diagnostics |
 | `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
-| `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `project.default_branch_unresolved`, `project.invalid_configuration`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
+| `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `git.read_failed`, `project.default_branch_unresolved`, `project.invalid_configuration`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
 | `change-set update` | `--change-set CS-ID` plus metadata, `--base-commit`, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_base`, `change_set.invalid_impact`, `git.read_failed`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit (deferred to follow-on scope) | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
@@ -715,7 +715,11 @@ read fails with `project.default_branch_unresolved` and status `3`. Both
 rules check `default_branch` against the Git branch-name rule that `check`
 applies before any Git command runs, because Git would read a name such as
 `main~1` or `main@{1}` as another commit. A name that fails the rule is
-`project.invalid_configuration` with status `3`.
+`project.invalid_configuration` with status `3`. With `--at`, "descendant"
+uses the ancestry test of [Change sets](#change-sets): it ignores Git
+replace refs, and in a shallow clone an answer that the commit is not on the
+default branch is `git.read_failed`, status `6`, because the history is
+incomplete.
 `approved` states only that the commit is reachable from a default-branch
 ref. It does not prove that a reviewed pull request merged it; the
 [Source Control Manager](source-control-manager.md#approved-state-read-face)

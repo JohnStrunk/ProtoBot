@@ -219,6 +219,21 @@ func TestChangeSetShowAtIgnoresTheWorkingTree(t *testing.T) {
 	}
 }
 
+func TestChangeSetShowAtIgnoresReplaceRefs(t *testing.T) {
+	root, changeSetID, tip := newCommittedChangeSet(t)
+	code, before, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID, "--at", tip)
+	assertSuccess(t, code, before, stderr)
+
+	// With the replace ref, Git shows the base commit, which has no manifest,
+	// in place of the tip.
+	git(t, root, "replace", tip, gitOutput(t, root, "rev-parse", "main"))
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID, "--at", tip)
+	assertSuccess(t, code, stdout, stderr)
+	if stdout != before {
+		t.Fatalf("a replace ref changed show --at:\n%s\n---\n%s", stdout, before)
+	}
+}
+
 func TestChangeSetShowAtRefusesASymlinkedStoreEntryAsTheWorkingTreeDoes(t *testing.T) {
 	root, changeSetID, _ := newCommittedChangeSet(t)
 	if err := os.Symlink("cs-00001.yaml", filepath.Join(root, ".protobot", "change-sets", "cs-00002.yaml")); err != nil {
