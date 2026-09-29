@@ -417,6 +417,83 @@ func TestChangeSetBaseRefreshRefusesCommitOutsideBranchHistory(t *testing.T) {
 	assertBaseMismatch(firstCommit)
 }
 
+func TestChangeSetBaseRefreshRefusesTagObject(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	git(t, root, "checkout", "-b", "cs/00001-tag")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Refuse a tag", "--implementation-required", "true", "--created", "2026-09-29T13:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+	git(t, root, "tag", "-a", "v1", "-m", "a tag on the change-set branch")
+	tagObject := gitOutput(t, root, "rev-parse", "v1")
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--base-commit", tagObject)
+	if code != 4 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.invalid_base" {
+		t.Fatalf("tag base result = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+}
+
+func TestChangeSetWriteRefusesUnusableRecordedBase(t *testing.T) {
+	for _, test := range []struct {
+		name, baseCommit string
+	}{
+		{name: "not an object ID", baseCommit: "main token=ghp_example"},
+		{name: "not a local commit", baseCommit: strings.Repeat("f", 40)},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			root := newFixtureProject(t)
+			t.Chdir(root)
+			code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Unusable base", "--implementation-required", "true", "--created", "2026-09-29T14:00:00Z")
+			assertSuccess(t, code, stdout, stderr)
+			changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+			manifestPath := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+			var changeSet records.ChangeSet
+			if err := storage.ReadFile(manifestPath, &changeSet); err != nil {
+				t.Fatal(err)
+			}
+			changeSet.BaseCommit = test.baseCommit
+			data, err := storage.Encode(changeSet)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			refreshProjectDigests(t, root)
+
+			for _, args := range [][]string{
+				{"change-set", "update", "--change-set", changeSetID, "--intent", "Still unusable"},
+				{"change-set", "update", "--change-set", changeSetID, "--base-commit", gitOutput(t, root, "rev-parse", "HEAD")},
+			} {
+				code, stdout, stderr = runCLI(nil, append([]string{"--output", "json"}, args...)...)
+				if code != 4 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.invalid_base" || strings.Contains(stdout, "ghp_example") {
+					t.Fatalf("%v result = code %d stdout %s stderr %s", args, code, stdout, stderr)
+				}
+			}
+		})
+	}
+}
+
+func TestChangeSetWriteInShallowCloneReportsIncompleteHistory(t *testing.T) {
+	root := newFixtureProject(t)
+	git(t, root, "checkout", "-b", "cs/00001-shallow")
+	t.Chdir(root)
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Shallow clone", "--implementation-required", "true", "--created", "2026-09-29T15:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+	git(t, root, "commit", "--allow-empty", "-m", "spec(CS-00001): a later commit")
+
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, root, "clone", "-q", "--depth", "1", "--no-single-branch", "--branch", "cs/00001-shallow", "file://"+root, clone)
+	t.Chdir(clone)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--intent", "Shallow write")
+	if code != 6 || stderr != "" || jsonString(t, stdout, "error", "code") != "git.read_failed" || jsonString(t, stdout, "error", "mutation") != "none" {
+		t.Fatalf("shallow clone result = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+}
+
 func commitAll(t *testing.T, root, message string) {
 	t.Helper()
 	git(t, root, "add", ".")

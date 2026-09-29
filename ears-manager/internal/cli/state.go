@@ -933,28 +933,77 @@ func proposedChangeSetIDs(root string, snapshot specvalidation.Snapshot) (map[st
 	return proposed, nil
 }
 
+// commitExists reports whether commit is the full object ID of a commit in
+// the local repository. The ID of an annotated tag is not one, even when the
+// tag points at a commit: a base commit names the commit itself.
 func commitExists(root, commit string) bool {
-	return exec.Command("git", "-C", root, "cat-file", "-e", commit+"^{commit}").Run() == nil
+	if !fullCommitID(commit) {
+		return false
+	}
+	output, err := exec.Command("git", "--no-replace-objects", "-C", root, "cat-file", "-t", commit).Output()
+	return err == nil && strings.TrimSpace(string(output)) == "commit"
 }
 
-// isAncestor reports whether ancestor is reachable from descendant. A commit
-// is its own ancestor. A value that is not a full object ID of a local commit
-// is never an ancestor.
-func isAncestor(root, ancestor, descendant string) (bool, *commandFailure) {
-	for _, commit := range []string{ancestor, descendant} {
-		if _, failure := parseCommitOption(commit); failure != nil || !commitExists(root, commit) {
-			return false, nil
+func fullCommitID(value string) bool {
+	if len(value) != 40 {
+		return false
+	}
+	for _, character := range value {
+		if !strings.ContainsRune("0123456789abcdefABCDEF", character) {
+			return false
 		}
 	}
-	err := exec.Command("git", "-C", root, "merge-base", "--is-ancestor", ancestor, descendant).Run()
+	return true
+}
+
+// isAncestor reports whether ancestor is reachable from descendant, with
+// replace refs ignored. A commit is its own ancestor. A value that is not a
+// local commit is never an ancestor. In a shallow clone a missing link can
+// hide the answer, so a negative answer there is a failure, not a verdict.
+func isAncestor(root, ancestor, descendant string) (bool, *commandFailure) {
+	if !commitExists(root, ancestor) || !commitExists(root, descendant) {
+		return false, nil
+	}
+	err := exec.Command("git", "--no-replace-objects", "-C", root, "merge-base", "--is-ancestor", ancestor, descendant).Run()
 	if err == nil {
 		return true, nil
 	}
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-		return false, nil
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		return false, ioFailure("git.read_failed", "Git could not read the commit history of the working tree.")
 	}
-	return false, ioFailure("git.read_failed", "Git could not read the commit history of the working tree.")
+	if shallowRepository(root) {
+		return false, shallowHistoryFailure()
+	}
+	return false, nil
+}
+
+func shallowRepository(root string) bool {
+	output, err := exec.Command("git", "-C", root, "rev-parse", "--is-shallow-repository").Output()
+	return err == nil && strings.TrimSpace(string(output)) == "true"
+}
+
+func shallowHistoryFailure() *commandFailure {
+	return ioFailure("git.read_failed", "The repository is a shallow clone, so its commit history is incomplete. Fetch the full history, then retry.")
+}
+
+// checkRecordedBase checks the manifest's base_commit before any other check
+// uses it. The value comes from a file, so a diagnostic names it only after
+// it proved to be a full object ID.
+func checkRecordedBase(root, id, baseCommit string) *commandFailure {
+	if baseCommit == "" {
+		return validationFailure("change_set.not_proposed", fmt.Sprintf("Change set %s has no base commit.", id), nil)
+	}
+	if !fullCommitID(baseCommit) {
+		return validationFailure("change_set.invalid_base", fmt.Sprintf("Change set %s records a base commit that is not a full 40-character commit ID.", id), nil)
+	}
+	if !commitExists(root, baseCommit) {
+		if shallowRepository(root) {
+			return shallowHistoryFailure()
+		}
+		return validationFailure("change_set.invalid_base", fmt.Sprintf("Change set %s is based on %s, which is not a commit in the local repository.", id, baseCommit), nil)
+	}
+	return nil
 }
 
 func proposedChangeSet(state projectState, id string) (int, records.ChangeSet, *commandFailure) {
@@ -981,8 +1030,8 @@ func proposedChangeSetWithOption(state projectState, id string, allowBaseMismatc
 	if approved {
 		return -1, records.ChangeSet{}, conflictFailure("change_set.not_proposed", fmt.Sprintf("Change set %s is approved and immutable.", id), nil)
 	}
-	if value.BaseCommit == "" {
-		return -1, records.ChangeSet{}, validationFailure("change_set.not_proposed", fmt.Sprintf("Change set %s has no base commit.", id), nil)
+	if failure := checkRecordedBase(state.root, id, value.BaseCommit); failure != nil {
+		return -1, records.ChangeSet{}, failure
 	}
 	if allowBaseMismatch {
 		return index, cloneChangeSet(value), nil

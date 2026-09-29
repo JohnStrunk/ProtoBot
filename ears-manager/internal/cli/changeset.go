@@ -223,7 +223,7 @@ func runChangeSetUpdate(args []string, stdin io.Reader) (any, Mutation, *command
 			return nil, Mutation{}, failure
 		}
 		if !commitExists(state.root, baseCommit) {
-			return nil, Mutation{}, validationFailure("change_set.invalid_base", "The comparison base commit is not present in the local repository.", nil)
+			return nil, Mutation{}, validationFailure("change_set.invalid_base", "The base commit must be the full ID of a commit in the local repository, not of a tag or another object.", nil)
 		}
 		onHead, failure := isAncestor(state.root, baseCommit, state.head)
 		if failure != nil {
