@@ -132,6 +132,88 @@ func TestApprovedChangeSetCannotBeUpdated(t *testing.T) {
 	}
 }
 
+func TestChangeSetApprovedOnCanonicalRemoteCannotBeUpdated(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	// The canonical remote is a bare repository behind an insteadOf rule, so
+	// the configured URL is the canonical_remote of the fixture. It is not
+	// named origin; origin is a fork that also holds the manifest.
+	canonical := filepath.Join(t.TempDir(), "canonical.git")
+	fork := filepath.Join(t.TempDir(), "fork.git")
+	git(t, root, "init", "-q", "--bare", canonical)
+	git(t, root, "init", "-q", "--bare", fork)
+	git(t, root, "config", "url."+canonical+".insteadOf", "https://example.invalid/fixture.git")
+	git(t, root, "remote", "add", "upstream", "https://example.invalid/fixture.git")
+	git(t, root, "remote", "add", "origin", fork)
+	git(t, root, "push", "-q", "upstream", "main")
+
+	git(t, root, "checkout", "-b", "cs/00001-merged-on-host")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Merged on the host", "--implementation-required", "true", "--created", "2026-09-29T16:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	commitAll(t, root, "spec(CS-00001): create the change set")
+
+	// The fork's default branch holds the manifest. The fork is not the
+	// canonical remote, so the change set stays proposed.
+	git(t, root, "push", "-q", "origin", "HEAD:refs/heads/main")
+	git(t, root, "fetch", "-q", "origin")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--intent", "Still proposed")
+	assertSuccess(t, code, stdout, stderr)
+	commitAll(t, root, "spec(CS-00001): revise the intent")
+
+	// The host merges the branch into the canonical default branch. The
+	// local default branch stays behind.
+	git(t, root, "push", "-q", "upstream", "HEAD:refs/heads/main")
+	git(t, root, "fetch", "-q", "upstream")
+	if local, remote := gitOutput(t, root, "rev-parse", "main"), gitOutput(t, root, "rev-parse", "upstream/main"); local == remote {
+		t.Fatalf("the local default branch moved to %s", local)
+	}
+	manifestPath := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+	manifestBefore, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"change-set", "update", "--change-set", changeSetID, "--intent", "Rewrite history"},
+		{"interface", "add", "--change-set", changeSetID, "--id", "cli-main", "--name", "CLI", "--type", "cli", "--created", "2026-09-29T16:01:00Z"},
+	} {
+		code, stdout, stderr = runCLI(nil, append([]string{"--output", "json"}, args...)...)
+		if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.not_proposed" || jsonString(t, stdout, "error", "mutation") != "none" {
+			t.Fatalf("%v result = code %d stdout %s stderr %s", args, code, stdout, stderr)
+		}
+	}
+	manifestAfter, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(manifestBefore) != string(manifestAfter) {
+		t.Fatal("a refused write changed the approved manifest")
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID)
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "status") != "approved" {
+		t.Fatalf("show status = %s", stdout)
+	}
+}
+
+func TestWithoutUserinfo(t *testing.T) {
+	for _, test := range []struct{ remote, want string }{
+		{"https://example.invalid/fixture.git", "https://example.invalid/fixture.git"},
+		{"https://user:secret@example.invalid/fixture.git", "https://example.invalid/fixture.git"}, // pragma: allowlist secret
+		{"https://user@example.invalid", "https://example.invalid"},
+		{"ssh://git@example.invalid/fixture.git", "ssh://example.invalid/fixture.git"},
+		{"git@example.invalid:owner/fixture.git", "git@example.invalid:owner/fixture.git"},
+		{"alice@example.invalid:owner/fixture.git", "example.invalid:owner/fixture.git"},
+		{"example.invalid:owner/fixture.git", "example.invalid:owner/fixture.git"},
+		{"/srv/git/fixture@2.git", "/srv/git/fixture@2.git"},
+		{"./team@x:fixture.git", "./team@x:fixture.git"},
+	} {
+		if got := withoutUserinfo(test.remote); got != test.want {
+			t.Errorf("withoutUserinfo(%q) = %q, want %q", test.remote, got, test.want)
+		}
+	}
+}
+
 func TestCompareReportsRelationshipFindings(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)
@@ -487,6 +569,9 @@ func TestChangeSetWriteInShallowCloneReportsIncompleteHistory(t *testing.T) {
 
 	clone := filepath.Join(t.TempDir(), "clone")
 	git(t, root, "clone", "-q", "--depth", "1", "--no-single-branch", "--branch", "cs/00001-shallow", "file://"+root, clone)
+	// The clone has no local default branch. Its origin must be the
+	// canonical remote, so that origin/main decides approval.
+	git(t, clone, "remote", "set-url", "origin", "https://example.invalid/fixture.git")
 	t.Chdir(clone)
 	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--intent", "Shallow write")
 	if code != 6 || stderr != "" || jsonString(t, stdout, "error", "code") != "git.read_failed" || jsonString(t, stdout, "error", "mutation") != "none" {

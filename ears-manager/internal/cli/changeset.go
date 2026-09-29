@@ -109,9 +109,15 @@ func runChangeSetList(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, failure
 	}
 	items := make([]changeSetListItem, 0)
+	var refs []string
 	for _, document := range state.snapshot.ChangeSets {
 		value := records.CanonicalChangeSet(document.Value)
-		status, failure := derivedChangeSetStatus(state, document.Path)
+		if refs == nil {
+			if refs, failure = resolveDefaultBranchRefs(state.root, state.snapshot.Config.Repository); failure != nil {
+				return nil, Mutation{}, failure
+			}
+		}
+		status, failure := derivedChangeSetStatus(state, refs, document.Path)
 		if failure != nil {
 			return nil, Mutation{}, failure
 		}
@@ -161,7 +167,11 @@ func runChangeSetShow(args []string) (any, Mutation, *commandFailure) {
 	if !exists {
 		return nil, Mutation{}, validationFailure("change_set.not_found", fmt.Sprintf("Change set %s was not found.", id), nil)
 	}
-	status, failure := derivedChangeSetStatus(state, state.snapshot.ChangeSets[index].Path)
+	refs, failure := resolveDefaultBranchRefs(state.root, state.snapshot.Config.Repository)
+	if failure != nil {
+		return nil, Mutation{}, failure
+	}
+	status, failure := derivedChangeSetStatus(state, refs, state.snapshot.ChangeSets[index].Path)
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -197,7 +207,7 @@ func runChangeSetShowAt(id, at string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, notFound
 	}
 	status := "proposed"
-	approved, failure := commitOnDefaultBranch(root, state.snapshot.Config.Repository.DefaultBranch, commit)
+	approved, failure := commitOnDefaultBranch(root, state.snapshot.Config.Repository, commit)
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -461,8 +471,8 @@ func changeSetUpdateSummaryJSON(value records.ChangeSet, status string, parsed o
 	return summary
 }
 
-func derivedChangeSetStatus(state projectState, manifestPath string) (string, *commandFailure) {
-	approved, failure := changeSetApprovedAt(state.root, state.snapshot.Config.Repository.DefaultBranch, manifestPath)
+func derivedChangeSetStatus(state projectState, refs []string, manifestPath string) (string, *commandFailure) {
+	approved, failure := changeSetApprovedAt(state.root, refs, manifestPath)
 	if failure != nil {
 		return "", failure
 	}

@@ -85,11 +85,19 @@ func TestChangeSetShowAtDerivesApprovalFromTheDefaultBranch(t *testing.T) {
 
 	// The Source Control Manager reads the default head after a fetch, when
 	// the local default branch can still be behind its remote-tracking branch.
-	git(t, root, "update-ref", "refs/remotes/origin/main", merge)
+	// Only the canonical remote's branch counts, and a fork named origin is
+	// not the canonical remote.
 	git(t, root, "switch", "--detach", merge)
 	git(t, root, "branch", "-f", "main", base)
+	git(t, root, "remote", "add", "origin", "https://example.invalid/fork.git")
+	git(t, root, "update-ref", "refs/remotes/origin/main", merge)
+	if status := show(merge); status != "proposed" {
+		t.Fatalf("status at a merge only a fork's origin/main holds = %s", status)
+	}
+	git(t, root, "remote", "add", "upstream", "https://example.invalid/fixture.git")
+	git(t, root, "update-ref", "refs/remotes/upstream/main", merge)
 	if status := show(merge); status != "approved" {
-		t.Fatalf("status at a merge only origin/main holds = %s", status)
+		t.Fatalf("status at a merge only the canonical upstream/main holds = %s", status)
 	}
 
 	git(t, root, "switch", "-c", "cs/00002-later")
@@ -113,6 +121,8 @@ func TestChangeSetShowAtFindsTheMergeInAShallowClone(t *testing.T) {
 	if gitOutput(t, clone, "rev-parse", "refs/remotes/origin/main") != merge || gitOutput(t, clone, "rev-parse", "--is-shallow-repository") != "true" {
 		t.Fatalf("the clone is not a shallow clone with origin/main at the merge")
 	}
+	// origin must be the canonical remote, so that origin/main counts.
+	git(t, clone, "remote", "set-url", "origin", "https://example.invalid/fixture.git")
 
 	// Local main is still the base, so it does not prove the merge; the shallow
 	// history makes that answer a failure. origin/main is the merge itself.

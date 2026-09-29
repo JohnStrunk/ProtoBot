@@ -290,19 +290,19 @@ func writeRevisionEntries(target string, entries []treeEntry, contents map[strin
 
 // commitOnDefaultBranch reports whether commit is on the default branch: a
 // resolvable default-branch ref points at commit or at a descendant of it.
-// The refs are the ones resolveDefaultBranchRef tries, and all of them count,
-// so a local branch that is behind its remote-tracking branch does not hide
-// a merge. isAncestor ignores replace refs, as the change-set ancestry check
+// The refs are the ones defaultBranchRefs lists, and all of them count, so a
+// local branch that is behind its remote-tracking branch does not hide a
+// merge. isAncestor ignores replace refs, as the change-set ancestry check
 // does. One ref that proves ancestry is enough, so a failure on another ref,
 // such as the shallow-clone failure, counts only when no ref proves it.
-func commitOnDefaultBranch(root, defaultBranch, commit string) (bool, *commandFailure) {
-	branch, failure := defaultBranchName(defaultBranch)
+func commitOnDefaultBranch(root string, repository records.RepositoryConfig, commit string) (bool, *commandFailure) {
+	refs, failure := defaultBranchRefs(root, repository)
 	if failure != nil {
 		return false, failure
 	}
 	resolved := false
 	var firstFailure *commandFailure
-	for _, ref := range defaultBranchRefs(branch) {
+	for _, ref := range refs {
 		output, err := exec.Command("git", "--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Output()
 		if err != nil {
 			continue
@@ -320,7 +320,7 @@ func commitOnDefaultBranch(root, defaultBranch, commit string) (bool, *commandFa
 		return false, firstFailure
 	}
 	if !resolved {
-		return false, projectFailure("project.default_branch_unresolved", fmt.Sprintf("Repository default branch %q could not be resolved.", branch))
+		return false, projectFailure("project.default_branch_unresolved", fmt.Sprintf("Repository default branch %q could not be resolved.", strings.TrimSpace(repository.DefaultBranch)))
 	}
 	return false, nil
 }
