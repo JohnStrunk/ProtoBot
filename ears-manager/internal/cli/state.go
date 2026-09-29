@@ -900,17 +900,22 @@ func resolveDefaultBranchRef(root, defaultBranch string) (string, *commandFailur
 	if branch == "" {
 		return "", projectFailure("project.invalid_configuration", "Repository default branch is not configured.")
 	}
-	candidates := []string{
-		"refs/heads/" + branch,
-		"refs/remotes/origin/" + branch,
-	}
-	for _, candidate := range candidates {
+	for _, candidate := range defaultBranchRefs(branch) {
 		cmd := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", candidate+"^{commit}")
 		if err := cmd.Run(); err == nil {
 			return candidate, nil
 		}
 	}
 	return "", projectFailure("project.default_branch_unresolved", fmt.Sprintf("Repository default branch %q could not be resolved.", branch))
+}
+
+// defaultBranchRefs lists the refs that can hold the default branch, in the
+// order resolveDefaultBranchRef tries them.
+func defaultBranchRefs(branch string) []string {
+	return []string{
+		"refs/heads/" + branch,
+		"refs/remotes/origin/" + branch,
+	}
 }
 
 func changeSetApprovedAt(root, defaultBranch, manifestPath string) (bool, *commandFailure) {
