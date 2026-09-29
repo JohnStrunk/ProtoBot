@@ -231,7 +231,7 @@ func failureFromDiagnostics(diagnostics []specvalidation.Diagnostic) *commandFai
 			return ioFailure("storage.read_failed", "The project specification could not be read.")
 		}
 	}
-	if hasDiagnosticPrefix(diagnostics, "schema.") || hasDiagnosticPrefix(diagnostics, "project.") {
+	if hasProjectDiagnostic(diagnostics) {
 		return &commandFailure{
 			Code:        "project.invalid_configuration",
 			Message:     "The project configuration is invalid.",
@@ -265,13 +265,33 @@ func draftIncompleteDiagnostic(diagnostic specvalidation.Diagnostic) bool {
 	return draftOnlyDiagnostic(diagnostic)
 }
 
-func hasDiagnosticPrefix(diagnostics []specvalidation.Diagnostic, prefix string) bool {
+func hasProjectDiagnostic(diagnostics []specvalidation.Diagnostic) bool {
 	for _, diagnostic := range diagnostics {
-		if strings.HasPrefix(diagnostic.Code, prefix) {
+		if projectDiagnostic(diagnostic) {
 			return true
 		}
 	}
 	return false
+}
+
+// projectDiagnostic reports whether a diagnostic leaves the project unusable
+// as configured, which is status 3: an unsupported schema version or an
+// invalid project.yaml setting. A structured-store integrity diagnostic sits
+// on a store_digests field and is a validation failure, like an artifact
+// digest. A credential-bearing canonical remote is a validation failure in
+// project init and check alike.
+func projectDiagnostic(diagnostic specvalidation.Diagnostic) bool {
+	switch {
+	case strings.HasPrefix(diagnostic.Code, "schema."):
+		return true
+	case !strings.HasPrefix(diagnostic.Code, "project."):
+		return false
+	case diagnostic.Code == "project.remote_credentials":
+		return false
+	case strings.HasPrefix(diagnostic.Field, "store_digests."):
+		return false
+	}
+	return true
 }
 
 func validateCandidate(snapshot specvalidation.Snapshot, allowDraft bool) *commandFailure {
