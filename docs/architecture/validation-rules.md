@@ -382,8 +382,12 @@ the same idempotency key.
    work item or an `omitted` materialization reservation. Reusing it with
    a different source contract is an `IDEMPOTENCY_CONFLICT`, even when the
    per-command key is new.
-6. A rejected request is also idempotent. The caller must use a refreshed
-   expected version and a new key after correcting the cause.
+6. A rejected request is also idempotent, including a `NOT_FOUND`
+   rejection when the target is not visible. A retry with the same key
+   and identical fingerprint returns the original rejection with
+   `replayed: true` even if target visibility later changes. The caller
+   must use a refreshed expected version and a new key after correcting
+   the cause.
 
 Authorization expiry is checked before replay and is not part of the
 fingerprint. A lost-response retry therefore obtains a fresh context with
@@ -570,7 +574,7 @@ The MVP rejection codes are:
 separate codes even when they occur in one failed request. The boundary
 reports the first failed check using a deterministic check order:
 
-1. target visibility and complete authorization-context validation;
+1. complete authorization-context validation;
 2. role-family, `allowed_actions`, and payload-ref subset checks;
 3. idempotency-key replay or conflict;
 4. `materialize` create-or-return by `materialization_key`;
@@ -586,6 +590,15 @@ reports the first failed check using a deterministic check order:
     `return-to-building`, `begin-merge`, `raise-spec-question`, Job Site
     `merge-conflict`, and Job Site `record-merge`;
 11. transition and command preconditions.
+
+When the target work item is not visible, the boundary enforces authorization
+before consulting idempotency. An unauthorized caller receives visibility-safe
+`NOT_FOUND` without reading or writing the idempotency map. After
+authorization-context validation and role/action/ref checks, an authorized
+mutating request consults the idempotency map even when the target is not
+visible: an identical fingerprint replays the stored `NOT_FOUND`, a fingerprint
+mismatch returns `IDEMPOTENCY_CONFLICT` without overwriting, and only a miss
+records a new `NOT_FOUND`.
 
 The claim-specific contention check applies only when the current record
 has an active owner or lease. A claim against another non-claimable state
@@ -662,7 +675,7 @@ authorities:
 | --- | --- | --- |
 | Request backlog, request revisions, and blocked-resolution submissions | WMS Adapter/backend | Validate request-namespace preconditions and supply durable submission records; consume only the currently-active submission's approval and lifecycle fields during authoritative `resolve-block`. |
 | Work-item state, contract versions, leases, and fencing tokens | WMS Adapter and its claim coordinator | Validate all reads used for a mutation and require atomic compare-and-swap semantics. |
-| Idempotency results, materialization reservations, and lifecycle audit events | WMS Adapter / external coordinator | Ensure retries return the original result and never duplicate a mutation, including `omitted` outcomes. |
+| Idempotency results, materialization reservations, and lifecycle audit events | WMS Adapter / external coordinator | Ensure retries return the original result and never duplicate a mutation, including `omitted` outcomes and `NOT_FOUND` rejections. |
 | Specification records and impact dispositions | Git through `ears-manager` | Consume successful validation/check evidence; do not parse or mutate records. |
 | Project/deployment policy | `.protobot/policy.yaml` or deployment configuration | Select the compatible rule/policy version; changes are reviewed. |
 | Web session state | Web Drafting Table deployment | Supply authenticated project/session context only; never become lifecycle state or an alternate write authority. |
@@ -741,6 +754,7 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-052` | Materialize a complete contract whose payload copy asserts inspection or reconciliation evidence. | The materialized record stores no caller-asserted evidence; only WMS-observed evidence may be recorded. |
 | `VR-053` | Materialize a complete contract whose payload copy states a dependency is completed while the WMS observes that dependency as blocked. | Materialization follows the WMS-observed dependency state and returns `waiting`; the caller's dependency states are not stored. |
 | `VR-054` | An `inspecting` work item with observed inspection evidence returns to building through rework, passes the Building test gate again, and requests `begin-merge` before a fresh inspection observation. | `begin-merge` is rejected with `PRECONDITION_FAILED`; the rework cleared the observed inspection evidence, so merging requires a fresh WMS inspection observation. |
+| `VR-055` | Claim a work item that is not visible with idempotency key K; reuse K against a different not-visible item; retry K while it stays not visible; make the same target visible as `ready-for-building`; retry K; reuse K against a different visible item; make the original target not visible again and retry K. | The first result is `NOT_FOUND` and is recorded; reusing K against a different not-visible item or a different visible item is rejected with `IDEMPOTENCY_CONFLICT`; retries with the same key and identical fingerprint replay that `NOT_FOUND` with `replayed: true` and no mutation after the target becomes visible or is no longer visible. A later successful claim of the now-visible item requires a new key. |
 
 The matrix covers the required stale-write, duplicate-claim,
 unauthorized-mutation, and idempotent-retry cases. Backend adapter tests

@@ -351,7 +351,7 @@ stable codes for request/query operations.
 | Failure | Result and retry |
 | --- | --- |
 | Missing/invalid authorization | `UNAUTHORIZED_ACTION`; obtain a new trusted context. |
-| Request or target not visible | Visibility-safe `NOT_FOUND`; do not reveal whether another project owns it. |
+| Request or target not visible | Visibility-safe `NOT_FOUND`; do not reveal whether another project owns it. A mutating `NOT_FOUND` is recorded under the idempotency key. An exact key and fingerprint retry returns the original `NOT_FOUND` with `replayed` even if target visibility later changes; a later successful mutation against the now-visible target requires a new key. |
 | Invalid request/query | `INVALID_REQUEST`; correct the payload without mutation. |
 | Stale request revision | `STALE_REQUEST_REVISION`; reread and present the changed request before retrying. |
 | Stale work-item state/version | `STALE_STATE` or `STALE_CONTRACT_VERSION`; rerun preflight and require renewed review. |
