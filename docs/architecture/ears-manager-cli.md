@@ -498,7 +498,7 @@ The process status is part of the contract:
 | `0` | Success | Read succeeded, validation passed, or a write was applied | No retry needed |
 | `2` | Usage | Unknown command/option, missing option, malformed option value | Correct the request; no mutation occurred |
 | `3` | Project | Project not initialized, project outside Git root, unsupported store version, invalid project configuration | Select or upgrade the project; no mutation occurred |
-| `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content, invalid base commit | Revise the proposed request; no mutation occurred |
+| `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content, invalid base commit, a structured store or registered artifact that does not match its digest | Revise the proposed request; no mutation occurred |
 | `5` | Conflict or stale state | Approved manifest, duplicate ID, branch conflict, changed base, impact assessment no longer matches candidates | Refresh and review; no mutation occurred |
 | `6` | I/O or external boundary | Permission failure, unreadable input, Git read failure, atomic write failure with known rollback | Fix the environment, then retry after checking state |
 | `70` | Internal failure | Unexpected invariant or serialization failure | Do not blindly retry; retain the diagnostic for implementation triage |
@@ -701,11 +701,59 @@ Success data contains:
 ```
 
 An invalid specification returns the failure envelope with one or more stable
-diagnostics and status `4`; project discovery or schema-version failures use
-status `3`. An incomplete, stale, or mismatched proposed impact assessment
-returns status `5` so the caller refreshes and re-reviews state rather than
-revising record content. Approved manifests are checked against their stored
-historical assessment. `check` never repairs files.
+diagnostics and status `4`; project discovery, schema-version, and
+project-configuration failures use status `3`. An incomplete, stale, or
+mismatched proposed impact assessment returns status `5` so the caller
+refreshes and re-reviews state rather than revising record content. Approved
+manifests are checked against their stored historical assessment. `check`
+never repairs files.
+
+The class of a `project.` or `schema.` code, not its prefix, decides its
+status:
+
+- **Project, status `3`.** The project cannot be found, or cannot be used as
+  configured: it is not initialized, it is outside a Git working tree, a
+  schema version is unsupported, or a `project.yaml` setting is invalid,
+  apart from the two cases below.
+- **Validation, status `4`.** Structured-store integrity is a specification
+  rule. A `project.` diagnostic on a `store_digests.<store>` field is in the
+  same class as `artifact.digest_mismatch`. A credential-bearing canonical
+  remote is also status `4`, as in `project init`.
+
+`project.configuration_unreadable` is an I/O failure with status `6`. A
+`project.yaml` that does not decode, such as one with malformed YAML or an
+unknown key, reports `storage.decode_failed` with status `4`, as a record
+that does not decode does.
+
+When one result holds diagnostics of both classes, status `3` wins, because
+an invalid configuration can make the other results wrong. A status `3`
+result that carries diagnostics has the error code
+`project.invalid_configuration` and the retry `select-or-upgrade-project`. A
+status `4` result that carries these diagnostics has the error code
+`validation.failed` and the retry `revise-request`. Every command that loads
+an existing project uses the same statuses. `project init` validates its
+request as the [project initialization grammar](#project-initialization-grammar)
+describes.
+
+In the table, an `error.code` is the failure's own code, and that failure
+carries no diagnostics. A diagnostic arrives in `error.diagnostics`.
+
+| Code | Reported as | `check` reports it when | Status |
+| --- | --- | --- | --- |
+| `project.not_git_root` | `error.code` | The working directory is not inside a Git working tree | `3` |
+| `project.not_initialized` | `error.code` | The Git working tree has no `.protobot/project.yaml` | `3` |
+| `project.configuration_unreadable` | `error.code` | `.protobot/project.yaml` cannot be inspected for a reason other than its absence, for example because `.protobot` is a regular file | `6` |
+| `project.load_failed` | `error.code` | With `--change-set` only: the project does not load, and validation names no diagnostic | `3` |
+| `project.default_branch_unresolved` | `error.code` | A change set exists, and the default branch does not resolve to a commit | `3` |
+| `project.invalid_configuration` | Both | The review mode, default branch, or branch prefix is invalid, or the canonical remote is not a supported form. It is also the `error.code` of every status `3` result that carries diagnostics | `3` |
+| `schema.unsupported_version` | Diagnostic | A schema version is missing or is not the supported version | `3` |
+| `project.invalid_path` | Diagnostic | `.protobot/` is a symlink, or a configured store path is not a project-relative directory | `3` |
+| `project.missing_field` on `project.id`, `project.name`, `repository.canonical_remote`, or `repository.review_mode` | Diagnostic | A required configuration field is missing | `3` |
+| `project.remote_credentials` | Diagnostic | A supported `https://` or `ssh://` remote carries userinfo, or an SCP-style remote carries userinfo other than the fixed `git@` | `4` |
+| `project.missing_field` on `store_digests.<store>` | Diagnostic | A structured store has no recorded digest | `4` |
+| `project.invalid_digest` | Diagnostic | A recorded store digest does not match `sha256:<64 lowercase hexadecimal characters>` | `4` |
+| `project.store_digest_unreadable` | Diagnostic | A visible entry of a structured store is a symlink, a subdirectory, or not a `.yaml` file, or the store cannot be read | `4` |
+| `project.store_digest_mismatch` | Diagnostic | The visible YAML file set of a structured store does not match its recorded digest | `4` |
 
 ### `change-set compare`
 

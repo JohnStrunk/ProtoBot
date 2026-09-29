@@ -281,6 +281,220 @@ func TestCLIAllowsAddThenRetireInOneChangeSet(t *testing.T) {
 	}
 }
 
+func TestCheckReportsStoreEditOutsideEarsManagerAsValidationFailure(t *testing.T) {
+	cases := []struct {
+		name  string
+		edit  func(t *testing.T, root string)
+		field string
+	}{
+		{
+			name: "edit of an approved manifest",
+			edit: func(t *testing.T, root string) {
+				path := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+				data, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, append(data, []byte("# A direct edit.\n")...), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			field: "store_digests.change_sets",
+		},
+		{
+			name: "record added to a store",
+			edit: func(t *testing.T, root string) {
+				if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "REQ-FIX-00001.yaml"), []byte("id: REQ-FIX-00001\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			field: "store_digests.requirements",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newFixtureProject(t)
+			t.Chdir(root)
+			code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Approved change", "--implementation-required", "false", "--implementation-rationale", "Fixture history.", "--created", "2026-09-29T10:00:00Z")
+			assertSuccess(t, code, stdout, stderr)
+			git(t, root, "add", ".")
+			git(t, root, "commit", "-m", "approve CS-00001")
+			code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Proposed change", "--implementation-required", "false", "--implementation-rationale", "Fixture draft.", "--created", "2026-09-29T10:01:00Z")
+			assertSuccess(t, code, stdout, stderr)
+			code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", "CS-00002")
+			assertSuccess(t, code, stdout, stderr)
+
+			tc.edit(t, root)
+			for _, args := range [][]string{{"check", "--change-set", "CS-00002"}, {"check"}} {
+				code, stdout, stderr = runCLI(nil, append([]string{"--output", "json"}, args...)...)
+				assertValidationFailure(t, code, stdout, stderr)
+				if !hasDiagnostic(t, stdout, "project.store_digest_mismatch", tc.field) {
+					t.Fatalf("%v omitted the store digest mismatch on %s: %s", args, tc.field, stdout)
+				}
+			}
+		})
+	}
+}
+
+func TestCLIStatusByDiagnosticClass(t *testing.T) {
+	user, credential := "fixture-user", "fixture-token"
+	credentialRemote := "https://" + user + ":" + credential + "@example.invalid/fixture.git"
+	cases := []struct {
+		name     string
+		mutate   func(t *testing.T, root string)
+		wantExit int
+		wantCode string
+		field    string
+	}{
+		{
+			name: "store digest mismatch",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.StoreDigests.Interfaces = "sha256:" + strings.Repeat("0", 64)
+				})
+			},
+			wantExit: 4,
+			wantCode: "project.store_digest_mismatch",
+			field:    "store_digests.interfaces",
+		},
+		{
+			name: "store holds an entry that is not a record",
+			mutate: func(t *testing.T, root string) {
+				if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "notes.txt"), []byte("notes\n"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+			wantExit: 4,
+			wantCode: "project.store_digest_unreadable",
+			field:    "store_digests.requirements",
+		},
+		{
+			name: "malformed store digest",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.StoreDigests.ChangeSets = "sha256:not-a-digest"
+				})
+			},
+			wantExit: 4,
+			wantCode: "project.invalid_digest",
+			field:    "store_digests.change_sets",
+		},
+		{
+			name: "missing store digest",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.StoreDigests.Requirements = ""
+				})
+			},
+			wantExit: 4,
+			wantCode: "project.missing_field",
+			field:    "store_digests.requirements",
+		},
+		{
+			name: "credential-bearing canonical remote",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.Repository.CanonicalRemote = credentialRemote
+				})
+			},
+			wantExit: 4,
+			wantCode: "project.remote_credentials",
+			field:    "repository.canonical_remote",
+		},
+		{
+			name: "unsupported schema version",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.SchemaVersions.Project = records.CurrentProjectSchemaVersion + 1
+				})
+			},
+			wantExit: 3,
+			wantCode: "schema.unsupported_version",
+			field:    "schema_versions.project",
+		},
+		{
+			name: "invalid project configuration",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.Repository.ReviewMode = "solo"
+				})
+			},
+			wantExit: 3,
+			wantCode: "project.invalid_configuration",
+			field:    "repository.review_mode",
+		},
+		{
+			name: "missing project identity",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.Project.Name = ""
+				})
+			},
+			wantExit: 3,
+			wantCode: "project.missing_field",
+			field:    "project.name",
+		},
+		{
+			name: "invalid project configuration with a store digest mismatch",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.Repository.BranchPrefix = "wi/"
+					config.StoreDigests.Interfaces = "sha256:" + strings.Repeat("0", 64)
+				})
+			},
+			wantExit: 3,
+			wantCode: "project.store_digest_mismatch",
+			field:    "store_digests.interfaces",
+		},
+		{
+			name: "credential-bearing remote with invalid project configuration",
+			mutate: func(t *testing.T, root string) {
+				rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
+					config.Repository.CanonicalRemote = credentialRemote
+					config.Repository.ReviewMode = "solo"
+				})
+			},
+			wantExit: 3,
+			wantCode: "project.remote_credentials",
+			field:    "repository.canonical_remote",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newFixtureProject(t)
+			t.Chdir(root)
+			tc.mutate(t, root)
+			for _, args := range [][]string{{"check"}, {"requirement", "list"}} {
+				code, stdout, stderr := runCLI(nil, append([]string{"--output", "json"}, args...)...)
+				if tc.wantExit == 3 {
+					assertProjectFailure(t, code, stdout, stderr)
+				} else {
+					assertValidationFailure(t, code, stdout, stderr)
+				}
+				if !hasDiagnostic(t, stdout, tc.wantCode, tc.field) {
+					t.Fatalf("%v omitted %s on %s: %s", args, tc.wantCode, tc.field, stdout)
+				}
+				if strings.Contains(stdout, credential) {
+					t.Fatalf("%v echoed the remote credential: %s", args, stdout)
+				}
+			}
+		})
+	}
+}
+
+func TestCheckOutsideInitializedProjectIsProjectFailure(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	if err := os.Remove(filepath.Join(root, ".protobot", "project.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	assertProjectFailure(t, code, stdout, stderr)
+	if jsonString(t, stdout, "error", "code") != "project.not_initialized" {
+		t.Fatalf("uninitialized check = %s", stdout)
+	}
+}
+
 func TestApplyTransactionRejectsConcurrentCreation(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "records"), 0o755); err != nil {
@@ -451,6 +665,51 @@ func assertSuccess(t *testing.T, code int, stdout, stderr string) {
 	}
 	if !strings.Contains(stdout, `"ok":true`) {
 		t.Fatalf("command did not return success envelope: %s", stdout)
+	}
+}
+
+func assertProjectFailure(t *testing.T, code int, stdout, stderr string) {
+	t.Helper()
+	if code != 3 || stderr != "" || jsonString(t, stdout, "error", "retry") != "select-or-upgrade-project" || jsonString(t, stdout, "error", "mutation") != "none" {
+		t.Fatalf("result = code %d stdout %s stderr %s; want a status 3 project failure", code, stdout, stderr)
+	}
+}
+
+func assertValidationFailure(t *testing.T, code int, stdout, stderr string) {
+	t.Helper()
+	if code != 4 || stderr != "" || jsonString(t, stdout, "error", "code") != "validation.failed" || jsonString(t, stdout, "error", "retry") != "revise-request" || jsonString(t, stdout, "error", "mutation") != "none" {
+		t.Fatalf("result = code %d stdout %s stderr %s; want a status 4 validation failure", code, stdout, stderr)
+	}
+}
+
+func hasDiagnostic(t *testing.T, stdout, code, field string) bool {
+	t.Helper()
+	var envelope failureEnvelope
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("invalid JSON %q: %v", stdout, err)
+	}
+	for _, diagnostic := range envelope.Error.Diagnostics {
+		if diagnostic.Code == code && diagnostic.Field == field {
+			return true
+		}
+	}
+	return false
+}
+
+func rewriteProjectConfig(t *testing.T, root string, change func(*records.ProjectConfig)) {
+	t.Helper()
+	path := filepath.Join(root, ".protobot", "project.yaml")
+	var config records.ProjectConfig
+	if err := storage.ReadFile(path, &config); err != nil {
+		t.Fatal(err)
+	}
+	change(&config)
+	data, err := storage.Encode(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
