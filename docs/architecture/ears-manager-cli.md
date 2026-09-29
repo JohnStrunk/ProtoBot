@@ -498,7 +498,7 @@ The process status is part of the contract:
 | `0` | Success | Read succeeded, validation passed, or a write was applied | No retry needed |
 | `2` | Usage | Unknown command/option, missing option, malformed option value | Correct the request; no mutation occurred |
 | `3` | Project | Project not initialized, project outside Git root, unsupported store version, invalid project configuration | Select or upgrade the project; no mutation occurred |
-| `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content | Revise the proposed request; no mutation occurred |
+| `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content, invalid base commit | Revise the proposed request; no mutation occurred |
 | `5` | Conflict or stale state | Approved manifest, duplicate ID, branch conflict, changed base, impact assessment no longer matches candidates | Refresh and review; no mutation occurred |
 | `6` | I/O or external boundary | Permission failure, unreadable input, Git read failure, atomic write failure with known rollback | Fix the environment, then retry after checking state |
 | `70` | Internal failure | Unexpected invariant or serialization failure | Do not blindly retry; retain the diagnostic for implementation triage |
@@ -516,7 +516,9 @@ an invalid store exits non-zero.
 ## Operation contracts
 
 The tables below define the minimum request and result for every Toolkit-used
-operation. Fields inherited from ADR-0002 are not repeated in full.
+operation. Fields inherited from ADR-0002 are not repeated in full. Every
+write to an existing proposed change set can also return the diagnostics of
+the ancestry check in [Change sets](#change-sets).
 
 ### `project init`
 
@@ -605,8 +607,19 @@ merge commit when it is [refreshed from the default
 branch](git-integration.md#refreshing-from-the-default-branch). So the check
 asks for ancestry, not equality. An ancestor of a commit is a commit reachable
 from it, and a commit is its own ancestor, as in
-`git merge-base --is-ancestor`. A manifest without a `base_commit` is refused
-with `change_set.not_proposed`.
+`git merge-base --is-ancestor`. The check ignores Git replace refs.
+
+The check reads the recorded `base_commit` first:
+
+- A manifest without a `base_commit` is refused with
+  `change_set.not_proposed`, status `4`.
+- Outside a shallow clone, a `base_commit` that is not the full 40-character
+  ID of a commit in the local repository is refused with
+  `change_set.invalid_base`, status `4`. The
+  diagnostic names the value only when it is a full 40-character hexadecimal
+  ID, because the value comes from a file.
+
+Then it applies the ancestry rule:
 
 - A write without `--base-commit` is accepted when `base_commit` is an
   ancestor of `HEAD`. This covers the first write after `change-set create`,
@@ -622,8 +635,8 @@ with `change_set.not_proposed`.
 in each of these cases:
 
 - `base_commit` is not an ancestor of `HEAD`, for a write without
-  `--base-commit`. The working tree then does not descend from the base of
-  the change set.
+  `--base-commit`. For example, `HEAD` is on a branch that forked before
+  `base_commit`.
 - `X` is not an ancestor of `HEAD`. For a refresh, the default branch is then
   not merged in yet.
 - The recorded `base_commit` is not an ancestor of `X`. `base_commit` would
@@ -631,16 +644,26 @@ in each of these cases:
 - `HEAD` moved while the command prepared its write. This case also applies
   to `change-set create`.
 
-A value of `X` that is not the full 40-character ID of a local commit is
-refused with `change_set.invalid_base`, status `4`. A Git failure while the
-command reads the ancestry is `git.read_failed`, status `6`, with
-`mutation: "none"`.
+The third case means that `change-set update --base-commit` cannot repair a
+recorded `base_commit` that is not an ancestor of the new base, such as a
+commit that the default branch does not contain. No command in this contract
+repairs such a base.
+
+A value of `X` that is not the full 40-character ID of a commit in the local
+repository, such as the ID of an annotated tag, is refused with
+`change_set.invalid_base`, status `4`.
+
+In a shallow clone, a recorded `base_commit` that is not a local commit, and
+any answer that a commit is not an ancestor, is `git.read_failed`, status
+`6`, with `mutation: "none"`, because the history is incomplete. Fetching the
+full history lets the check answer. A failure of `git merge-base` itself is
+`git.read_failed` too.
 
 `ears-manager` does not check that `base_commit` is on the default branch.
 The [Source Control Manager's `publish`](source-control-manager.md#publish)
 refuses a `base_commit` that is not reachable from the default branch of the
 canonical remote (`BASE_NOT_ON_DEFAULT`), and a `base_commit` that differs
-from the default head reachable from `HEAD` (`BASE_COMMIT_STALE`).
+from the default-branch head reachable from `HEAD` (`BASE_COMMIT_STALE`).
 
 ### `check`
 
@@ -820,8 +843,9 @@ Every mutating command follows this sequence:
    control namespace is absent. In the EM-04 first release, `change-set create`
    verifies project configuration and base availability only; branch state and
    initialization branch reuse are deferred to the follow-on Git integration.
-5. Verify that `HEAD` has not moved since step 1, then write a complete
-   replacement set through a temporary file or directory.
+5. Except for `project init`, verify that `HEAD` has not moved since the
+   command read it in step 2. Then write a complete replacement set through a
+   temporary file or directory.
 6. Re-read and validate the replacement set.
 7. Atomically replace the governed paths and return the result.
 
@@ -839,6 +863,7 @@ path as a workaround. Safe retries are:
 | --- | --- |
 | `2` or `4` with `mutation: none` | Revise the request and retry with a new request |
 | `5` with `mutation: none` | Refresh the project/change-set state, rerun comparison and impact, and obtain renewed user review |
+| `6` with `mutation: none` | Fix the environment, then retry after checking state |
 | `6` with `mutation: unknown` | Reconcile first; retry the same request only when the result proves it was not applied |
 | `70` | Preserve the input and diagnostics for implementation triage; do not repeat blindly |
 
