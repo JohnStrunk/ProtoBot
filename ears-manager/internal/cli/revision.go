@@ -57,9 +57,11 @@ func parseRevisionOption(value string) (string, *commandFailure) {
 }
 
 // requireRevisionCommit refuses a parsed --at hash that names no commit in
-// the local repository.
+// the local repository. The object must be a commit itself: an annotated tag
+// is refused too, although Git would peel it to the commit it tags.
 func requireRevisionCommit(root, commit string) *commandFailure {
-	if !commitExists(root, commit) {
+	output, err := exec.Command("git", "-C", root, "cat-file", "-t", commit).Output()
+	if err != nil || strings.TrimSpace(string(output)) != "commit" {
 		return validationFailure("revision.not_found", fmt.Sprintf("Commit %s is not present in the local repository.", commit), nil)
 	}
 	return nil

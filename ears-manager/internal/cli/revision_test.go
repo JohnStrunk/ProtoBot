@@ -141,6 +141,11 @@ func TestChangeSetShowAtRefusesAnythingButAFullLocalCommitHash(t *testing.T) {
 	head := gitOutput(t, root, "rev-parse", "HEAD")
 	hexBranch := strings.Repeat("a", 40)
 	git(t, root, "branch", hexBranch)
+	git(t, root, "tag", "-a", "v1", "-m", "annotated tag")
+	tagObject := gitOutput(t, root, "rev-parse", "v1")
+	if tagObject == head {
+		t.Fatalf("annotated tag object %s is the commit itself", tagObject)
+	}
 	for _, test := range []struct {
 		name  string
 		value string
@@ -154,6 +159,7 @@ func TestChangeSetShowAtRefusesAnythingButAFullLocalCommitHash(t *testing.T) {
 		{name: "unknown commit", value: strings.Repeat("f", 40), code: "revision.not_found"},
 		{name: "branch named like a hash", value: hexBranch, code: "revision.not_found"},
 		{name: "tree object", value: gitOutput(t, root, "rev-parse", "HEAD^{tree}"), code: "revision.not_found"},
+		{name: "annotated tag object", value: tagObject, code: "revision.not_found"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001", "--at", test.value)

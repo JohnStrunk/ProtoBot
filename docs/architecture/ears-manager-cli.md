@@ -724,7 +724,8 @@ confirms that with the Git host.
 `--at` refuses a value that is not a full 40-character hexadecimal hash,
 such as a short hash, a branch or tag name, or `HEAD`, with
 `revision.invalid`. It refuses a full hash that names no commit in the local
-repository, such as an unknown object or a tree, with `revision.not_found`.
+repository, such as an unknown object, a tree, or an annotated tag, with
+`revision.not_found`.
 Both use status `4` and `mutation: "none"`, as a malformed or unknown
 `--base-commit` does. `revision.read_failed`, with status `6`, reports a Git
 failure while the tree is read, or a private copy that cannot be created,
