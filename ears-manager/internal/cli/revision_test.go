@@ -110,6 +110,31 @@ func TestChangeSetShowAtFailsWhenTheDefaultBranchIsUnresolved(t *testing.T) {
 	assertFailureCode(t, code, stdout, stderr, 3, "project.default_branch_unresolved")
 }
 
+func TestChangeSetShowRefusesADefaultBranchThatIsNotABranchName(t *testing.T) {
+	root, changeSetID, _ := newCommittedChangeSet(t)
+	configPath := filepath.Join(root, ".protobot", "project.yaml")
+	var config records.ProjectConfig
+	if err := storage.ReadFile(configPath, &config); err != nil {
+		t.Fatal(err)
+	}
+	// Git resolves this revision to the change-set branch tip itself, so the
+	// unreviewed tip would read as approved.
+	config.Repository.DefaultBranch = "cs/00001-show-at~0"
+	data, err := storage.Encode(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, root, "commit", "-am", "default branch as revision syntax")
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID, "--at", gitOutput(t, root, "rev-parse", "HEAD"))
+	assertFailureCode(t, code, stdout, stderr, 3, "project.invalid_configuration")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID)
+	assertFailureCode(t, code, stdout, stderr, 3, "project.invalid_configuration")
+}
+
 func TestChangeSetShowAtRefusesAnythingButAFullLocalCommitHash(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)

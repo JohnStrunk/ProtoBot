@@ -592,7 +592,7 @@ explicit.
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, or project diagnostics |
 | `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
-| `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `project.default_branch_unresolved`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
+| `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `project.default_branch_unresolved`, `project.invalid_configuration`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
 | `change-set update` | `--change-set CS-ID` plus metadata, `--base-commit`, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_base`, `change_set.invalid_impact`, `git.read_failed`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit (deferred to follow-on scope) | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
@@ -711,7 +711,11 @@ So a manifest is `proposed` at a change-set branch tip before the merge, and
 `approved` at the merge commit and at every later default-branch commit.
 Both refs count with `--at`, so a local default branch that is behind its
 remote-tracking branch does not hide a merge. When neither ref resolves, the
-read fails with `project.default_branch_unresolved` and status `3`.
+read fails with `project.default_branch_unresolved` and status `3`. Both
+rules check `default_branch` against the Git branch-name rule that `check`
+applies before any Git command runs, because Git would read a name such as
+`main~1` or `main@{1}` as another commit. A name that fails the rule is
+`project.invalid_configuration` with status `3`.
 `approved` states only that the commit is reachable from a default-branch
 ref. It does not prove that a reviewed pull request merged it; the
 [Source Control Manager](source-control-manager.md#approved-state-read-face)

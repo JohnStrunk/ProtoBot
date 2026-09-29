@@ -255,6 +255,12 @@ func validSCPRemote(remote string) bool {
 	return host != "" && path != "" && !strings.ContainsAny(host, "/\\@") && !strings.ContainsAny(path, "\x00\r\n")
 }
 
+// ValidGitRefName reports whether name is a valid Git branch name under the
+// rule that validates repository.default_branch.
+func ValidGitRefName(name string) bool {
+	return validGitRefName(name)
+}
+
 func validGitRefName(name string) bool {
 	if name == "" || name == "@" || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") || strings.Contains(name, "//") || strings.Contains(name, "..") || strings.Contains(name, "@{") {
 		return false

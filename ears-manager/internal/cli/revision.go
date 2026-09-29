@@ -298,9 +298,9 @@ func writeRevisionEntries(target string, entries []treeEntry, contents map[strin
 // so a local branch that is behind its remote-tracking branch does not hide
 // a merge.
 func commitOnDefaultBranch(root, defaultBranch, commit string) (bool, *commandFailure) {
-	branch := strings.TrimSpace(defaultBranch)
-	if branch == "" {
-		return false, projectFailure("project.invalid_configuration", "Repository default branch is not configured.")
+	branch, failure := defaultBranchName(defaultBranch)
+	if failure != nil {
+		return false, failure
 	}
 	resolved := false
 	for _, ref := range defaultBranchRefs(branch) {
