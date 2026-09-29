@@ -333,7 +333,10 @@ expired lease plus `lease-recovered`/`none` evidence, and `abandon`
 requires `not-integrated`/`none` evidence. Step 11 evaluates these same
 current-record pairs. Missing, malformed, or mismatched evidence returns
 `PRECONDITION_FAILED` with reconciliation details and cannot mutate state.
-Callers cannot replace these fields with payload claims.
+Callers cannot replace these fields with payload claims. Job Site
+`merge-conflict` to `building` does not require WMS-observed
+`conflict`/non-merged evidence; it requires the current merge fence, and
+step 11 then issues a replacement Job Site execution lease fence.
 
 ### Decision
 
@@ -413,7 +416,7 @@ into an arbitrary update.
 | `refresh-active` | `building` or `inspecting` | `blocked` | Active refresh finds unresolved impact, specification, policy, or reconciliation work; the old lease is released. |
 | `return-to-building` | `inspecting` | `building` | In-contract defect or failed final test requires rework. The current fence is checked and atomically replaced with a new lease fence. |
 | `begin-merge` | `inspecting` | `merging` | Inspection Run is sealed, all findings are terminal, and the final test gate passed. The Job Site supplies the tested-candidate merge envelope — tested tree digest, sealed Inspection Run, integration head, and merge target, without a merge commit — bound to the contract version the merge completes under; the WMS records it as `expected_merge`. |
-| `merge-conflict` | `merging` | `building` | A Job Site owner presents the current merge fence; the WMS atomically replaces it with a new Job Site execution lease fence after conflict reconciliation. |
+| `merge-conflict` | `merging` | `building` | A Job Site owner presents the current merge fence; the WMS atomically replaces it with a new Job Site execution lease fence. WMS-observed `conflict`/non-merged evidence is not required on this path. |
 | `merge-conflict` | `merging` | `ready-for-building` | A trusted `reconciler` operation evaluates matching WMS-observed `conflict`/non-merged evidence; no live fence is required and the next Job Site must claim the item normally. |
 | `merge-not-applied` | `merging` | `ready-for-building` | A trusted `reconciler` operation evaluates matching WMS-observed `not-applied`/`none` evidence; no live fence is required and all gates must run again before a new claim. |
 | `record-merge` | `merging` | `completed` | A Job Site supplies the current fence, or a trusted `reconciler` operation evaluates matching WMS-observed `merge-recorded`/`merged` evidence; the merge envelope matches. |
@@ -606,13 +609,15 @@ after Git/WMS reconciliation, so it is exempt from step 10. `abandon` is a
 maintainer operation and is also exempt; its cancellation and
 reconciliation preconditions authorize it without a Job Site fence.
 
-`merge-conflict`, `merge-not-applied`, and reconciled `record-merge` are
-also reconciliation operations. A trusted `reconciler` role for one of
-these operations skips the live-owner fence check; step 11 then evaluates
-the required WMS-observed evidence on `current_record`. A reconciler
-conflict returns the item to `ready-for-building` for a fresh Job Site
-claim; it never issues a Job Site fence to the reconciler. Caller payload
-claims cannot satisfy or replace the evidence check.
+Reconciler `merge-conflict`, `merge-not-applied`, and reconciled
+`record-merge` are also reconciliation operations. A trusted `reconciler`
+role for one of these operations skips the live-owner fence check; step 11
+then evaluates the required WMS-observed evidence on `current_record`. A
+reconciler conflict returns the item to `ready-for-building` for a fresh
+Job Site claim; it never issues a Job Site fence to the reconciler. Caller
+payload claims cannot satisfy or replace the evidence check. Job Site
+`merge-conflict` remains a live-owner fence operation at step 10; step 11
+does not require WMS-observed `conflict`/non-merged evidence on that path.
 
 The response never returns a credential or an untrusted caller claim.
 
@@ -697,7 +702,7 @@ rejection or replay, plus one audit event for each accepted mutation.
 | `VR-013B` | Materialize an incomplete contract with missing required source or impact data. | Rejected with `PRECONDITION_FAILED`; no work item is created. |
 | `VR-014` | Materialize a complete contract with an unfinished dependency, complete that dependency through an authoritative WMS operation, then refresh. | Initial state is `waiting`; refresh observes the live dependency state and moves it to `ready-for-building` only after all checks pass. |
 | `VR-015` | `building` owner reports passing tests with the current state/version/fence, then begins merge after sealed inspection, supplying the tested-candidate merge envelope. | `building -> inspecting -> merging` succeeds only in order and with all evidence gates, and the WMS records the supplied envelope as `expected_merge`. |
-| `VR-016` | A `job-site` owner presents the current merge fence for a Git conflict. | `merging -> building` succeeds with the old fence invalidated and a new Job Site fence issued. |
+| `VR-016` | A `job-site` owner presents the current merge fence for a Git conflict while `current_record` has no WMS-observed `conflict`/non-merged evidence. | `merging -> building` succeeds with the old fence invalidated and a new Job Site fence issued. |
 | `VR-017` | A `reconciler` proves a `merging` item was not mutated in Git. | `merging -> ready-for-building` succeeds directly without a live fence; the next Job Site must claim it. |
 | `VR-018` | Exact `record-merge` retry repeats after the WMS response is lost. | Original completion is returned with `replayed: true`; no second merge event or completion mutation is created. |
 | `VR-019` | A `completed` or `abandoned` item receives any lifecycle command. | Rejected with `ALREADY_TERMINAL`; no mutation. |

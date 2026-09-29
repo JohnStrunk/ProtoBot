@@ -369,7 +369,6 @@ func validTransitionCases() []matrixCase {
 	add(matrixCase{name: "begin-merge", request: request, current: &inspecting, context: context, outcome: OutcomeAllowed, state: StateMerging})
 
 	merging := readyItem(StateMerging, 9)
-	merging.Reconciliation = ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
 	setLiveLease(&merging, "subject-1", "fence-current")
 	request, context = requestFor(OperationMergeConflict, RoleJobSite, &merging)
 	request.FencingToken = "fence-current"

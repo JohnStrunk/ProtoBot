@@ -130,6 +130,61 @@ func (m *Memory) ObserveReadiness(workItemID string, readiness validation.Readin
 	return nil
 }
 
+// ObserveInspection records trusted inspection evidence observed by the WMS
+// itself. This fixture hook is separate from CallRequest so a caller cannot
+// assert a sealed Inspection Run, terminal findings, or the final-test gate
+// in a lifecycle payload. The observation is persisted on the inspecting
+// work item so begin-merge evaluates the WMS-owned current record.
+func (m *Memory) ObserveInspection(workItemID string, evidence validation.InspectionEvidence) error {
+	if isBlank(workItemID) {
+		return errors.New("work item ID must not be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	item, exists := m.workItems[workItemID]
+	if !exists {
+		return errors.New("work item does not exist")
+	}
+	if item.State != validation.StateInspecting {
+		return errors.New("inspection evidence can be recorded only while inspecting")
+	}
+	item = cloneWorkItem(item)
+	item.InspectionRunSealed = evidence.InspectionRunSealed
+	item.FindingsTerminal = evidence.FindingsTerminal
+	item.FinalTestsPassed = evidence.FinalTestsPassed
+	m.workItems[workItemID] = item
+	return nil
+}
+
+// ObserveReconciliation records trusted Git/WMS reconciliation evidence
+// observed by the WMS itself. This fixture hook is separate from CallRequest
+// so a caller cannot assert reconciliation evidence in a lifecycle payload.
+// The observation is persisted on the work item so reconciler operations
+// evaluate the WMS-owned current record.
+func (m *Memory) ObserveReconciliation(workItemID string, evidence validation.ReconciliationEvidence) error {
+	if isBlank(workItemID) {
+		return errors.New("work item ID must not be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	item, exists := m.workItems[workItemID]
+	if !exists {
+		return errors.New("work item does not exist")
+	}
+	item = cloneWorkItem(item)
+	item.Reconciliation = validation.ReconciliationEvidence{
+		Status:        evidence.Status,
+		GitMutation:   evidence.GitMutation,
+		MergeEnvelope: cloneMergeEnvelope(evidence.MergeEnvelope),
+	}
+	m.workItems[workItemID] = item
+	return nil
+}
+
 func (m *Memory) executePreflightLocked(call CallRequest, authorization validation.AuthorizationContext) Result {
 	var payload struct {
 		Operation validation.Operation `json:"operation"`

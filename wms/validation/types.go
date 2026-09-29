@@ -180,6 +180,14 @@ type Readiness struct {
 	UnresolvedReasons          []string `json:"unresolved_reasons,omitempty"`
 }
 
+// InspectionEvidence is populated from trusted WMS inspection observations,
+// never from a caller's proof fields.
+type InspectionEvidence struct {
+	InspectionRunSealed bool `json:"inspection_run_sealed"`
+	FindingsTerminal    bool `json:"findings_terminal"`
+	FinalTestsPassed    bool `json:"final_tests_passed"`
+}
+
 // WorkItem is the WMS-owned current lifecycle record supplied to the
 // evaluator. It contains no backend-specific issue or card fields.
 type WorkItem struct {
