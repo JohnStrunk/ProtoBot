@@ -262,10 +262,8 @@ func TestBeginMergeRecordsTestedCandidateForRecordMerge(t *testing.T) {
 	}
 
 	inspecting, _ := memory.WorkItem(item.ID)
-	inspecting.InspectionRunSealed = true
-	inspecting.FindingsTerminal = true
-	inspecting.FinalTestsPassed = true
-	replaceObservedWorkItem(memory, inspecting)
+	observeInspection(t, memory, inspecting.ID)
+	inspecting, _ = memory.WorkItem(item.ID)
 
 	testedCandidate := &validation.MergeEnvelope{
 		ProductTreeDigest: "tree-flow",
@@ -846,6 +844,137 @@ func TestObserveReadinessFeedsRevalidation(t *testing.T) {
 	}
 	if !reflect.DeepEqual(stored.Readiness.UnresolvedReasons, []string{"another-reason", "observed-policy-conflict"}) {
 		t.Fatalf("stored unresolved reasons = %#v, want the persisted observed readiness", stored.Readiness.UnresolvedReasons)
+	}
+}
+
+func TestObserveInspectionRecordsTrustedEvidence(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	if err := memory.ObserveInspection("wi-missing", validation.InspectionEvidence{InspectionRunSealed: true}); err == nil {
+		t.Fatal("ObserveInspection succeeded for a missing work item")
+	}
+
+	building := testWorkItem("wi-observe-inspection-building", validation.StateBuilding, 4)
+	seedConformanceItem(t, memory, building)
+	if err := memory.ObserveInspection(building.ID, validation.InspectionEvidence{
+		InspectionRunSealed: true,
+		FindingsTerminal:    true,
+		FinalTestsPassed:    true,
+	}); err == nil {
+		t.Fatal("ObserveInspection succeeded for a building work item")
+	}
+
+	inspecting := testWorkItem("wi-observe-inspection", validation.StateInspecting, 5)
+	setConformanceLease(&inspecting, "job-site", "fence-observe", memoryTestTime.Add(time.Hour))
+	seedConformanceItem(t, memory, inspecting)
+	if err := memory.ObserveInspection("", validation.InspectionEvidence{InspectionRunSealed: true}); err == nil {
+		t.Fatal("ObserveInspection succeeded with an empty work item ID")
+	}
+	if err := memory.ObserveInspection(inspecting.ID, validation.InspectionEvidence{
+		InspectionRunSealed: true,
+		FindingsTerminal:    true,
+		FinalTestsPassed:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := memory.WorkItem(inspecting.ID)
+	if !stored.InspectionRunSealed || !stored.FindingsTerminal || !stored.FinalTestsPassed {
+		t.Fatalf("observed inspection was not persisted: %#v", stored)
+	}
+}
+
+func TestObserveReconciliationRecordsTrustedEvidence(t *testing.T) {
+	memory, _ := newConformanceMemory(t)
+	evidence := validation.ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
+	if err := memory.ObserveReconciliation("wi-missing", evidence); err == nil {
+		t.Fatal("ObserveReconciliation succeeded for a missing work item")
+	}
+
+	item := testWorkItem("wi-observe-reconciliation", validation.StateMerging, 9)
+	seedConformanceItem(t, memory, item)
+	if err := memory.ObserveReconciliation("", evidence); err == nil {
+		t.Fatal("ObserveReconciliation succeeded with an empty work item ID")
+	}
+	if err := memory.ObserveReconciliation(item.ID, evidence); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ := memory.WorkItem(item.ID)
+	if stored.Reconciliation != evidence {
+		t.Fatalf("observed reconciliation = %#v, want %#v", stored.Reconciliation, evidence)
+	}
+}
+
+func TestEndToEndLifecyclePublicSurface(t *testing.T) {
+	memory, gate := newConformanceMemory(t)
+	candidate := testWorkItem("wi-public-lifecycle", validation.StateInitial, 0)
+	candidate.ChangeType = "undefined"
+
+	materialized := memory.Execute(materializeCall(candidate, "public-lifecycle-materialize", "public-lifecycle-key"))
+	decision := assertAllowedDecision(t, materialized, validation.AuthorityAuthoritative)
+	if decision.After.State != validation.StateReadyForBuilding {
+		t.Fatalf("materialized decision = %#v, want ready-for-building", decision)
+	}
+	ready, _ := memory.WorkItem(candidate.ID)
+
+	claimed := memory.Execute(conformanceCall(validation.OperationClaim, "job-site", ready, "public-lifecycle-claim"))
+	claimDecision := assertAllowedDecision(t, claimed, validation.AuthorityAuthoritative)
+	if claimDecision.After.State != validation.StateBuilding || claimDecision.FencingTokenIssued == "" {
+		t.Fatalf("claim decision = %#v, want building with a fence", claimDecision)
+	}
+	building, _ := memory.WorkItem(candidate.ID)
+
+	testsPass := conformanceCall(validation.OperationTestsPass, "job-site", building, "public-lifecycle-tests-pass")
+	testsPass.FencingToken = building.Lease.FencingToken
+	testsPass.Payload = jsonPayload(t, validation.Payload{BuildTestsPassed: true})
+	passed := memory.Execute(testsPass)
+	if passDecision := assertAllowedDecision(t, passed, validation.AuthorityAuthoritative); passDecision.After.State != validation.StateInspecting {
+		t.Fatalf("tests-pass after = %#v, want inspecting", passDecision.After)
+	}
+	inspecting, _ := memory.WorkItem(candidate.ID)
+	if inspecting.InspectionRunSealed || inspecting.FindingsTerminal || inspecting.FinalTestsPassed {
+		t.Fatalf("inspecting record already had inspection evidence: %#v", inspecting)
+	}
+
+	testedCandidate := &validation.MergeEnvelope{
+		ProductTreeDigest: "tree-public",
+		InspectionRunID:   "inspection-public",
+		IntegrationHead:   "integration-public",
+		Target:            "main",
+		ContractVersion:   inspecting.ContractVersion + 1,
+	}
+	setConformanceAllowedRefs(gate, "job-site", testedCandidate.Target, testedCandidate.IntegrationHead, testedCandidate.InspectionRunID)
+	beginMerge := conformanceCall(validation.OperationBeginMerge, "job-site", inspecting, "public-lifecycle-begin-merge-early")
+	beginMerge.FencingToken = building.Lease.FencingToken
+	beginMerge.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: testedCandidate})
+	early := memory.Execute(beginMerge)
+	earlyDecision := assertRejectedDecision(t, early, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+	if earlyDecision.Rejection.Details["required_evidence"] != "sealed-inspection-and-final-tests" {
+		t.Fatalf("early begin-merge rejection = %#v, want incomplete inspection gates", earlyDecision.Rejection)
+	}
+
+	observeInspection(t, memory, inspecting.ID)
+
+	beginMergeAgain := conformanceCall(validation.OperationBeginMerge, "job-site", inspecting, "public-lifecycle-begin-merge")
+	beginMergeAgain.FencingToken = building.Lease.FencingToken
+	beginMergeAgain.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: testedCandidate})
+	begun := memory.Execute(beginMergeAgain)
+	begunDecision := assertAllowedDecision(t, begun, validation.AuthorityAuthoritative)
+	if begunDecision.After.State != validation.StateMerging {
+		t.Fatalf("begin-merge after = %#v, want merging", begunDecision.After)
+	}
+	merging, _ := memory.WorkItem(candidate.ID)
+	if !reflect.DeepEqual(merging.ExpectedMerge, testedCandidate) {
+		t.Fatalf("recorded expected merge = %#v, want %#v", merging.ExpectedMerge, testedCandidate)
+	}
+
+	mergeResult := *testedCandidate
+	mergeResult.MergeCommit = "merge-public"
+	setConformanceAllowedRefs(gate, "job-site", testedCandidate.Target, testedCandidate.IntegrationHead, testedCandidate.InspectionRunID, mergeResult.MergeCommit)
+	recordMerge := conformanceCall(validation.OperationRecordMerge, "job-site", merging, "public-lifecycle-record-merge")
+	recordMerge.FencingToken = building.Lease.FencingToken
+	recordMerge.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: &mergeResult})
+	completed := memory.Execute(recordMerge)
+	if completedDecision := assertAllowedDecision(t, completed, validation.AuthorityAuthoritative); completedDecision.After.State != validation.StateCompleted {
+		t.Fatalf("record-merge after = %#v, want completed", completedDecision.After)
 	}
 }
 

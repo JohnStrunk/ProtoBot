@@ -369,12 +369,19 @@ func validTransitionCases() []matrixCase {
 	add(matrixCase{name: "begin-merge", request: request, current: &inspecting, context: context, outcome: OutcomeAllowed, state: StateMerging})
 
 	merging := readyItem(StateMerging, 9)
-	merging.Reconciliation = ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
 	setLiveLease(&merging, "subject-1", "fence-current")
 	request, context = requestFor(OperationMergeConflict, RoleJobSite, &merging)
 	request.FencingToken = "fence-current"
 	context.NextFencingToken = "fence-after-conflict"
 	add(matrixCase{name: "merge-conflict-job-site", request: request, current: &merging, context: context, outcome: OutcomeAllowed, state: StateBuilding, tokenIssued: true})
+
+	mergingConflict := readyItem(StateMerging, 9)
+	mergingConflict.Reconciliation = ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
+	setLiveLease(&mergingConflict, "subject-1", "fence-current")
+	request, context = requestFor(OperationMergeConflict, RoleJobSite, &mergingConflict)
+	request.FencingToken = "fence-current"
+	context.NextFencingToken = "fence-after-conflict"
+	add(matrixCase{name: "merge-conflict-job-site-matching-conflict", request: request, current: &mergingConflict, context: context, outcome: OutcomeAllowed, state: StateBuilding, tokenIssued: true})
 
 	merging = readyItem(StateMerging, 9)
 	merging.Reconciliation = ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
@@ -542,6 +549,14 @@ func invalidTransitionCases() []matrixCase {
 		ContractVersion:   inspecting.ContractVersion + 1,
 	}
 	add(matrixCase{name: "begin-merge-wrong-merge-target", request: request, current: &inspecting, context: context, code: CodePreconditionFailed})
+
+	mergingContradictory := readyItem(StateMerging, 9)
+	mergingContradictory.Reconciliation = ReconciliationEvidence{Status: "merge-recorded", GitMutation: "merged"}
+	setLiveLease(&mergingContradictory, "subject-1", "fence-current")
+	request, context = requestFor(OperationMergeConflict, RoleJobSite, &mergingContradictory)
+	request.FencingToken = "fence-current"
+	context.NextFencingToken = "fence-after-conflict"
+	add(matrixCase{name: "merge-conflict-job-site-contradictory-evidence", request: request, current: &mergingContradictory, context: context, code: CodePreconditionFailed})
 	return tests
 }
 

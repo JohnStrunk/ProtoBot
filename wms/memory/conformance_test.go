@@ -269,10 +269,8 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			}
 
 			inspecting, _ := memory.WorkItem(item.ID)
-			inspecting.InspectionRunSealed = true
-			inspecting.FindingsTerminal = true
-			inspecting.FinalTestsPassed = true
-			replaceObservedWorkItem(memory, inspecting)
+			observeInspection(t, memory, inspecting.ID)
+			inspecting, _ = memory.WorkItem(item.ID)
 			// The tested candidate exists only now: begin-merge carries it,
 			// and the WMS records it as the expected merge envelope.
 			testedCandidate := &validation.MergeEnvelope{
@@ -301,7 +299,6 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			memory, _ := newConformanceMemory(t)
 			item := testWorkItem("wi-016", validation.StateMerging, 9)
 			setConformanceLease(&item, "job-site", "fence-016", memoryTestTime.Add(time.Hour))
-			item.Reconciliation = validation.ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
 			seedConformanceItem(t, memory, item)
 			call := conformanceCall(validation.OperationMergeConflict, "job-site", item, "vr016-conflict")
 			call.FencingToken = "fence-016"
@@ -315,12 +312,45 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				t.Fatalf("merge-conflict did not rotate the fence: %#v", stored.Lease)
 			}
 			assertEventCount(t, memory, 1)
+
+			// Matching WMS-observed conflict evidence is also allowed.
+			memoryConflict, _ := newConformanceMemory(t)
+			itemConflict := testWorkItem("wi-016-conflict", validation.StateMerging, 9)
+			setConformanceLease(&itemConflict, "job-site", "fence-016-c", memoryTestTime.Add(time.Hour))
+			seedConformanceItem(t, memoryConflict, itemConflict)
+			observeReconciliation(t, memoryConflict, itemConflict.ID, validation.ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"})
+			itemConflict.Reconciliation = validation.ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
+			callConflict := conformanceCall(validation.OperationMergeConflict, "job-site", itemConflict, "vr016-with-conflict")
+			callConflict.FencingToken = "fence-016-c"
+			resultConflict := memoryConflict.Execute(callConflict)
+			decisionConflict := assertAllowedDecision(t, resultConflict, validation.AuthorityAuthoritative)
+			if decisionConflict.After.State != validation.StateBuilding || decisionConflict.FencingTokenIssued == "" {
+				t.Fatalf("merge-conflict with conflict evidence decision = %#v, want new building lease", decisionConflict)
+			}
+			storedConflict, _ := memoryConflict.WorkItem(itemConflict.ID)
+			if storedConflict.Reconciliation != (validation.ReconciliationEvidence{}) {
+				t.Fatalf("transition back to building did not clear reconciliation evidence: %#v", storedConflict.Reconciliation)
+			}
+
+			// Contradictory reconciliation evidence rejects Job Site merge-conflict.
+			memoryMerged, _ := newConformanceMemory(t)
+			itemMerged := testWorkItem("wi-016-merged", validation.StateMerging, 9)
+			setConformanceLease(&itemMerged, "job-site", "fence-016-m", memoryTestTime.Add(time.Hour))
+			seedConformanceItem(t, memoryMerged, itemMerged)
+			observeReconciliation(t, memoryMerged, itemMerged.ID, validation.ReconciliationEvidence{Status: "merge-recorded", GitMutation: "merged"})
+			itemMerged.Reconciliation = validation.ReconciliationEvidence{Status: "merge-recorded", GitMutation: "merged"}
+			callMerged := conformanceCall(validation.OperationMergeConflict, "job-site", itemMerged, "vr016-with-merged")
+			callMerged.FencingToken = "fence-016-m"
+			resultMerged := memoryMerged.Execute(callMerged)
+			assertRejectedDecision(t, resultMerged, validation.AuthorityAuthoritative, validation.CodePreconditionFailed)
+			assertItemUnchanged(t, memoryMerged, itemMerged)
+			assertEventCount(t, memoryMerged, 0)
 		}},
 		{"VR-017", func(t *testing.T) {
 			memory, _ := newConformanceMemory(t)
 			item := testWorkItem("wi-017", validation.StateMerging, 9)
-			item.Reconciliation = validation.ReconciliationEvidence{Status: "not-applied", GitMutation: "none"}
 			seedConformanceItem(t, memory, item)
+			observeReconciliation(t, memory, item.ID, validation.ReconciliationEvidence{Status: "not-applied", GitMutation: "none"})
 			result := memory.Execute(conformanceCall(validation.OperationMergeNotApplied, "reconciler", item, "vr017-not-applied"))
 			decision := assertAllowedDecision(t, result, validation.AuthorityAuthoritative)
 			if decision.After.State != validation.StateReadyForBuilding {
@@ -760,8 +790,8 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 		{"VR-034", func(t *testing.T) {
 			memory, _ := newConformanceMemory(t)
 			item := testWorkItem("wi-034", validation.StateMerging, 9)
-			item.Reconciliation = validation.ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"}
 			seedConformanceItem(t, memory, item)
+			observeReconciliation(t, memory, item.ID, validation.ReconciliationEvidence{Status: "conflict", GitMutation: "conflict"})
 			result := memory.Execute(conformanceCall(validation.OperationMergeConflict, "reconciler", item, "vr034-conflict"))
 			decision := assertAllowedDecision(t, result, validation.AuthorityAuthoritative)
 			if decision.After.State != validation.StateReadyForBuilding || decision.FencingTokenIssued != "" {
@@ -1408,10 +1438,8 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 				t.Fatalf("first tests-pass result = %#v", passed)
 			}
 			inspecting, _ := memory.WorkItem(item.ID)
-			inspecting.InspectionRunSealed = true
-			inspecting.FindingsTerminal = true
-			inspecting.FinalTestsPassed = true
-			replaceObservedWorkItem(memory, inspecting)
+			observeInspection(t, memory, inspecting.ID)
+			inspecting, _ = memory.WorkItem(item.ID)
 
 			// Rework returns the item to building; the observed inspection
 			// evidence must be cleared with the lease handoff.
@@ -1461,10 +1489,8 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 
 			// After a fresh WMS inspection observation, begin-merge succeeds.
 			reobserved, _ := memory.WorkItem(item.ID)
-			reobserved.InspectionRunSealed = true
-			reobserved.FindingsTerminal = true
-			reobserved.FinalTestsPassed = true
-			replaceObservedWorkItem(memory, reobserved)
+			observeInspection(t, memory, reobserved.ID)
+			reobserved, _ = memory.WorkItem(item.ID)
 			beginMergeAgain := conformanceCall(validation.OperationBeginMerge, "job-site", reobserved, "vr054-begin-merge-fresh")
 			beginMergeAgain.FencingToken = returned.Lease.FencingToken
 			beginMergeAgain.Payload = jsonPayload(t, validation.Payload{MergeEnvelope: testedCandidate})
@@ -1623,10 +1649,22 @@ func setConformanceLease(item *validation.WorkItem, owner, token string, expires
 	item.Lease = &validation.Lease{Owner: owner, FencingToken: token, ExpiresAt: expires}
 }
 
-func replaceObservedWorkItem(memory *Memory, item validation.WorkItem) {
-	memory.mu.Lock()
-	defer memory.mu.Unlock()
-	memory.workItems[item.ID] = cloneWorkItem(item)
+func observeInspection(t *testing.T, memory *Memory, workItemID string) {
+	t.Helper()
+	if err := memory.ObserveInspection(workItemID, validation.InspectionEvidence{
+		InspectionRunSealed: true,
+		FindingsTerminal:    true,
+		FinalTestsPassed:    true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func observeReconciliation(t *testing.T, memory *Memory, workItemID string, evidence validation.ReconciliationEvidence) {
+	t.Helper()
+	if err := memory.ObserveReconciliation(workItemID, evidence); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func assertAllowedDecision(t *testing.T, result Result, authority validation.Authority) *validation.Decision {

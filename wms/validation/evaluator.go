@@ -375,11 +375,14 @@ func evaluateExecutionTransition(request Request, current *WorkItem) (State, Out
 func evaluateMergeTransition(request Request, current *WorkItem) (State, Outcome, *MaterializationReservation, *Rejection) {
 	switch request.Operation {
 	case OperationMergeConflict:
-		if !reconciliationMatches(current.Reconciliation, "conflict", "conflict") {
-			return "", OutcomeRejected, nil, preconditionFailed("the WMS has no matching Git conflict observation", "reconciliation-conflict-evidence")
-		}
 		if request.Authorization.Role == RoleReconciler {
+			if !reconciliationMatches(current.Reconciliation, "conflict", "conflict") {
+				return "", OutcomeRejected, nil, preconditionFailed("the WMS has no matching Git conflict observation", "reconciliation-conflict-evidence")
+			}
 			return StateReadyForBuilding, OutcomeAllowed, nil, nil
+		}
+		if !reconciliationEmpty(current.Reconciliation) && !reconciliationMatches(current.Reconciliation, "conflict", "conflict") {
+			return "", OutcomeRejected, nil, preconditionFailed("the WMS has contradictory Git reconciliation observations", "reconciliation-conflict-evidence")
 		}
 		return StateBuilding, OutcomeAllowed, nil, nil
 	case OperationMergeNotApplied:
@@ -816,6 +819,10 @@ func preconditionFailed(reason, evidence string) *Rejection {
 		},
 		Retry: RetryRefresh,
 	}
+}
+
+func reconciliationEmpty(evidence ReconciliationEvidence) bool {
+	return evidence == (ReconciliationEvidence{})
 }
 
 func reconciliationMatches(evidence ReconciliationEvidence, status, mutation string) bool {
