@@ -1494,6 +1494,12 @@ func TestValidationRulesConformanceMatrix(t *testing.T) {
 			}
 			assertEventCount(t, memory, 0)
 
+			otherMissing := call
+			otherMissing.WorkItemID = "wi-055-other-missing"
+			otherMissingConflict := memory.Execute(otherMissing)
+			assertRejectedDecision(t, otherMissingConflict, validation.AuthorityAuthoritative, validation.CodeIdempotencyConflict)
+			assertEventCount(t, memory, 0)
+
 			stillMissing := memory.Execute(call)
 			assertReplayedDecision(t, stillMissing, validation.AuthorityAuthoritative)
 			if stillMissing.Error == nil || stillMissing.Error.Code != validation.CodeNotFound {
