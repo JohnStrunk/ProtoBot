@@ -70,7 +70,7 @@ The same binary serves these callers:
 | Drafting Table through the Specification Toolkit | Proposed and approved specification state, comparison, impact candidates, validation results | Proposed specification records and change-set manifests on the active change-set branch |
 | CI | Registered records and artifacts at the checked-out revision | None |
 | Job Site Materializer | The approved manifest and requirements at an immutable specification commit | None; it passes lifecycle state to the WMS Adapter |
-| [Source Control Manager](source-control-manager.md) | A change set's paths, comparison, impact candidates, and validation result, and an approved change set's manifest path at a commit | None; it stages, commits, and publishes what `ears-manager` wrote |
+| [Source Control Manager](source-control-manager.md) | A change set's paths, comparison, impact candidates, and validation result, and a change set's manifest, status, and manifest path at a commit | None; it stages, commits, and publishes what `ears-manager` wrote |
 | Human maintainer | All data exposed by the read commands | The same proposed changes as the Toolkit, subject to the same validation |
 
 The CLI is a local process over the caller's working tree. A hosted Drafting
@@ -82,9 +82,10 @@ not change the command or JSON contract.
 `ears-manager` is the read authority for registered specification artifacts
 and records. It resolves the project from the Git working tree containing
 `.protobot/project.yaml`; a caller-supplied project name, branch, remote, or
-path does not override that identity. The initialization command is the one
-exception: it resolves the Git working-tree root before
-`.protobot/project.yaml` exists.
+path does not override that identity. There are two exceptions. The
+initialization command resolves the Git working-tree root before
+`.protobot/project.yaml` exists, and a read at a commit with `--at` takes
+`.protobot/project.yaml` from that commit, as described below.
 
 Reads are root-relative and deterministic:
 
@@ -95,10 +96,18 @@ Reads are root-relative and deterministic:
   store rather than trusting a caller-provided subset.
 
 In the target contract, the optional `--at <full-commit-sha>` selector
-provides read-revision semantics accepted only by read and analysis commands
-(deferred from the EM-04/EM-05 implemented subset to follow-on scope). It must
-name a full 40-character commit present in the local repository. The default is
-the current working tree.
+provides read-revision semantics accepted only by read and analysis commands.
+`change-set show` implements it; the other read and analysis commands defer
+it to follow-on scope. It must name a full 40-character commit present in the
+local repository. The default is the current working tree. A read at a commit
+still resolves the Git repository from the working tree, but it takes
+`.protobot/project.yaml`, the structured stores, and the registered artifacts
+from the tree of that commit. The working tree need not contain
+`.protobot/project.yaml`, and an uncommitted, untracked, or deleted file there
+does not change the result. The CLI reads the commit through the local `git`
+executable, ignores Git replace refs, and writes nothing under `.git/`. It
+may stage that tree in a private temporary directory outside the project root
+and removes it before it exits; that copy is not a governed write.
 
 ### Write authority
 
@@ -234,9 +243,10 @@ The command surface above is the target caller contract. The EM-04 first
 release implements `check`, requirement add/list/show/update/retire,
 interface add/list/show, artifact get/put, and minimal proposed change-set
 creation. EM-05 adds change-set list/show/update/compare and `impact`,
-including proposed-change-set impact-completeness checks. Project
-initialization, artifact listing, interface updates, immutable `--at`
-reads, explicit `--against` comparison revisions, and governed
+including proposed-change-set impact-completeness checks. Issue #206 adds the
+immutable `--at` read to `change-set show`. Project initialization, artifact
+listing, interface updates, `--at` reads on the other read and analysis
+commands, explicit `--against` comparison revisions, and governed
 branch/commit/pull-request automation remain follow-on work. The
 dispatcher must not claim those remaining operations are available.
 
@@ -395,7 +405,8 @@ impact --change-set CS-ID [--at FULL-SHA]
 `--id` identifies a requirement, interface, or artifact. `--change-set`
 identifies a change set in every command that operates on an existing change
 set. `--at` selects the immutable read revision; `--against` selects the
-comparison baseline (both options are deferred in the initial release).
+comparison baseline. `change-set show` accepts `--at`; `--at` on the other
+commands and `--against` remain deferred to follow-on scope.
 
 ---
 
@@ -498,7 +509,7 @@ The process status is part of the contract:
 | `0` | Success | Read succeeded, validation passed, or a write was applied | No retry needed |
 | `2` | Usage | Unknown command/option, missing option, malformed option value | Correct the request; no mutation occurred |
 | `3` | Project | Project not initialized, project outside Git root, unsupported store version, invalid project configuration | Select or upgrade the project; no mutation occurred |
-| `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content, invalid base commit, a structured store or registered artifact that does not match its digest | Revise the proposed request; no mutation occurred |
+| `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content, invalid base commit, a structured store or registered artifact that does not match its digest, an `--at` value that is not a full hash or names no local commit | Revise the proposed request; no mutation occurred |
 | `5` | Conflict or stale state | Approved manifest, duplicate ID, branch conflict, changed base, impact assessment no longer matches candidates | Refresh and review; no mutation occurred |
 | `6` | I/O or external boundary | Permission failure, unreadable input, Git read failure, atomic write failure with known rollback | Fix the environment, then retry after checking state |
 | `70` | Internal failure | Unexpected invariant or serialization failure | Do not blindly retry; retain the diagnostic for implementation triage |
@@ -581,7 +592,7 @@ explicit.
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, or project diagnostics |
 | `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
-| `change-set show` | `--change-set CS-ID` and optional --at (deferred to follow-on scope) | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found` |
+| `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `git.read_failed`, `project.default_branch_unresolved`, `project.invalid_configuration`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
 | `change-set update` | `--change-set CS-ID` plus metadata, `--base-commit`, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_base`, `change_set.invalid_impact`, `git.read_failed`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit (deferred to follow-on scope) | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
@@ -664,6 +675,73 @@ The [Source Control Manager's `publish`](source-control-manager.md#publish)
 refuses a `base_commit` that is not reachable from the default branch of the
 canonical remote (`BASE_NOT_ON_DEFAULT`), and a `base_commit` that differs
 from the default-branch head reachable from `HEAD` (`BASE_COMMIT_STALE`).
+
+### `change-set show`
+
+```text
+ears-manager change-set show --change-set CS-ID [--at FULL-SHA]
+```
+
+`change-set show` is read-only. Without `--at`, it reads the working tree.
+With `--at`, it reads the manifest, `.protobot/project.yaml`, and the other
+records from the tree of that commit, as
+[Read authority](#read-authority) describes. Both reads return the same
+fields, and the same load rules apply: a symbolic link, a directory, or a
+submodule in a structured store at that commit is refused as it is in the
+working tree.
+
+`status` is derived from Git, because approved specification state is the
+state of the default branch and the merge is the approval event
+([ADR-0002](../decisions/0002-ears-specification-record-schema.md#change-set-manifests);
+[Git and Project-Repository
+Integration](git-integration.md#the-merge-is-the-approval-event)). The
+default branch is the one `repository.default_branch` names:
+
+- Without `--at`, the manifest is `approved` when
+  `refs/heads/<default_branch>` holds its path, or
+  `refs/remotes/origin/<default_branch>` does when the local branch is
+  absent. Otherwise it is `proposed`.
+- With `--at`, the manifest is `approved` when the commit is on the default
+  branch: `refs/heads/<default_branch>` or
+  `refs/remotes/origin/<default_branch>` is that commit or a descendant of
+  it. Otherwise it is `proposed`. `default_branch` is read from that commit,
+  as a working-tree read takes it from the working tree.
+
+Both rules assume that the remote named `origin` is the canonical remote. In a
+clone where another remote has the `repository.canonical_remote` URL, a merge
+that only that remote's default branch holds reads as `proposed`. Issue #208
+decides which remote-tracking ref counts for both rules.
+
+So a manifest is `proposed` at a change-set branch tip before the merge, and
+`approved` at the merge commit and at every later default-branch commit.
+Both refs count with `--at`, so a local default branch that is behind its
+remote-tracking branch does not hide a merge. When neither ref resolves, the
+read fails with `project.default_branch_unresolved` and status `3`. Both
+rules check `default_branch` against the Git branch-name rule that `check`
+applies before any Git command runs, because Git would read a name such as
+`main~1` or `main@{1}` as another commit. A name that fails the rule is
+`project.invalid_configuration` with status `3`. With `--at`, "descendant"
+uses the ancestry test of [Change sets](#change-sets): it ignores Git
+replace refs. One ref that proves the commit is on the default branch is
+enough. In a shallow clone, when no ref proves it, the answer is
+`git.read_failed`, status `6`, because the history is incomplete.
+`approved` states only that the commit is reachable from a default-branch
+ref. It does not prove that a reviewed pull request merged it; the
+[Source Control Manager](source-control-manager.md#approved-state-read-face)
+confirms that with the Git host.
+
+`--at` refuses a value that is not a full 40-character hexadecimal hash,
+such as a short hash, a branch or tag name, or `HEAD`, with
+`revision.invalid`. It refuses a full hash that names no commit in the local
+repository, such as an unknown object, a tree, or an annotated tag, with
+`revision.not_found`.
+Both use status `4` and `mutation: "none"`, as a malformed or unknown
+`--base-commit` does. `revision.read_failed`, with status `6`, reports a Git
+failure while the tree is read, or a private copy that cannot be created,
+for example in a sandbox without a writable temporary directory. A commit
+whose tree has no manifest of the change set, or no
+`.protobot/project.yaml`, gives `change_set.not_found` with status `4`, the
+same result as a working tree without the manifest.
 
 ### `check`
 
@@ -965,6 +1043,8 @@ demonstrates:
   commands;
 - `change-set compare` and `impact` are deterministic for the same base and
   working tree;
+- `change-set show --at` returns the manifest and status of the selected
+  commit, and a change in the working tree does not change that result;
 - semantic impact additions are visible, carry rationale, and cannot bypass
   user disposition;
 - an incomplete or stale proposed impact assessment prevents approval; and

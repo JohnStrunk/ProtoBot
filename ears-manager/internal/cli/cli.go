@@ -447,7 +447,7 @@ func helpText(args []string) string {
 	case "change-set list":
 		return "Usage: ears-manager change-set list [--status STATUS] [--interface ID] [--scope SCOPE]\n"
 	case "change-set show":
-		return "Usage: ears-manager change-set show --change-set CS-ID\n"
+		return "Usage: ears-manager change-set show --change-set CS-ID [--at FULL-SHA]\n"
 	case "change-set update":
 		return "Usage: ears-manager change-set update --change-set CS-ID [--intent TEXT] [--affected-interface ID] [--affected-scope SCOPE] [--base-commit FULL-SHA] [--implementation-required true|false] [--implementation-rationale TEXT] [--impact-file PATH|-]\n"
 	case "change-set compare":

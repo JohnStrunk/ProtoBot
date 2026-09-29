@@ -139,7 +139,7 @@ type changeSetListItem struct {
 }
 
 func runChangeSetShow(args []string) (any, Mutation, *commandFailure) {
-	parsed, failure := parseOptions(args, valueOptions("change-set"))
+	parsed, failure := parseOptions(args, valueOptions("change-set", "at"))
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -150,28 +150,74 @@ func runChangeSetShow(args []string) (any, Mutation, *commandFailure) {
 	if err := records.ValidateChangeSetID(id); err != nil {
 		return nil, Mutation{}, invalidIDFailure("change_set.invalid_id", "Change-set", id)
 	}
+	if parsed.has("at") {
+		return runChangeSetShowAt(id, parsed.one("at"))
+	}
 	state, failure := loadState()
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
-	index, value, exists := findChangeSet(state.snapshot, id)
+	index, _, exists := findChangeSet(state.snapshot, id)
 	if !exists {
 		return nil, Mutation{}, validationFailure("change_set.not_found", fmt.Sprintf("Change set %s was not found.", id), nil)
 	}
-	value = records.CanonicalChangeSet(value)
-	manifestPath := state.snapshot.ChangeSets[index].Path
-	status, failure := derivedChangeSetStatus(state, manifestPath)
+	status, failure := derivedChangeSetStatus(state, state.snapshot.ChangeSets[index].Path)
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
+	return changeSetShowResult(state.snapshot, index, status), Mutation{}, nil
+}
+
+// runChangeSetShowAt reads the manifest from the tree of one commit. The
+// working tree is not read, so an uncommitted edit does not change the result.
+// A commit without the project configuration holds no manifest either.
+func runChangeSetShowAt(id, at string) (any, Mutation, *commandFailure) {
+	commit, failure := parseRevisionOption(at)
+	if failure != nil {
+		return nil, Mutation{}, failure
+	}
+	root, failure := resolveRoot()
+	if failure != nil {
+		return nil, Mutation{}, failure
+	}
+	if failure := requireRevisionCommit(root, commit); failure != nil {
+		return nil, Mutation{}, failure
+	}
+	notFound := validationFailure("change_set.not_found", fmt.Sprintf("Change set %s was not found at commit %s.", id, commit), nil)
+	state, cleanup, failure := loadRevisionState(root, commit)
+	if failure != nil {
+		if failure.Code == "project.not_initialized" {
+			return nil, Mutation{}, notFound
+		}
+		return nil, Mutation{}, failure
+	}
+	defer cleanup()
+	index, _, exists := findChangeSet(state.snapshot, id)
+	if !exists {
+		return nil, Mutation{}, notFound
+	}
+	status := "proposed"
+	approved, failure := commitOnDefaultBranch(root, state.snapshot.Config.Repository.DefaultBranch, commit)
+	if failure != nil {
+		return nil, Mutation{}, failure
+	}
+	if approved {
+		status = "approved"
+	}
+	return changeSetShowResult(state.snapshot, index, status), Mutation{}, nil
+}
+
+func changeSetShowResult(snapshot specvalidation.Snapshot, index int, status string) changeSetShowData {
+	value := records.CanonicalChangeSet(snapshot.ChangeSets[index].Value)
+	manifestPath := snapshot.ChangeSets[index].Path
 	return changeSetShowData{
 		ChangeSet:       toChangeSetJSON(value),
 		Status:          status,
 		ChangedCount:    len(value.Operations) + len(value.InterfaceOperations) + len(value.ArtifactOperations),
 		ApplicableCount: applicableCount(value.ImpactAssessment),
 		ManifestPath:    manifestPath,
-		Paths:           changeSetTouchedPaths(state.snapshot, value, manifestPath),
-	}, Mutation{}, nil
+		Paths:           changeSetTouchedPaths(snapshot, value, manifestPath),
+	}
 }
 
 type changeSetShowData struct {
