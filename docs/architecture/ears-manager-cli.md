@@ -577,10 +577,10 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, or project diagnostics |
 | `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional --at (deferred to follow-on scope) | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found` |
-| `change-set update` | `--change-set CS-ID` plus metadata, base refresh, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_impact`, or validation diagnostics |
+| `change-set update` | `--change-set CS-ID` plus metadata, `--base-commit`, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_base`, `change_set.invalid_impact`, `git.read_failed`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit (deferred to follow-on scope) | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
 In the EM-04 first release, `change-set create` allocates the next unused
@@ -596,6 +596,51 @@ one operation. The file must contain a final `applicable` or
 `not-applicable` disposition, a rationale, and an origin of `mechanical` or
 `semantic` for every entry. A semantic entry must name an unchanged active
 requirement not already in the changed operations.
+
+Every write to an existing proposed change set runs an ancestry check of
+`HEAD` against the manifest's `base_commit`. A change-set branch can hold more
+than one commit: it is [updated by further
+commits](git-integration.md#branch-lifecycle) under review, and it gains a
+merge commit when it is [refreshed from the default
+branch](git-integration.md#refreshing-from-the-default-branch). So the check
+asks for ancestry, not equality. An ancestor of a commit is a commit reachable
+from it, and a commit is its own ancestor, as in
+`git merge-base --is-ancestor`. A manifest without a `base_commit` is refused
+with `change_set.not_proposed`.
+
+- A write without `--base-commit` is accepted when `base_commit` is an
+  ancestor of `HEAD`. This covers the first write after `change-set create`,
+  a write after further commits on the change-set branch, and a write after
+  the refresh merge but before `change-set update --base-commit`.
+- `change-set update --base-commit X` is accepted when `X` is an ancestor of
+  `HEAD` and the recorded `base_commit` is an ancestor of `X`. After the
+  refresh merge, `X` is the default-branch head that the merge brought in.
+  So `base_commit` moves forward along the change-set branch, never back or
+  sideways.
+
+`change_set.base_mismatch`, status `5`, and `mutation: "none"` refuse a write
+in each of these cases:
+
+- `base_commit` is not an ancestor of `HEAD`, for a write without
+  `--base-commit`. The working tree then does not descend from the base of
+  the change set.
+- `X` is not an ancestor of `HEAD`. For a refresh, the default branch is then
+  not merged in yet.
+- The recorded `base_commit` is not an ancestor of `X`. `base_commit` would
+  then move back or sideways.
+- `HEAD` moved while the command prepared its write. This case also applies
+  to `change-set create`.
+
+A value of `X` that is not the full 40-character ID of a local commit is
+refused with `change_set.invalid_base`, status `4`. A Git failure while the
+command reads the ancestry is `git.read_failed`, status `6`, with
+`mutation: "none"`.
+
+`ears-manager` does not check that `base_commit` is on the default branch.
+The [Source Control Manager's `publish`](source-control-manager.md#publish)
+refuses a `base_commit` that is not reachable from the default branch of the
+canonical remote (`BASE_NOT_ON_DEFAULT`), and a `base_commit` that differs
+from the default head reachable from `HEAD` (`BASE_COMMIT_STALE`).
 
 ### `check`
 
@@ -770,11 +815,13 @@ Every mutating command follows this sequence:
    registered paths, projection classifications, and structured-store
    integrity digests.
 4. For an existing-change-set write, verify that the change set is proposed
-   and its base/revision is current. `project init` instead verifies that the
+   and that `HEAD` passes the ancestry check in
+   [Change sets](#change-sets). `project init` instead verifies that the
    control namespace is absent. In the EM-04 first release, `change-set create`
    verifies project configuration and base availability only; branch state and
    initialization branch reuse are deferred to the follow-on Git integration.
-5. Write a complete replacement set through a temporary file or directory.
+5. Verify that `HEAD` has not moved since step 1, then write a complete
+   replacement set through a temporary file or directory.
 6. Re-read and validate the replacement set.
 7. Atomically replace the governed paths and return the result.
 

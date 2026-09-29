@@ -552,7 +552,9 @@ The Source Control Manager's `refresh` performs step 1, and its
 Never rebase, and never reset the branch onto the new head. The
 `base_commit` field names an immutable object rather than a
 mutable ref; while the change set is proposed, `change-set update`
-may repoint it. After the pull request merges, the manifest is
+may repoint it, forward only
+([`ears-manager` ancestry check](ears-manager-cli.md#change-sets)).
+After the pull request merges, the manifest is
 immutable and the field is frozen
 ([ADR-0002][adr2-changeset]).
 
