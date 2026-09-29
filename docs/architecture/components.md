@@ -452,6 +452,11 @@ It is used by these callers:
   Site, CI, and maintainers.
 - **Specification working tree:** Registered artifact paths in the
   current change-set/build branch; no independent service database.
+- **Git refs (read):** The local default branch and the remote-tracking
+  default branch of each canonical remote, read to tell approved from
+  proposed change sets
+  ([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets));
+  `ears-manager` never fetches.
 - **Validator registry:** Code-controlled, extensible format-specific
   IDL/prose/schema checks selected by stable names in the artifact registry.
   New formats, such as Smithy, add a registry entry and controlled adapter.
@@ -558,7 +563,9 @@ Recording exclusions prevents the same conservative false positives from
 being reconsidered without context on every run.
 
 Impact candidate completeness is evaluated only for proposed change sets,
-using the proposed snapshot supplied by the caller. An approved manifest is
+which `ears-manager` tells from approved ones by its
+[approval rule](ears-manager-cli.md#approved-and-proposed-change-sets). An
+approved manifest is
 immutable historical evidence; later requirement changes must not invalidate
 its stored assessment. Approved-manifest validation checks stored entry
 shape and references without recomputing the current candidate set.
@@ -846,9 +853,11 @@ semantics. It may use a backend primitive or an external coordinator,
 but issue, ticket, or card assignment by itself is insufficient.
 `ears-manager` knows nothing about WMS workflow state; it stores and
 validates the specification content referenced by each work-item
-contract. Change-set validation receives proposed-versus-approved context
-from its caller so immutable approved manifests are not re-evaluated
-against later specification state.
+contract. Change-set validation tells proposed from approved change sets by
+the `ears-manager`
+[approval rule](ears-manager-cli.md#approved-and-proposed-change-sets), so
+immutable approved manifests are not re-evaluated against later
+specification state.
 
 ### Open design questions
 
