@@ -937,6 +937,26 @@ func commitExists(root, commit string) bool {
 	return exec.Command("git", "-C", root, "cat-file", "-e", commit+"^{commit}").Run() == nil
 }
 
+// isAncestor reports whether ancestor is reachable from descendant. A commit
+// is its own ancestor. A value that is not a full object ID of a local commit
+// is never an ancestor.
+func isAncestor(root, ancestor, descendant string) (bool, *commandFailure) {
+	for _, commit := range []string{ancestor, descendant} {
+		if _, failure := parseCommitOption(commit); failure != nil || !commitExists(root, commit) {
+			return false, nil
+		}
+	}
+	err := exec.Command("git", "-C", root, "merge-base", "--is-ancestor", ancestor, descendant).Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, ioFailure("git.read_failed", "Git could not read the commit history of the working tree.")
+}
+
 func proposedChangeSet(state projectState, id string) (int, records.ChangeSet, *commandFailure) {
 	return proposedChangeSetWithOption(state, id, false)
 }
@@ -961,14 +981,18 @@ func proposedChangeSetWithOption(state projectState, id string, allowBaseMismatc
 	if approved {
 		return -1, records.ChangeSet{}, conflictFailure("change_set.not_proposed", fmt.Sprintf("Change set %s is approved and immutable.", id), nil)
 	}
-	if allowBaseMismatch {
-		return index, cloneChangeSet(value), nil
-	}
 	if value.BaseCommit == "" {
 		return -1, records.ChangeSet{}, validationFailure("change_set.not_proposed", fmt.Sprintf("Change set %s has no base commit.", id), nil)
 	}
-	if !strings.EqualFold(state.head, value.BaseCommit) {
-		return -1, records.ChangeSet{}, conflictFailure("change_set.base_mismatch", fmt.Sprintf("Change set %s is based on %s, but the working tree is at %s.", id, value.BaseCommit, state.head), nil)
+	if allowBaseMismatch {
+		return index, cloneChangeSet(value), nil
+	}
+	descends, failure := isAncestor(state.root, value.BaseCommit, state.head)
+	if failure != nil {
+		return -1, records.ChangeSet{}, failure
+	}
+	if !descends {
+		return -1, records.ChangeSet{}, conflictFailure("change_set.base_mismatch", fmt.Sprintf("Change set %s is based on %s, but the working tree at %s does not descend from it.", id, value.BaseCommit, state.head), nil)
 	}
 	return index, cloneChangeSet(value), nil
 }

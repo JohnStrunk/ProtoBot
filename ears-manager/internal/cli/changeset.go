@@ -225,8 +225,19 @@ func runChangeSetUpdate(args []string, stdin io.Reader) (any, Mutation, *command
 		if !commitExists(state.root, baseCommit) {
 			return nil, Mutation{}, validationFailure("change_set.invalid_base", "The comparison base commit is not present in the local repository.", nil)
 		}
-		if !strings.EqualFold(state.head, baseCommit) {
-			return nil, Mutation{}, conflictFailure("change_set.base_mismatch", fmt.Sprintf("Change set %s cannot refresh to %s while the working tree is at %s.", id, baseCommit, state.head), nil)
+		onHead, failure := isAncestor(state.root, baseCommit, state.head)
+		if failure != nil {
+			return nil, Mutation{}, failure
+		}
+		if !onHead {
+			return nil, Mutation{}, conflictFailure("change_set.base_mismatch", fmt.Sprintf("Change set %s cannot refresh to %s, because the working tree at %s does not descend from it.", id, baseCommit, state.head), nil)
+		}
+		forward, failure := isAncestor(state.root, before.BaseCommit, baseCommit)
+		if failure != nil {
+			return nil, Mutation{}, failure
+		}
+		if !forward {
+			return nil, Mutation{}, conflictFailure("change_set.base_mismatch", fmt.Sprintf("Change set %s cannot refresh to %s, because it does not descend from the recorded base %s.", id, baseCommit, before.BaseCommit), nil)
 		}
 		updated.BaseCommit = baseCommit
 	}
