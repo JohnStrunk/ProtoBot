@@ -110,6 +110,11 @@ func TestLifecycleTargetVisibilityPrecedesOperationAuthorization(t *testing.T) {
 			validation.RoleDraftingTable,
 			validation.OperationLifecyclePreflight,
 		),
+		"job-site": testAuthorization(
+			"job-site",
+			validation.RoleJobSite,
+			validation.OperationClaim,
+		),
 	}
 	memory := newTestMemory(t, gate, "")
 	version := uint64(4)
@@ -129,9 +134,53 @@ func TestLifecycleTargetVisibilityPrecedesOperationAuthorization(t *testing.T) {
 		result.Decision.PolicyVersion != "wms-policy/v1" {
 		t.Fatalf("missing target decision metadata = %#v", result.Decision)
 	}
+	if result.Idempotency == idempotencyReplayed || result.Decision.Replayed {
+		t.Fatal("unauthorized missing-target rejection must not be recorded or replayed as idempotency")
+	}
 	if len(memory.Events()) != 0 {
 		t.Fatalf("missing target recorded %d lifecycle events, want none", len(memory.Events()))
 	}
+
+	// The unauthorized caller's key must not be bound in the project: an
+	// authorized caller reusing the key against an existing item must not
+	// encounter IDEMPOTENCY_CONFLICT.
+	item := testWorkItem("wi-visible", validation.StateReadyForBuilding, 4)
+	seedConformanceItem(t, memory, item)
+	authorizedClaim := memory.Execute(CallRequest{
+		Operation:               string(validation.OperationClaim),
+		ActorContextRef:         "job-site",
+		WorkItemID:              item.ID,
+		ExpectedState:           validation.StateReadyForBuilding,
+		ExpectedContractVersion: &version,
+		IdempotencyKey:          "missing-target-claim",
+	})
+	assertAllowedDecision(t, authorizedClaim, validation.AuthorityAuthoritative)
+
+	// A caller with a mismatched policy version also must not bind the key.
+	downgradeCall := CallRequest{
+		Operation:               string(validation.OperationClaim),
+		ActorContextRef:         "job-site",
+		WorkItemID:              "still-not-visible",
+		ExpectedState:           validation.StateReadyForBuilding,
+		ExpectedContractVersion: &version,
+		IdempotencyKey:          "downgrade-claim-key",
+		PolicyVersion:           "wms-policy/older",
+	}
+	downgradeResult := memory.Execute(downgradeCall)
+	if downgradeResult.OK || downgradeResult.Error == nil || downgradeResult.Error.Code != validation.CodeNotFound {
+		t.Fatalf("downgraded missing-target result = %#v, want NOT_FOUND", downgradeResult)
+	}
+	otherItem := testWorkItem("wi-other-visible", validation.StateReadyForBuilding, 4)
+	seedConformanceItem(t, memory, otherItem)
+	authorizedDowngradeReuse := memory.Execute(CallRequest{
+		Operation:               string(validation.OperationClaim),
+		ActorContextRef:         "job-site",
+		WorkItemID:              otherItem.ID,
+		ExpectedState:           validation.StateReadyForBuilding,
+		ExpectedContractVersion: &version,
+		IdempotencyKey:          "downgrade-claim-key",
+	})
+	assertAllowedDecision(t, authorizedDowngradeReuse, validation.AuthorityAuthoritative)
 }
 
 func TestMaterializationReplaysOriginalResultAndRejectsSourceConflict(t *testing.T) {

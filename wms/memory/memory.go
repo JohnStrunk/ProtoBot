@@ -252,10 +252,23 @@ func (m *Memory) executeLifecycleLocked(call CallRequest, authorization validati
 		}
 	} else {
 		if !exists {
-			// A missing target is a rejected mutating request: record the
-			// NOT_FOUND under the idempotency key so a later appearance of
-			// the target cannot re-evaluate that key.
-			if request.IdempotencyKey != "" {
+			// A missing target is a rejected mutating request: if the caller
+			// is authorized to perform this lifecycle mutation and the policy
+			// version matches, record the NOT_FOUND under the idempotency key
+			// so a later appearance of the target cannot re-evaluate that key.
+			// An unauthorized caller receives the visibility-safe NOT_FOUND
+			// without reading or writing the project-scoped idempotency map.
+			authorized := validation.AuthorizeLifecycle(
+				request.Authorization,
+				request.Operation,
+				request.ProjectID,
+				request.WorkItemID,
+				request.Payload.ChangeSetID,
+				request.References,
+				evaluation.EvaluationTime,
+			) == nil && (call.PolicyVersion == "" || call.PolicyVersion == authorization.PolicyVersion)
+
+			if authorized && request.IdempotencyKey != "" {
 				fingerprint := validation.RequestFingerprint(request)
 				if result, handled := m.replayLifecycleRequest(call, request, fingerprint); handled {
 					return result
