@@ -228,7 +228,8 @@ one before it:
    the default-branch head as `base_commit`.
 4. Commit `.protobot/project.yaml`, `.protobot/projection.yaml`, and the
    initial change-set manifest, with the `shared` class of each registered
-   path, then open the pull request and merge.
+   path and of each configured store directory, then open the pull request
+   and merge.
 
 The default branch must already have at least one commit, because
 a branch needs a base and a manifest needs a `base_commit`. A Git
@@ -238,7 +239,8 @@ contract.
 
 The `ears-manager project init` command writes `project.yaml`, seeds the
 artifact registry, records the schema versions, and classifies the registered
-paths. The command and result boundary are defined in the
+paths and the configured store directories. The command and result boundary
+are defined in the
 [`ears-manager` CLI Integration Contract](ears-manager-cli.md). The Git
 fixture's initialization step invokes that command before creating the
 initial change-set manifest.
@@ -336,15 +338,27 @@ Every registered path:
   projections
   ([Worker repository projections][projections]).
 
+For a `stores` directory, that classification is a directory entry
+(a `path` with a trailing `/`), which covers every record file below
+it. A file takes the class of its most specific entry, so a narrower
+entry below a store directory overrides the directory's class
+([Projection classification](ears-manager-cli.md#projection-classification)).
+
 An unclassified path is denied by default in the projection
 manifest. Registering a specification artifact without classifying
-it therefore breaks Building.
+it, or leaving a store directory unclassified, therefore breaks
+Building: the Workers receive no requirement or interface records.
 
-**`ears-manager` writes that classification.** When it registers a
-specification artifact, it adds the matching `shared` entry to
-`.protobot/projection.yaml` in the same operation, so the
+**`ears-manager` writes that classification.** `project init`
+writes the `shared` entries of the initial specification paths and
+of the three configured store directories. When `ears-manager` later
+registers a specification artifact, it adds the matching `shared`
+entry to `.protobot/projection.yaml` in the same operation, so the
 registration and the classification land in one change set. It
-writes nothing else in that file. Every other classification stays
+writes nothing else in that file, and it never restores the entry
+of another path: a missing entry is restored through a reviewed
+policy edit (see [Failure behavior](#failure-behavior)). Every
+other classification stays
 reviewed project policy, edited by a human and reviewed in the
 pull request, in the same way as `.protobot/policy.yaml`. This
 ownership is not stated anywhere else in the hierarchy; the same
@@ -938,7 +952,7 @@ detects with a stable code
 | `project.yaml` is not at the working-tree root | Project resolution | Names both the file location and the working-tree root | Move the session to the correct checkout; the Drafting Table never relocates the file |
 | Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Use the supported version; after v1 adoption, perform any upgrade through a reviewed migration change set |
 | Registered artifact or structured-store digest mismatch | Pre-stage comparison | Names the safe configuration field and mismatch class | Discard the direct edit, or re-apply it through `ears-manager` |
-| Registered path missing from the projection manifest | `ears-manager check` | Names the path and the required class `shared` | Re-run the registration; `ears-manager` writes the classification entry and the Drafting Table stages `projection.yaml` with it |
+| Registered path or store directory missing from the projection manifest | `ears-manager check`, and every `ears-manager` write that validates the full project, including `change-set create` | Names the path and the required class `shared` | Restore the `shared` entry through a reviewed policy edit of `projection.yaml`. The Source Control Manager keeps that edit out of any change-set commit, so the person commits it apart and merges it through its own review; `ears-manager` commands then succeed. `ears-manager` does not restore another path's entry, because that entry would read as a policy edit mixed into the change set |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
 | Default branch has moved since `base_commit` | `merge-base` check before push or merge | Names the recorded base and the current head | Refresh: merge the default branch in, then `change-set update` |
 | Push rejected, non-fast-forward | Push exit status | Names the branch and the remote head | The remote change-set branch has commits that this checkout lacks. The user reviews and integrates them, then pushes again; never force, and never merge them unreviewed |
@@ -963,7 +977,11 @@ also run against the SCM, with no shell in the caller
 ([Repository fixture against the SCM][scm-fixture]).
 
 **Setup.** Create a bare repository as `origin` with one commit on
-the default branch, clone it, and configure a Git identity. Where
+the default branch that holds `docs/vision.md` and
+`docs/architecture.md`, clone it, and configure a Git identity.
+`project init` registers files that already exist and are committed
+([`branch_init`](source-control-manager.md#branch_init)); it creates
+no content. Where
 a step needs a Job Site or a WMS, the fixture substitutes a
 recording stub: registration is asserted by the call the Drafting
 Table makes, not by work-item state.
@@ -981,7 +999,7 @@ protection rule.
 
 | # | Action | Expected result |
 | --- | --- | --- |
-| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, version-1 schema keys, the three configured store paths and store digests, and two opaque artifact entries. `.protobot/projection.yaml` carries a `shared` class for each governed specification path. One commit of the control files and initial manifest, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
+| 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, version-1 schema keys, the three configured store paths and store digests, and two opaque artifact entries. `.protobot/projection.yaml` declares `version: 1` and carries a `shared` class for each registered specification path and each configured store directory. One commit of the control files and initial manifest, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
 | 2 | Merge `CS-00001`, register, then create change set `CS-00002` for the initial Sketch | The default branch head is a merge commit. Branch `cs/00002-<slug>` exists and is checked out. Its tip equals the new default-branch head, and the manifest records that head's full 40-character hash as `base_commit`. No other branch was created. |
 | 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content and the structured-store digests still match their record sets. `projection.yaml` is unchanged, because step 1 already classified both paths and `artifact put` classifies only a new path ([Artifacts](ears-manager-cli.md#artifacts)). `git status` lists only the two artifacts, the manifest, and `project.yaml`. |
 | 4 | Make a substantive direct edit to a registered artifact, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |

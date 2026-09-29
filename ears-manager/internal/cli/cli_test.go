@@ -628,7 +628,7 @@ func newFixtureProject(t *testing.T) string {
 	if err := os.WriteFile(filepath.Join(root, ".protobot", "project.yaml"), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	projection := []byte("paths:\n  - path: docs/vision.md\n    class: shared\n")
+	projection := []byte("version: 1\npaths:\n  - path: .protobot/change-sets/\n    class: shared\n  - path: .protobot/interfaces/\n    class: shared\n  - path: .protobot/requirements/\n    class: shared\n  - path: docs/vision.md\n    class: shared\n")
 	if err := os.WriteFile(filepath.Join(root, ".protobot", "projection.yaml"), projection, 0o644); err != nil {
 		t.Fatal(err)
 	}

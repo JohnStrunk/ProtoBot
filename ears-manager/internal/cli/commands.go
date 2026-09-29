@@ -1009,22 +1009,18 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	return artifactMutationData{Artifact: toArtifactJSON(artifact), Operation: toArtifactOperationJSON(operation)}, mutation, nil
 }
 
-// stageSharedClassification adds shared projection entries for every staged
-// registered specification path that is not already classified. This lets an
-// artifact mutation repair an absent or incomplete manifest without changing
-// an existing policy classification. It returns the replacement manifest
-// bytes and whether the manifest changed; ears-manager writes no other
-// projection entry.
+// stageSharedClassification adds the shared projection entry for the one
+// specification path that artifact put registers to the staged snapshot. It
+// returns the replacement manifest bytes and whether the manifest changed.
+// ears-manager writes no other projection entry: a missing entry for another
+// registered path or a store directory is restored through a reviewed policy
+// edit, which the Source Control Manager keeps apart from the change set.
 func stageSharedClassification(staged *specvalidation.Snapshot, path string) ([]byte, bool, *commandFailure) {
 	current := specvalidation.Projection{}
 	if staged.Projection != nil {
 		current = staged.Projection.Clone()
 	}
-	paths := []string{path}
-	for _, artifact := range staged.Config.Artifacts {
-		paths = append(paths, artifact.Path)
-	}
-	data, changed, err := specvalidation.AddSharedClassifications(current.Data, paths)
+	data, changed, err := specvalidation.AddSharedClassifications(current.Data, []string{path})
 	if len(current.Diagnostics) > 0 || errors.Is(err, specvalidation.ErrProjectionInvalid) {
 		diagnostics := append([]specvalidation.Diagnostic(nil), current.Diagnostics...)
 		return nil, false, validationFailure("validation.failed", "The projection manifest must be corrected before a path can be registered.", diagnostics)

@@ -140,9 +140,14 @@ func TestProjectInitCreatesProjectThatPassesCheck(t *testing.T) {
 	if !strings.Contains(projectYAML, lfDigest) || !strings.Contains(projectYAML, "owner: user") {
 		t.Fatalf("project.yaml registry = %s", projectYAML)
 	}
-	projection := specvalidation.ParseProjection([]byte(readTestFile(t, root, ".protobot/projection.yaml")))
-	if len(projection.Diagnostics) > 0 || projection.Classes["docs/vision.md"] != "shared" || projection.Classes["docs/architecture.md"] != "shared" || len(projection.Classes) != 2 {
-		t.Fatalf("projection = %#v", projection)
+	wantProjection := "version: 1\npaths:\n" +
+		"  - path: .protobot/change-sets/\n    class: shared\n" +
+		"  - path: .protobot/interfaces/\n    class: shared\n" +
+		"  - path: .protobot/requirements/\n    class: shared\n" +
+		"  - path: docs/architecture.md\n    class: shared\n" +
+		"  - path: docs/vision.md\n    class: shared\n"
+	if got := readTestFile(t, root, ".protobot/projection.yaml"); got != wantProjection {
+		t.Fatalf("projection.yaml =\n%s\nwant\n%s", got, wantProjection)
 	}
 
 	// Initialization neither commits nor touches unrelated history.
@@ -225,7 +230,7 @@ func TestProjectInitThenArtifactPutClassifiesNewPath(t *testing.T) {
 		t.Fatalf("artifact put did not report the projection write: %s", stdout)
 	}
 	projection := specvalidation.ParseProjection([]byte(readTestFile(t, root, ".protobot/projection.yaml")))
-	if projection.Classes["docs/interfaces/cli.md"] != "shared" || projection.Classes["README.md"] != "implementation" {
+	if projection.Classes["docs/interfaces/cli.md"] != "shared" || projection.Classes["README.md"] != "implementation" || len(projection.Classes) != 7 {
 		t.Fatalf("projection after artifact put = %#v", projection.Classes)
 	}
 
@@ -241,29 +246,76 @@ func TestProjectInitThenArtifactPutClassifiesNewPath(t *testing.T) {
 	assertSuccess(t, code, stdout, stderr)
 }
 
-func TestArtifactPutRepairsMissingProjectionClassifications(t *testing.T) {
+// A registered path whose entry is missing from the committed manifest is
+// restored through a reviewed policy edit, not through ears-manager: the
+// hint names that route, and no ears-manager write adds another path's entry.
+func TestCommittedIncompleteProjectionIsRestoredByReviewedEdit(t *testing.T) {
 	root := newUninitializedRepository(t)
 	t.Chdir(root)
 	code, stdout, stderr := runCLI(nil, initArgs...)
 	assertSuccess(t, code, stdout, stderr)
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-m", "initialize")
+	complete := readTestFile(t, root, ".protobot/projection.yaml")
+	incomplete := strings.Replace(complete, "  - path: docs/vision.md\n    class: shared\n", "", 1)
+	writeTestFile(t, root, ".protobot/projection.yaml", incomplete)
+	git(t, root, "commit", "-am", "drop an entry, as a bad merge would")
 
-	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Repair projection", "--implementation-required", "false", "--implementation-rationale", "Restore the shared classifications.", "--created", "2026-09-28T12:00:00Z")
+	for _, args := range [][]string{
+		{"--output", "json", "check"},
+		{"--output", "json", "change-set", "create", "--intent", "Add CLI prose", "--implementation-required", "true", "--created", "2026-09-28T12:00:00Z"},
+	} {
+		code, stdout, stderr = runCLI(nil, args...)
+		if code != 4 || stderr != "" || !strings.Contains(stdout, `"code":"projection.unclassified"`) || !strings.Contains(stdout, `"path":"docs/vision.md"`) || !strings.Contains(stdout, "through a reviewed policy edit") {
+			t.Fatalf("%v = exit %d stdout %s stderr %s", args, code, stdout, stderr)
+		}
+	}
+	if readTestFile(t, root, ".protobot/projection.yaml") != incomplete {
+		t.Fatal("a refused command changed the projection manifest")
+	}
+	if status := gitOutput(t, root, "status", "--porcelain", "--untracked-files=all"); status != "" {
+		t.Fatalf("a refused command changed the working tree: %q", status)
+	}
+
+	// The reviewed policy edit restores the entry; ears-manager then works.
+	writeTestFile(t, root, ".protobot/projection.yaml", complete)
+	git(t, root, "commit", "-am", "restore the shared entry")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add CLI prose", "--implementation-required", "true", "--created", "2026-09-28T12:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+}
+
+// artifact put writes only the entry of the path it registers. A registry
+// path that fails canonicalization is a validation error, not an internal one.
+func TestArtifactPutClassifiesOnlyItsPathAndReportsBadRegistryPaths(t *testing.T) {
+	root := newUninitializedRepository(t)
+	t.Chdir(root)
+	code, stdout, stderr := runCLI(nil, initArgs...)
+	assertSuccess(t, code, stdout, stderr)
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "initialize")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add CLI prose", "--implementation-required", "true", "--created", "2026-09-28T12:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
-	if err := os.Remove(filepath.Join(root, ".protobot", "projection.yaml")); err != nil {
-		t.Fatal(err)
-	}
-	code, stdout, stderr = runCLI([]byte("# Existing Fixture Vision\n"), "--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "vision", "--kind", "vision", "--path", "docs/vision.md", "--owner", "user", "--content-stdin")
-	assertSuccess(t, code, stdout, stderr)
 
-	projection := specvalidation.ParseProjection([]byte(readTestFile(t, root, ".protobot/projection.yaml")))
-	if projection.Classes["docs/vision.md"] != "shared" || projection.Classes["docs/architecture.md"] != "shared" {
-		t.Fatalf("repaired projection = %#v", projection.Classes)
+	complete := readTestFile(t, root, ".protobot/projection.yaml")
+	writeTestFile(t, root, ".protobot/projection.yaml", strings.Replace(complete, "  - path: docs/architecture.md\n    class: shared\n", "", 1))
+	put := []string{"--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "cli-prose", "--kind", "interface-prose", "--path", "docs/interfaces/cli.md", "--owner", "user", "--content-stdin"}
+	code, stdout, stderr = runCLI([]byte("# CLI\n"), put...)
+	assertFailure(t, code, stdout, stderr, 4, "validation.failed")
+	if !strings.Contains(stdout, `"path":"docs/architecture.md"`) || strings.Contains(readTestFile(t, root, ".protobot/projection.yaml"), "docs/architecture.md") {
+		t.Fatalf("artifact put restored another path's entry: %s", stdout)
 	}
-	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
-	assertSuccess(t, code, stdout, stderr)
+	writeTestFile(t, root, ".protobot/projection.yaml", complete)
+
+	config := readTestFile(t, root, ".protobot/project.yaml")
+	writeTestFile(t, root, ".protobot/project.yaml", strings.Replace(config, "path: docs/vision.md", "path: ../vision.md", 1))
+	code, stdout, stderr = runCLI([]byte("# CLI\n"), put...)
+	if code != 4 || stderr != "" || !strings.Contains(stdout, `"code":"artifact.invalid_path"`) {
+		t.Fatalf("bad registry path = exit %d stdout %s stderr %s; want exit 4 artifact.invalid_path", code, stdout, stderr)
+	}
+	if readTestFile(t, root, ".protobot/projection.yaml") != complete {
+		t.Fatal("a refused artifact put changed the projection manifest")
+	}
 }
 
 func TestProjectInitRejectsExistingControlNamespace(t *testing.T) {
@@ -315,36 +367,50 @@ func TestProjectInitRejectsOutsideGitWorkingTree(t *testing.T) {
 func TestProjectInitRejectsMisplacedProjectFile(t *testing.T) {
 	root := newUninitializedRepository(t)
 	writeTestFile(t, root, "service/.protobot/project.yaml", "project:\n  id: misplaced\n")
-
-	t.Chdir(filepath.Join(root, "service"))
-	code, stdout, stderr := runCLI(nil, initArgs...)
-	assertFailure(t, code, stdout, stderr, 3, "project.not_git_root")
-	if !strings.Contains(stdout, `"path":"service/.protobot/project.yaml"`) || strings.Contains(stdout, root) {
-		t.Fatalf("misplaced diagnostic must name the relative location only: %s", stdout)
+	if err := os.MkdirAll(filepath.Join(root, "service", "sub"), 0o755); err != nil {
+		t.Fatal(err)
 	}
-	assertNotInitialized(t, root)
 
-	t.Chdir(root)
-	code, stdout, stderr = runCLI(nil, initArgs...)
-	assertFailure(t, code, stdout, stderr, 3, "project.not_git_root")
-	assertNotInitialized(t, root)
+	for _, dir := range []string{"service", "service/sub"} {
+		t.Chdir(filepath.Join(root, filepath.FromSlash(dir)))
+		code, stdout, stderr := runCLI(nil, initArgs...)
+		assertFailure(t, code, stdout, stderr, 3, "project.not_git_root")
+		if !strings.Contains(stdout, `"path":"service/.protobot/project.yaml"`) || strings.Contains(stdout, root) {
+			t.Fatalf("misplaced diagnostic must name the relative location only: %s", stdout)
+		}
+		assertNotInitialized(t, root)
+	}
 	if readTestFile(t, root, "service/.protobot/project.yaml") != "project:\n  id: misplaced\n" {
 		t.Fatal("initialization moved or rewrote the misplaced project file")
 	}
 }
 
-func TestProjectInitRejectsGitignoredMisplacedProjectFileFromRoot(t *testing.T) {
+// Project resolution and the Source Control Manager walk up from the current
+// directory, so project files elsewhere in the tree do not block
+// initialization: a committed fixture, an ignored nested clone, or an
+// unreadable ignored directory.
+func TestProjectInitIgnoresProjectFilesOutsideCurrentAncestry(t *testing.T) {
 	root := newUninitializedRepository(t)
-	writeTestFile(t, root, ".gitignore", "nested/.protobot/\n")
-	writeTestFile(t, root, "nested/.protobot/project.yaml", "project:\n  id: ignored\n")
+	writeTestFile(t, root, "testdata/sample/.protobot/project.yaml", "project:\n  id: fixture-sample\n")
+	writeTestFile(t, root, ".gitignore", "nested/\ndata/\n")
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "fixture and ignores")
+	writeTestFile(t, root, "nested/clone/.protobot/project.yaml", "project:\n  id: nested\n")
+	unreadable := filepath.Join(root, "data", "pg")
+	if err := os.MkdirAll(unreadable, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(unreadable, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(unreadable, 0o755) })
 	t.Chdir(root)
 
 	code, stdout, stderr := runCLI(nil, initArgs...)
-	assertFailure(t, code, stdout, stderr, 3, "project.not_git_root")
-	if !strings.Contains(stdout, `"path":"nested/.protobot/project.yaml"`) || strings.Contains(stdout, root) {
-		t.Fatalf("ignored misplaced diagnostic = %s", stdout)
+	assertSuccess(t, code, stdout, stderr)
+	if readTestFile(t, root, "testdata/sample/.protobot/project.yaml") != "project:\n  id: fixture-sample\n" {
+		t.Fatal("initialization rewrote a nested project file")
 	}
-	assertNotInitialized(t, root)
 }
 
 func TestProjectInitRejectsUnsafeOrMissingPaths(t *testing.T) {
@@ -534,15 +600,43 @@ func TestCheckAfterInitReportsTampering(t *testing.T) {
 		{
 			name: "registered path reclassified",
 			mutate: func(t *testing.T, root string) {
-				writeTestFile(t, root, ".protobot/projection.yaml", "paths:\n  - path: docs/architecture.md\n    class: shared\n  - path: docs/vision.md\n    class: implementation\n")
+				data := strings.Replace(readTestFile(t, root, ".protobot/projection.yaml"), "path: docs/vision.md\n    class: shared", "path: docs/vision.md\n    class: implementation", 1)
+				writeTestFile(t, root, ".protobot/projection.yaml", data)
 			},
 			wantExit: 4,
 			wantCode: "projection.unclassified",
 		},
 		{
+			name: "store directory unclassified",
+			mutate: func(t *testing.T, root string) {
+				data := strings.Replace(readTestFile(t, root, ".protobot/projection.yaml"), "  - path: .protobot/requirements/\n    class: shared\n", "", 1)
+				writeTestFile(t, root, ".protobot/projection.yaml", data)
+			},
+			wantExit: 4,
+			wantCode: "projection.unclassified",
+		},
+		{
+			name: "unversioned projection manifest",
+			mutate: func(t *testing.T, root string) {
+				data := strings.Replace(readTestFile(t, root, ".protobot/projection.yaml"), "version: 1\n", "", 1)
+				writeTestFile(t, root, ".protobot/projection.yaml", data)
+			},
+			wantExit: 4,
+			wantCode: "projection.invalid",
+		},
+		{
+			name: "unsupported projection version",
+			mutate: func(t *testing.T, root string) {
+				data := strings.Replace(readTestFile(t, root, ".protobot/projection.yaml"), "version: 1\n", "version: 2\n", 1)
+				writeTestFile(t, root, ".protobot/projection.yaml", data)
+			},
+			wantExit: 4,
+			wantCode: "projection.invalid",
+		},
+		{
 			name: "malformed projection manifest",
 			mutate: func(t *testing.T, root string) {
-				writeTestFile(t, root, ".protobot/projection.yaml", "paths:\n  - docs/vision.md\n")
+				writeTestFile(t, root, ".protobot/projection.yaml", "version: 1\npaths:\n  - docs/vision.md\n")
 			},
 			wantExit: 4,
 			wantCode: "projection.invalid",

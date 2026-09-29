@@ -900,12 +900,14 @@ repository.
 **Where it lives:** The project repository under `.protobot/`.
 
 **Schema owner:** `ears-manager` (for `project.yaml`,
-specification paths, and the projection classification of a
-registered specification path — see [Git and Project-Repository
+specification paths, the format of `projection.yaml`, which declares
+its own `version`, and the projection classification of a registered
+specification path or a configured store directory — see [Git and
+Project-Repository
 Integration](architecture/git-integration.md#path-rules)) and the
 Job Site (for the test catalog and attestation paths). Every other
-projection entry is reviewed project policy. On version mismatch,
-the owning tool refuses.
+projection entry, and the restoration of a missing one, is reviewed
+project policy. On version mismatch, the owning tool refuses.
 
 ### Claim coordinator
 

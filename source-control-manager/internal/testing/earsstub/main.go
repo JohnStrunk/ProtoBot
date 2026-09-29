@@ -355,9 +355,11 @@ func (s *stub) saveYAML(rel string, v any) error {
 	return os.WriteFile(s.file(rel), buf.Bytes(), 0o644)
 }
 
-// Projection is .protobot/projection.yaml.
+// Projection is .protobot/projection.yaml. Version is the manifest format
+// version, 1, which project init writes.
 type Projection struct {
-	Paths []Class `yaml:"paths"`
+	Version int     `yaml:"version,omitempty"`
+	Paths   []Class `yaml:"paths"`
 }
 
 // Class is one projection entry.
@@ -392,7 +394,7 @@ func (s *stub) projectInit() (any, []string, *failure) {
 	p.SchemaVersions.Project, p.SchemaVersions.Specification = 1, 1
 	p.Stores.Requirements, p.Stores.Interfaces, p.Stores.ChangeSets = ".protobot/requirements", ".protobot/interfaces", ".protobot/change-sets"
 	var registered []string
-	var projection Projection
+	projection := Projection{Version: 1}
 	for _, a := range []struct{ id, path string }{
 		{"architecture", orDefault(s.opt("architecture"), "docs/architecture.md")},
 		{"vision", orDefault(s.opt("vision"), "docs/vision.md")},
@@ -406,6 +408,12 @@ func (s *stub) projectInit() (any, []string, *failure) {
 		projection.Paths = append(projection.Paths, Class{Path: a.path, Class: "shared"})
 	}
 	sort.Strings(registered)
+	// The configured store directories are classified shared, as the
+	// specification paths are.
+	for _, store := range []string{p.Stores.Requirements, p.Stores.Interfaces, p.Stores.ChangeSets} {
+		projection.Paths = append(projection.Paths, Class{Path: store + "/", Class: "shared"})
+	}
+	sort.Slice(projection.Paths, func(i, j int) bool { return projection.Paths[i].Path < projection.Paths[j].Path })
 	if err := s.saveProjectWithStores(&p); err != nil {
 		return nil, nil, fail(6, "io.write_failed", "The project cannot be written.")
 	}

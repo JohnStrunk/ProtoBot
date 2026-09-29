@@ -97,8 +97,7 @@ func runProjectInit(args []string) (any, Mutation, *commandFailure) {
 	if failure := rejectMisplacedProject(root); failure != nil {
 		return nil, Mutation{}, failure
 	}
-	head, failure := initBaseCommit(root)
-	if failure != nil {
+	if failure := requireInitCommit(root); failure != nil {
 		return nil, Mutation{}, failure
 	}
 
@@ -131,7 +130,11 @@ func runProjectInit(args []string) (any, Mutation, *commandFailure) {
 	if err != nil {
 		return nil, Mutation{}, internalFailure("the project configuration could not be serialized")
 	}
-	projectionData, _, err := specvalidation.AddSharedClassifications(nil, registered)
+	projectionPaths := append([]string(nil), registered...)
+	for _, store := range []string{stores.Requirements, stores.Interfaces, stores.ChangeSets} {
+		projectionPaths = append(projectionPaths, store+"/")
+	}
+	projectionData, _, err := specvalidation.AddSharedClassifications(nil, projectionPaths)
 	if err != nil {
 		return nil, Mutation{}, internalFailure("the projection manifest could not be serialized")
 	}
@@ -142,13 +145,6 @@ func runProjectInit(args []string) (any, Mutation, *commandFailure) {
 		return nil, Mutation{}, initStateFailure("repository.default_branch", "The default branch has no commit to base the project on.", "Create the default branch with at least one commit before initializing.")
 	}
 
-	current, failure := currentCommit(root)
-	if failure != nil {
-		return nil, Mutation{}, failure
-	}
-	if !strings.EqualFold(current, head) {
-		return nil, Mutation{}, conflictFailure("change_set.base_mismatch", "The repository advanced while the command was preparing its write.", nil)
-	}
 	if failure := requireControlNamespaceAbsent(root); failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -181,68 +177,44 @@ func optionOrDefault(parsed options, name, fallback string) string {
 }
 
 // rejectMisplacedProject refuses initialization when a project configuration
-// already exists below the working-tree root, either between the current
-// directory and the root or anywhere in the working tree. The filesystem
-// walk includes ignored files because an ignored project configuration is
-// still a misplaced project configuration.
+// exists in a directory between the current directory and the working-tree
+// root. It walks up only, the rule project resolution and the Source Control
+// Manager use, so a nested repository, worktree, or fixture elsewhere in the
+// tree never blocks initialization.
 func rejectMisplacedProject(root string) *commandFailure {
 	cwd, err := os.Getwd()
-	if err == nil {
-		if resolved, resolveErr := filepath.EvalSymlinks(cwd); resolveErr == nil {
-			current := filepath.Clean(resolved)
-			for current != root && strings.HasPrefix(current, root+string(filepath.Separator)) {
-				candidate := filepath.Join(current, controlNamespace, "project.yaml")
-				if _, statErr := os.Lstat(candidate); statErr == nil {
-					relative, relErr := filepath.Rel(root, candidate)
-					if relErr != nil {
-						relative = ""
-					}
-					return misplacedProjectFailure(filepath.ToSlash(relative))
-				}
-				current = filepath.Dir(current)
-			}
-		}
-	}
-	var misplaced string
-	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if path == root {
-			return nil
-		}
-		if entry.IsDir() && entry.Name() == ".git" {
-			return filepath.SkipDir
-		}
-		if entry.IsDir() || entry.Name() != "project.yaml" || filepath.Base(filepath.Dir(path)) != controlNamespace {
-			return nil
-		}
-		relative, relErr := filepath.Rel(root, path)
-		if relErr != nil {
-			return relErr
-		}
-		if filepath.ToSlash(relative) == projectConfigRelative {
-			return nil
-		}
-		misplaced = filepath.ToSlash(relative)
-		return filepath.SkipAll
-	})
 	if err != nil {
-		return ioFailure("storage.read_failed", "The working tree could not be searched for an existing project configuration.")
+		return ioFailure("storage.read_failed", "The current directory could not be inspected for a misplaced project configuration.")
 	}
-	if misplaced != "" {
-		return misplacedProjectFailure(misplaced)
+	resolved, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		return ioFailure("storage.read_failed", "The current directory could not be resolved while checking for a misplaced project configuration.")
+	}
+	current := filepath.Clean(resolved)
+	root = filepath.Clean(root)
+	for current != root && strings.HasPrefix(current, root+string(filepath.Separator)) {
+		candidate := filepath.Join(current, controlNamespace, "project.yaml")
+		if _, statErr := os.Lstat(candidate); statErr == nil {
+			relative, relErr := filepath.Rel(root, candidate)
+			if relErr != nil {
+				return ioFailure("storage.read_failed", "The misplaced project configuration path could not be resolved.")
+			}
+			return misplacedProjectFailure(filepath.ToSlash(relative))
+		} else if !errors.Is(statErr, fs.ErrNotExist) && !errors.Is(statErr, syscall.ENOTDIR) {
+			return ioFailure("storage.read_failed", "A project configuration in the current directory ancestry could not be inspected.")
+		}
+		current = filepath.Dir(current)
 	}
 	return nil
 }
 
 func misplacedProjectFailure(path string) *commandFailure {
-	failure := projectFailure("project.not_git_root", "A .protobot/project.yaml exists below the Git working-tree root.")
+	failure := projectFailure("project.not_git_root", "A .protobot/project.yaml exists between the current directory and the Git working-tree root.")
 	diagnostic := specvalidation.Diagnostic{
 		Code:     "project.not_git_root",
 		Severity: "error",
-		Message:  "The project configuration must sit at the Git working-tree root; ears-manager never relocates it.",
-		Hint:     "Move or remove the misplaced project configuration, then retry from the working-tree root.",
+		Message:  "The current directory is inside a nested project configuration; ears-manager never relocates it.",
+		Hint:     "Run project initialization from the Git working-tree root, or move the nested project configuration through a reviewed change.",
 	}
 	if canonical, err := specvalidation.CanonicalProjectPath(path); err == nil {
 		diagnostic.Path = canonical
@@ -275,13 +247,14 @@ func alreadyInitializedFailure(detail string) *commandFailure {
 	}})
 }
 
-func initBaseCommit(root string) (string, *commandFailure) {
+// requireInitCommit refuses a repository without a commit. Initialization
+// records no base commit; change-set create records it later.
+func requireInitCommit(root string) *commandFailure {
 	command := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
-	output, err := command.Output()
-	if err != nil {
-		return "", initStateFailure("", "The repository has no commits.", "Create an initial commit on the default branch before initializing; an empty repository is initialized outside ears-manager.")
+	if err := command.Run(); err != nil {
+		return initStateFailure("", "The repository has no commits.", "Create an initial commit on the default branch before initializing; an empty repository is initialized outside ears-manager.")
 	}
-	return strings.TrimSpace(string(output)), nil
+	return nil
 }
 
 func initStateFailure(field, message, hint string) *commandFailure {

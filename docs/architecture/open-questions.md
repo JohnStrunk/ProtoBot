@@ -44,6 +44,21 @@ Kits are versioned imports;
    defaults, mutation operators, or internal test controls remain open.
    See [Kits](components.md#kits).
 
+### Q22: Initial Vision and Architecture files
+
+`ears-manager project init` registers Vision and Architecture files
+   that already exist and are committed on the default branch, and the
+   Source Control Manager's `branch_init` refuses when either is
+   uncommitted
+   ([`branch_init`](source-control-manager.md#branch_init)). A new
+   project has neither file before its first Sketch. Today the user
+   commits them, for example as placeholders
+   ([Starting a new project](drafting-table-ux.md#starting-a-new-project)).
+   Open: should the Drafting Table create and commit them from the
+   initial description or IdeaBot output before initialization, and
+   through which governed write, given that `ears-manager` owns
+   registered artifact content only after registration?
+
 ## Building phase
 
 ### Q8: Building merge infrastructure
