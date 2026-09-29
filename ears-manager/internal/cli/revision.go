@@ -293,13 +293,15 @@ func writeRevisionEntries(target string, entries []treeEntry, contents map[strin
 // The refs are the ones resolveDefaultBranchRef tries, and all of them count,
 // so a local branch that is behind its remote-tracking branch does not hide
 // a merge. isAncestor ignores replace refs, as the change-set ancestry check
-// does.
+// does. One ref that proves ancestry is enough, so a failure on another ref,
+// such as the shallow-clone failure, counts only when no ref proves it.
 func commitOnDefaultBranch(root, defaultBranch, commit string) (bool, *commandFailure) {
 	branch, failure := defaultBranchName(defaultBranch)
 	if failure != nil {
 		return false, failure
 	}
 	resolved := false
+	var firstFailure *commandFailure
 	for _, ref := range defaultBranchRefs(branch) {
 		output, err := exec.Command("git", "--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Output()
 		if err != nil {
@@ -307,12 +309,15 @@ func commitOnDefaultBranch(root, defaultBranch, commit string) (bool, *commandFa
 		}
 		resolved = true
 		onBranch, failure := isAncestor(root, commit, strings.TrimSpace(string(output)))
-		if failure != nil {
-			return false, failure
-		}
 		if onBranch {
 			return true, nil
 		}
+		if failure != nil && firstFailure == nil {
+			firstFailure = failure
+		}
+	}
+	if firstFailure != nil {
+		return false, firstFailure
 	}
 	if !resolved {
 		return false, projectFailure("project.default_branch_unresolved", fmt.Sprintf("Repository default branch %q could not be resolved.", branch))

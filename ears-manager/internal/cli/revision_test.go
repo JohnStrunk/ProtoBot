@@ -102,6 +102,28 @@ func TestChangeSetShowAtDerivesApprovalFromTheDefaultBranch(t *testing.T) {
 	}
 }
 
+func TestChangeSetShowAtFindsTheMergeInAShallowClone(t *testing.T) {
+	source, changeSetID, _ := newCommittedChangeSet(t)
+	clone := filepath.Join(t.TempDir(), "clone")
+	git(t, source, "clone", "--depth", "1", "--branch", "main", "file://"+source, clone)
+	git(t, source, "switch", "main")
+	git(t, source, "merge", "--no-ff", "-m", "Merge change set", "cs/00001-show-at")
+	merge := gitOutput(t, source, "rev-parse", "HEAD")
+	git(t, clone, "fetch", "--depth", "1", "origin", "main")
+	if gitOutput(t, clone, "rev-parse", "refs/remotes/origin/main") != merge || gitOutput(t, clone, "rev-parse", "--is-shallow-repository") != "true" {
+		t.Fatalf("the clone is not a shallow clone with origin/main at the merge")
+	}
+
+	// Local main is still the base, so it does not prove the merge; the shallow
+	// history makes that answer a failure. origin/main is the merge itself.
+	t.Chdir(clone)
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", changeSetID, "--at", merge)
+	assertSuccess(t, code, stdout, stderr)
+	if jsonString(t, stdout, "data", "status") != "approved" {
+		t.Fatalf("status at a merge only origin/main holds, in a shallow clone = %s", stdout)
+	}
+}
+
 func TestChangeSetShowAtFailsWhenTheDefaultBranchIsUnresolved(t *testing.T) {
 	root, changeSetID, tip := newCommittedChangeSet(t)
 	git(t, root, "branch", "-m", "main", "trunk")

@@ -707,6 +707,11 @@ default branch is the one `repository.default_branch` names:
   it. Otherwise it is `proposed`. `default_branch` is read from that commit,
   as a working-tree read takes it from the working tree.
 
+Both rules assume that the remote named `origin` is the canonical remote. In a
+clone where another remote has the `repository.canonical_remote` URL, a merge
+that only that remote's default branch holds reads as `proposed`. Issue #208
+decides which remote-tracking ref counts for both rules.
+
 So a manifest is `proposed` at a change-set branch tip before the merge, and
 `approved` at the merge commit and at every later default-branch commit.
 Both refs count with `--at`, so a local default branch that is behind its
@@ -717,9 +722,9 @@ applies before any Git command runs, because Git would read a name such as
 `main~1` or `main@{1}` as another commit. A name that fails the rule is
 `project.invalid_configuration` with status `3`. With `--at`, "descendant"
 uses the ancestry test of [Change sets](#change-sets): it ignores Git
-replace refs, and in a shallow clone an answer that the commit is not on the
-default branch is `git.read_failed`, status `6`, because the history is
-incomplete.
+replace refs. One ref that proves the commit is on the default branch is
+enough. In a shallow clone, when no ref proves it, the answer is
+`git.read_failed`, status `6`, because the history is incomplete.
 `approved` states only that the commit is reachable from a default-branch
 ref. It does not prove that a reviewed pull request merged it; the
 [Source Control Manager](source-control-manager.md#approved-state-read-face)
