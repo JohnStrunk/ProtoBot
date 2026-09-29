@@ -1327,7 +1327,10 @@ gateway in front of thin backend translators.
 
 The MVP contract for this boundary is the versioned declarative
 `validation-rules/v1` ruleset and deterministic evaluator in the
-[Validation Rules Contract](validation-rules.md). The evaluator's
+[Validation Rules Contract](validation-rules.md). The shipped MVP
+evaluator is the backend-neutral Go package `wms/validation`, and the
+first adapter that enforces it is the in-memory fake adapter
+(`wms/memory`) used by the conformance and fixture tests. The evaluator's
 decision is advisory during preflight and authoritative only when the WMS
 boundary evaluates the fresh record and commits the conditional mutation.
 
@@ -1370,8 +1373,9 @@ The line between Validation Rules and `ears-manager` is:
 ### Open design questions
 
 - **Future bindings.** The MVP uses a declarative state-machine ruleset
-  with a deterministic evaluator. A WIT binding, compiled library, or
-  separate service may improve portability later, but none may change the
+  with a deterministic evaluator, shipped as the backend-neutral Go
+  package `wms/validation`. A WIT binding or separate service may
+  improve portability later, but none may change the
   decision or rejection semantics defined by the
   [Validation Rules Contract](validation-rules.md).
 
@@ -2126,6 +2130,9 @@ confirmation.
   authorization, transitions, rejection semantics, and acceptance matrix
 - [Drafting Table WMS Integration Contract](drafting-table-wms.md) —
   Backend-neutral request, query, linking, and blocked-resolution operations
+- [WMS Implementations](../../wms/README.md) — Backend-neutral Go evaluator
+  and the in-memory fake adapter used by the conformance and fixture
+  tests
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state
