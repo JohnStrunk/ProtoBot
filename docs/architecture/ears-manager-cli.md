@@ -95,19 +95,19 @@ Reads are root-relative and deterministic:
 - `check`, `change-set compare`, and `impact` read the complete relevant
   store rather than trusting a caller-provided subset.
 
-In the target contract, the optional `--at <full-commit-sha>` selector
-provides read-revision semantics accepted only by read and analysis commands.
-`change-set show` implements it; the other read and analysis commands defer
-it to follow-on scope. It must name a full 40-character commit present in the
+In the target contract, the optional `--at <full-commit-sha>` selector provides
+read-revision semantics accepted only by read and analysis commands.
+`change-set show` implements it; the other read and analysis commands defer it
+to follow-on scope. It must name a full 40-character commit present in the
 local repository. The default is the current working tree. A read at a commit
 still resolves the Git repository from the working tree, but it takes
-`.protobot/project.yaml`, the structured stores, and the registered artifacts
-from the tree of that commit. The working tree need not contain
-`.protobot/project.yaml`, and an uncommitted, untracked, or deleted file there
-does not change the result. The CLI reads the commit through the local `git`
-executable, ignores Git replace refs, and writes nothing under `.git/`. It
-may stage that tree in a private temporary directory outside the project root
-and removes it before it exits; that copy is not a governed write.
+`.protobot/project.yaml`, `.protobot/projection.yaml`, the structured stores,
+and the registered artifacts from the tree of that commit. The working tree
+need not contain `.protobot/project.yaml`, and an uncommitted, untracked, or
+deleted file there does not change the result. The CLI reads the commit through
+the local `git` executable, ignores Git replace refs, and writes nothing under
+`.git/`. It may stage that tree in a private temporary directory outside the
+project root and removes it before it exits; that copy is not a governed write.
 
 ### Write authority
 

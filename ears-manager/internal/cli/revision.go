@@ -19,9 +19,9 @@ import (
 
 // A read at `--at FULL-SHA` takes the project from the tree of that commit,
 // not from the working tree. The loader and the validator read a directory on
-// disk, so the read copies the commit's project configuration, record stores,
-// and registered artifacts into a private temporary directory and loads the
-// snapshot from there. Git runs in the working-tree root, and nothing in the
+// disk, so the read copies the commit's project configuration, projection
+// manifest, record stores, and registered artifacts into a private temporary
+// directory and loads the snapshot from there. Git runs in the working-tree root, and nothing in the
 // working tree is read or written.
 
 const (
@@ -93,13 +93,13 @@ func loadRevisionState(root, commit string) (projectState, func(), *commandFailu
 	return projectState{}, nil, projectFailure("project.load_failed", "The project specification could not be loaded.")
 }
 
-// copyRevision copies the project configuration of commit into target, then
-// the record stores and the registered artifacts that the configuration
+// copyRevision copies the project configuration and the projection manifest
+// of commit into target, then the record stores and the registered artifacts that the configuration
 // names. Every entry keeps its tree mode, so the loader refuses a symbolic
 // link, a directory, or a submodule at a commit as it does in the working
 // tree. It reports false when the commit has no project configuration.
 func copyRevision(root, commit, target string) (bool, *commandFailure) {
-	listed, failure := listRevisionTree(root, commit, []string{revisionConfigPath})
+	listed, failure := listRevisionTree(root, commit, []string{revisionConfigPath, specvalidation.ProjectionPath})
 	if failure != nil {
 		return false, failure
 	}
@@ -107,11 +107,15 @@ func copyRevision(root, commit, target string) (bool, *commandFailure) {
 	if len(configEntries) == 0 {
 		return false, nil
 	}
-	contents, failure := readRevisionBlobs(root, configEntries)
+	// The projection manifest of the commit is copied with the configuration,
+	// so projection checks read the classification of that commit, not an
+	// absent manifest.
+	controlEntries := append(append([]treeEntry(nil), configEntries...), exactTreeEntries(listed, []string{specvalidation.ProjectionPath})...)
+	contents, failure := readRevisionBlobs(root, controlEntries)
 	if failure != nil {
 		return false, failure
 	}
-	entries := configEntries
+	entries := controlEntries
 	if config := configEntries[0]; config.mode == treeModeRegular || config.mode == treeModeExecutable {
 		stores, artifacts := revisionDataPaths(contents[config.object])
 		listed, failure = listRevisionTree(root, commit, append(append([]string(nil), stores...), artifacts...))

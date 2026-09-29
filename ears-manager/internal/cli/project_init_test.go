@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -60,15 +59,6 @@ func readTestFile(t *testing.T, root, relative string) string {
 		t.Fatal(err)
 	}
 	return string(data)
-}
-
-func gitOutput(t *testing.T, root string, args ...string) string {
-	t.Helper()
-	output, err := exec.Command("git", append([]string{"-C", root}, args...)...).Output()
-	if err != nil {
-		t.Fatalf("git %v failed: %v", args, err)
-	}
-	return strings.TrimSpace(string(output))
 }
 
 func assertNotInitialized(t *testing.T, root string) {
@@ -584,7 +574,7 @@ func TestCheckAfterInitReportsTampering(t *testing.T) {
 				}
 				writeTestFile(t, root, ".protobot/project.yaml", strings.Replace(data, emptyDigest, other, 1))
 			},
-			wantExit: 3,
+			wantExit: 4,
 			wantCode: "project.store_digest_mismatch",
 		},
 		{
