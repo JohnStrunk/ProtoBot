@@ -102,6 +102,13 @@ will require the normal reviewed migration policy for any later
 schema change; this amendment does not reinterpret an existing
 deployment.
 
+**[Amended September 2026, #208]** The change-set manifest gains
+`impact_assessment_base_commit`, so that `ears-manager` can tell that
+an impact assessment was recorded against an earlier `base_commit`.
+The field is added to version 1 before the first project adopts
+version 1, so it does not increment the specification store's
+version.
+
 ### Requirement Records
 
 Requirement records are the primary specification artifact. Each
@@ -271,6 +278,7 @@ the intent, the operations performed, and the impact assessment.
 | `implementation_required` | boolean | yes | Whether this change set requires implementation work (a build work item). |
 | `implementation_rationale` | string | conditional | Required when `implementation_required` is `false`. Explains why no implementation work is needed (e.g., documentation-only change). |
 | `impact_assessment` | list\[object\] | conditional | Impact assessment for unchanged requirements. See [Impact Assessment](#impact-assessment). Required before the change set can be merged (approved) and any candidate unchanged requirement exists (i.e., `ears-manager impact` identified at least one candidate). |
+| `impact_assessment_base_commit` | string | conditional | The `base_commit` that the impact assessment was last recorded against. A full 40-character hexadecimal Git commit hash. `ears-manager change-set create` sets it to `base_commit`, and a reviewed `change-set update --impact-file` sets it to the `base_commit` that the same update leaves in the manifest; `change-set update --base-commit` does not change it. Required before the change set can be merged (approved): a proposed manifest whose value is missing or differs from `base_commit`, ignoring letter case, has a stale impact assessment, even when it has no entries. `check` rejects a value that is not a full 40-character hexadecimal ID with `change_set.invalid_base_commit`, for a proposed or an approved manifest. See [Impact Assessment](#impact-assessment). |
 | `created` | string (ISO 8601) | yes | Timestamp when the change set was created. |
 
 #### Change-Set Operations
@@ -326,10 +334,18 @@ requirement and its reviewed disposition:
 
 Impact completeness is a proposed-change-set rule. For a proposed
 manifest, `ears-manager` computes candidates from the proposed
-snapshot and requires one final assessment for each candidate. An
+snapshot and requires one final assessment for each candidate. It
+also requires `impact_assessment_base_commit` to equal
+`base_commit`, because candidate computation does not read
+`base_commit`: a base update that leaves the candidate set
+unchanged, including one with no candidates, would otherwise leave
+an assessment reviewed against the earlier base `complete`. So a
+base update makes the assessment stale until a new reviewed
+assessment is recorded against the new base. An
 approved manifest is immutable historical evidence: validation checks
 the stored assessment's shape and references but does not recompute
-its candidates against later requirements or statuses.
+its candidates against later requirements or statuses, and does not
+compare its `impact_assessment_base_commit` with its `base_commit`.
 
 ### Artifact-Registry Entries
 
@@ -578,8 +594,9 @@ synchronization problems between the spec store and the WMS.
 - **Free-form scopes.** Without a controlled vocabulary enforced by
   `ears-manager`, scope strings may drift. Projects must manage
   consistency through policy or CI rules.
-- **Schema evolution.** Adding fields or enum values increments
-  the per-store schema version in `.protobot/project.yaml` and
+- **Schema evolution.** After version 1 is adopted, adding fields or
+  enum values increments the per-store schema version in
+  `.protobot/project.yaml` and
   requires updating `ears-manager` and potentially migrating
   existing records. This is manageable because `ears-manager`
   abstracts all reads and writes and refuses to operate on data
@@ -660,6 +677,7 @@ impact_assessment:
       but authentication changes do not affect logging
       behavior.
     origin: mechanical
+impact_assessment_base_commit: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2
 created: "2026-08-01T14:00:00Z"
 ```
 

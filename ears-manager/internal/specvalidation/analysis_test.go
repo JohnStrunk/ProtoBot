@@ -94,10 +94,12 @@ func TestImpactForChangeSetPrefersFalsePositives(t *testing.T) {
 		},
 	}
 	changeSet := records.ChangeSet{
-		ID:                 "CS-00008",
-		AffectedInterfaces: []string{"cli-main"},
-		AffectedScopes:     []string{"cli", "project"},
-		Operations:         []records.RequirementOperation{{Action: "add", RequirementID: changed.ID}},
+		ID:                         "CS-00008",
+		BaseCommit:                 strings.Repeat("a", 40),
+		AffectedInterfaces:         []string{"cli-main"},
+		AffectedScopes:             []string{"cli", "project"},
+		Operations:                 []records.RequirementOperation{{Action: "add", RequirementID: changed.ID}},
+		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
 	}
 
 	first := ImpactForChangeSet(changeSet, strings.Repeat("a", 40), snapshot)
@@ -141,7 +143,11 @@ func TestChangeSetAssessmentStatusCompleteIncompleteAndStale(t *testing.T) {
 	candidate := validRequirement("REQ-OLD-00001", records.EARSUbiquitous, "The system shall keep CLI help stable.")
 	requirements := map[string]records.Requirement{candidate.ID: candidate}
 	candidates := map[string]bool{candidate.ID: true}
-	changeSet := records.ChangeSet{Operations: []records.RequirementOperation{{Action: "add", RequirementID: "REQ-NEW-00001"}}}
+	changeSet := records.ChangeSet{
+		BaseCommit:                 strings.Repeat("a", 40),
+		Operations:                 []records.RequirementOperation{{Action: "add", RequirementID: "REQ-NEW-00001"}},
+		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
+	}
 	if got := ChangeSetAssessmentStatus(changeSet, candidates, requirements); got != AssessmentIncomplete {
 		t.Fatalf("missing assessment status = %q", got)
 	}
@@ -162,6 +168,46 @@ func TestChangeSetAssessmentStatusCompleteIncompleteAndStale(t *testing.T) {
 	}
 	if got := ChangeSetAssessmentStatus(changeSet, map[string]bool{}, requirements); got != AssessmentStale {
 		t.Fatalf("stale mechanical status = %q", got)
+	}
+}
+
+func TestChangeSetAssessmentStatusFollowsTheBaseCommit(t *testing.T) {
+	candidate := validRequirement("REQ-OLD-00001", records.EARSUbiquitous, "The system shall keep CLI help stable.")
+	requirements := map[string]records.Requirement{candidate.ID: candidate}
+	candidates := map[string]bool{candidate.ID: true}
+	reviewed := func(base, assessmentBase string) records.ChangeSet {
+		return records.ChangeSet{
+			BaseCommit: base,
+			Operations: []records.RequirementOperation{{Action: "add", RequirementID: "REQ-NEW-00001"}},
+			ImpactAssessment: []records.ImpactAssessment{{
+				RequirementID: candidate.ID, Disposition: "applicable", Rationale: "Help remains binding.", Origin: "mechanical",
+			}},
+			ImpactAssessmentBaseCommit: assessmentBase,
+		}
+	}
+	// A change set with no candidates and no entries, like an
+	// artifact-only change set.
+	empty := func(base, assessmentBase string) records.ChangeSet {
+		return records.ChangeSet{BaseCommit: base, Operations: []records.RequirementOperation{}, ImpactAssessmentBaseCommit: assessmentBase}
+	}
+	older, newer := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	for _, test := range []struct {
+		name       string
+		changeSet  records.ChangeSet
+		candidates map[string]bool
+		want       string
+	}{
+		{"same base in another case", reviewed(older, strings.ToUpper(older)), candidates, AssessmentComplete},
+		{"moved base", reviewed(newer, older), candidates, AssessmentStale},
+		{"no recorded base", reviewed(older, ""), candidates, AssessmentStale},
+		{"empty assessment on the same base", empty(older, older), map[string]bool{}, AssessmentComplete},
+		{"empty assessment on a moved base", empty(newer, older), map[string]bool{}, AssessmentStale},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ChangeSetAssessmentStatus(test.changeSet, test.candidates, requirements); got != test.want {
+				t.Fatalf("status = %q, want %q", got, test.want)
+			}
+		})
 	}
 }
 

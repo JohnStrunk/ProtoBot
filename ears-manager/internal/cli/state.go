@@ -307,7 +307,11 @@ func validateCandidateForChangeSet(snapshot specvalidation.Snapshot, changeSetID
 func validateScopedCheck(root string, snapshot specvalidation.Snapshot, targetIndex int) *commandFailure {
 	targetID := snapshot.ChangeSets[targetIndex].Value.ID
 	proposed := map[string]bool{}
-	approved, failure := changeSetApprovedAt(root, snapshot.Config.Repository.DefaultBranch, snapshot.ChangeSets[targetIndex].Path)
+	refs, failure := resolveDefaultBranchRefs(root, snapshot.Config.Repository)
+	if failure != nil {
+		return failure
+	}
+	approved, failure := changeSetApprovedAt(root, refs, snapshot.ChangeSets[targetIndex].Path)
 	if failure != nil {
 		return failure
 	}
@@ -895,18 +899,25 @@ func readRegularFile(root, relative string) ([]byte, *commandFailure) {
 	return data, nil
 }
 
-func resolveDefaultBranchRef(root, defaultBranch string) (string, *commandFailure) {
-	branch, failure := defaultBranchName(defaultBranch)
+// resolveDefaultBranchRefs returns the default-branch refs that resolve to a
+// commit. A change set in the working tree is approved when any of them
+// holds its manifest.
+func resolveDefaultBranchRefs(root string, repository records.RepositoryConfig) ([]string, *commandFailure) {
+	candidates, failure := defaultBranchRefs(root, repository)
 	if failure != nil {
-		return "", failure
+		return nil, failure
 	}
-	for _, candidate := range defaultBranchRefs(branch) {
+	refs := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
 		cmd := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", candidate+"^{commit}")
 		if err := cmd.Run(); err == nil {
-			return candidate, nil
+			refs = append(refs, candidate)
 		}
 	}
-	return "", projectFailure("project.default_branch_unresolved", fmt.Sprintf("Repository default branch %q could not be resolved.", branch))
+	if len(refs) == 0 {
+		return nil, projectFailure("project.default_branch_unresolved", fmt.Sprintf("Repository default branch %q could not be resolved.", strings.TrimSpace(repository.DefaultBranch)))
+	}
+	return refs, nil
 }
 
 // defaultBranchName checks repository.default_branch before it reaches a Git
@@ -923,45 +934,125 @@ func defaultBranchName(defaultBranch string) (string, *commandFailure) {
 	return branch, nil
 }
 
-// defaultBranchRefs lists the refs that can hold the default branch, in the
-// order resolveDefaultBranchRef tries them.
-func defaultBranchRefs(branch string) []string {
-	return []string{
-		"refs/heads/" + branch,
-		"refs/remotes/origin/" + branch,
+// defaultBranchRefs lists the refs that can hold the default branch: the
+// local branch, then the remote-tracking branch of every remote whose fetch
+// URL is the canonical remote. Both status rules read this list, the
+// working-tree one through resolveDefaultBranchRefs and the --at one through
+// commitOnDefaultBranch. ears-manager never fetches, so a remote-tracking ref
+// shows the canonical remote as of the last fetch.
+func defaultBranchRefs(root string, repository records.RepositoryConfig) ([]string, *commandFailure) {
+	branch, failure := defaultBranchName(repository.DefaultBranch)
+	if failure != nil {
+		return nil, failure
 	}
+	remotes, failure := canonicalRemoteNames(root, repository.CanonicalRemote)
+	if failure != nil {
+		return nil, failure
+	}
+	refs := []string{"refs/heads/" + branch}
+	for _, remote := range remotes {
+		refs = append(refs, "refs/remotes/"+remote+"/"+branch)
+	}
+	return refs, nil
 }
 
-func changeSetApprovedAt(root, defaultBranch, manifestPath string) (bool, *commandFailure) {
-	ref, failure := resolveDefaultBranchRef(root, defaultBranch)
-	if failure != nil {
-		return false, failure
+// canonicalRemoteNames returns, in name order, the remotes whose fetch URL,
+// with userinfo removed, equals the canonical remote. The fetch URL is the
+// first configured url of a remote; the rule is the one the Source Control
+// Manager uses to find its remote. A remote whose name is not a valid ref
+// name has no remote-tracking refs, so it is left out.
+func canonicalRemoteNames(root, canonicalRemote string) ([]string, *commandFailure) {
+	output, err := exec.Command("git", "-C", root, "config", "-z", "--get-regexp", `^remote\..+\.url$`).Output()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return nil, nil
 	}
+	if err != nil {
+		return nil, ioFailure("git.read_failed", "Git could not read the remotes of the repository.")
+	}
+	fetchURLs := map[string]string{}
+	for _, entry := range strings.Split(string(output), "\x00") {
+		key, value, found := strings.Cut(entry, "\n")
+		if !found {
+			continue
+		}
+		name := strings.TrimSuffix(strings.TrimPrefix(key, "remote."), ".url")
+		if _, seen := fetchURLs[name]; !seen {
+			fetchURLs[name] = value
+		}
+	}
+	names := make([]string, 0, len(fetchURLs))
+	for name, fetchURL := range fetchURLs {
+		if specvalidation.ValidGitRefName(name) && withoutUserinfo(fetchURL) == canonicalRemote {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// withoutUserinfo removes the userinfo of a remote URL, except the fixed
+// git@ of the SCP form, and leaves the rest of the text as it is.
+func withoutUserinfo(remote string) string {
+	if scheme, rest, found := strings.Cut(remote, "://"); found {
+		authority, path, hasPath := strings.Cut(rest, "/")
+		if at := strings.LastIndexByte(authority, '@'); at >= 0 {
+			authority = authority[at+1:]
+		}
+		if hasPath {
+			return scheme + "://" + authority + "/" + path
+		}
+		return scheme + "://" + authority
+	}
+	host, path, found := strings.Cut(remote, ":")
+	if !found || strings.Contains(host, "/") || strings.HasPrefix(remote, "git@") {
+		return remote
+	}
+	if at := strings.LastIndexByte(host, '@'); at >= 0 {
+		return host[at+1:] + ":" + path
+	}
+	return remote
+}
+
+// changeSetApprovedAt reports whether the manifest is in the tree of any of
+// the approval refs.
+func changeSetApprovedAt(root string, refs []string, manifestPath string) (bool, *commandFailure) {
 	relative := strings.TrimPrefix(filepath.ToSlash(manifestPath), "/")
 	if relative == "" {
 		return false, projectFailure("change_set.invalid_manifest", "Manifest path is empty.")
 	}
-	cmd := exec.Command("git", "-C", root, "cat-file", "-e", ref+":"+relative)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err == nil {
-		return true, nil
+	for _, ref := range refs {
+		cmd := exec.Command("git", "-C", root, "cat-file", "-e", ref+":"+relative)
+		var stderr bytes.Buffer
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err == nil {
+			return true, nil
+		}
+		errText := stderr.String()
+		if strings.Contains(errText, "does not exist in") || strings.Contains(errText, "not in '") {
+			continue
+		}
+		return false, projectFailure("git.cat_file_failed", fmt.Sprintf("Unable to inspect manifest at %s:%s: %s", ref, relative, strings.TrimSpace(errText)))
 	}
-	errText := stderr.String()
-	if strings.Contains(errText, "does not exist in") || strings.Contains(errText, "not in '") {
-		return false, nil
-	}
-	return false, projectFailure("git.cat_file_failed", fmt.Sprintf("Unable to inspect manifest at %s:%s: %s", ref, relative, strings.TrimSpace(errText)))
+	return false, nil
 }
 
 func proposedChangeSetIDs(root string, snapshot specvalidation.Snapshot) (map[string]bool, *commandFailure) {
 	proposed := make(map[string]bool, len(snapshot.ChangeSets))
-	branch := snapshot.Config.Repository.DefaultBranch
+	// The refs are resolved at the first change set, so a project without
+	// change sets never needs a resolvable default branch.
+	var refs []string
 	for _, document := range snapshot.ChangeSets {
 		if document.Value.ID == "" {
 			continue
 		}
-		approved, failure := changeSetApprovedAt(root, branch, document.Path)
+		if refs == nil {
+			var failure *commandFailure
+			if refs, failure = resolveDefaultBranchRefs(root, snapshot.Config.Repository); failure != nil {
+				return nil, failure
+			}
+		}
+		approved, failure := changeSetApprovedAt(root, refs, document.Path)
 		if failure != nil {
 			return nil, failure
 		}
@@ -1061,8 +1152,11 @@ func proposedChangeSetWithOption(state projectState, id string, allowBaseMismatc
 	if !exists {
 		return -1, records.ChangeSet{}, validationFailure("change_set.not_proposed", fmt.Sprintf("Change set %s was not found.", id), nil)
 	}
-	manifestPath := state.snapshot.ChangeSets[index].Path
-	approved, failure := changeSetApprovedAt(state.root, state.snapshot.Config.Repository.DefaultBranch, manifestPath)
+	refs, failure := resolveDefaultBranchRefs(state.root, state.snapshot.Config.Repository)
+	if failure != nil {
+		return -1, records.ChangeSet{}, failure
+	}
+	approved, failure := changeSetApprovedAt(state.root, refs, state.snapshot.ChangeSets[index].Path)
 	if failure != nil {
 		return -1, records.ChangeSet{}, failure
 	}

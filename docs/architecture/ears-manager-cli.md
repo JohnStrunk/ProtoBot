@@ -147,7 +147,9 @@ Project-Repository Integration](git-integration.md#path-rules).
 
 Except for `project init`, every record or artifact write targets an
 unapproved proposed change set. An approved manifest on the default branch is
-immutable; attempting to update it is a conflict, not a new draft.
+immutable; attempting to update it is a conflict, not a new draft. The
+[approval rule](#approved-and-proposed-change-sets) says which refs decide
+that a manifest is on the default branch.
 
 ### Human approval checkpoint
 
@@ -508,7 +510,7 @@ The process status is part of the contract:
 | ---: | --- | --- | --- |
 | `0` | Success | Read succeeded, validation passed, or a write was applied | No retry needed |
 | `2` | Usage | Unknown command/option, missing option, malformed option value | Correct the request; no mutation occurred |
-| `3` | Project | Project not initialized, project outside Git root, unsupported store version, invalid project configuration | Select or upgrade the project; no mutation occurred |
+| `3` | Project | Project not initialized, project outside Git root, unsupported store version, invalid project configuration, unresolved default branch | Select or upgrade the project; no mutation occurred |
 | `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content, invalid base commit, a structured store or registered artifact that does not match its digest, an `--at` value that is not a full hash or names no local commit | Revise the proposed request; no mutation occurred |
 | `5` | Conflict or stale state | Approved manifest, duplicate ID, branch conflict, changed base, impact assessment no longer matches candidates | Refresh and review; no mutation occurred |
 | `6` | I/O or external boundary | Permission failure, unreadable input, Git read failure, atomic write failure with known rollback | Fix the environment, then retry after checking state |
@@ -528,8 +530,9 @@ an invalid store exits non-zero.
 
 The tables below define the minimum request and result for every Toolkit-used
 operation. Fields inherited from ADR-0002 are not repeated in full. Every
-write to an existing proposed change set can also return the diagnostics of
-the ancestry check in [Change sets](#change-sets).
+write to an existing change set can also return the diagnostics of the
+[approval rule](#approved-and-proposed-change-sets) and of the
+[ancestry check](#ancestry-check).
 
 ### `project init`
 
@@ -591,24 +594,69 @@ explicit.
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
 | `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, or project diagnostics |
-| `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed` |
+| `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed`, `project.default_branch_unresolved`, or `git.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `git.read_failed`, `project.default_branch_unresolved`, `project.invalid_configuration`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
 | `change-set update` | `--change-set CS-ID` plus metadata, `--base-commit`, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_base`, `change_set.invalid_impact`, `git.read_failed`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit (deferred to follow-on scope) | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
 In the EM-04 first release, `change-set create` allocates the next unused
-sequence number, records a full 40-character `base_commit`, and writes the
-manifest. It does not create or check out a branch. Branch creation and branch
+sequence number, records a full 40-character `base_commit` and the same value
+as `impact_assessment_base_commit`, and writes the manifest. It does not
+create or check out a branch. Branch creation and branch
 reuse are deferred to the follow-on Git integration. A failed creation leaves
 no manifest.
 
 Every successful `change-set update` returns a `before` and `after` manifest
 summary, the resulting `assessment_status`, and sorted `changed_paths`.
 `change-set update --impact-file` replaces the complete impact assessment in
-one operation. The file must contain a final `applicable` or
+one operation and sets `impact_assessment_base_commit` to the `base_commit`
+that the same update leaves in the manifest. The file must contain a final
+`applicable` or
 `not-applicable` disposition, a rationale, and an origin of `mechanical` or
 `semantic` for every entry. A semantic entry must name an unchanged active
-requirement not already in the changed operations.
+requirement not already in the changed operations. An empty list is the
+reviewed assessment of a change set with no candidates.
+
+#### Approved and proposed change sets
+
+A change set is approved when its manifest path is in the tree of one of
+these refs, each when it resolves to a commit:
+
+- the local default branch, `refs/heads/<default_branch>`; or
+- the canonical remote's default branch,
+  `refs/remotes/<remote>/<default_branch>`, for each `<remote>` whose
+  configured fetch URL, with any userinfo other than the fixed `git@` of the
+  SCP form removed, equals `repository.canonical_remote`.
+
+Any other change set is proposed. The URL match is the one the [Source
+Control Manager](source-control-manager.md#operation-matrix) uses for its
+`<remote>`. The comparison is exact text: a `.git` suffix, letter case, and a
+trailing `/` are not normalized. Unlike the Source Control Manager,
+`ears-manager` reads every remote that matches, takes the first configured
+URL of each, and refuses none, because it only reads. A remote with another
+URL, such as a fork named `origin`, never decides approval.
+
+The merge is the approval event; the refs only let `ears-manager` see it.
+`ears-manager` never fetches, so the remote-tracking ref shows the canonical
+remote as of the last fetch. So after a fetch, `ears-manager` reports a
+change set whose pull request merged on the host as approved, even while the
+local default branch is behind.
+
+Every command that tells approved from proposed change sets uses this rule:
+`change-set list` and `change-set show` report the status (`change-set show
+--at` asks the same refs about a commit, as [`change-set
+show`](#change-set-show) describes), `check` requires
+impact completeness only for the proposed change sets, and every write to an
+existing change set refuses an approved one with `change_set.not_proposed`,
+status `5`, and `mutation: "none"`. When no ref resolves to a commit, such a
+command fails with `project.default_branch_unresolved`, status `3`, and does
+not treat every change set as proposed. A failure to read the remotes is
+`git.read_failed`, status `6`. A caller that runs such a command in a clone
+without the local default branch, such as CI, first fetches the default
+branch from a remote whose configured URL equals
+`repository.canonical_remote`.
+
+#### Ancestry check
 
 Every write to an existing proposed change set runs an ancestry check of
 `HEAD` against the manifest's `base_commit`. A change-set branch can hold more
@@ -640,7 +688,9 @@ Then it applies the ancestry rule:
   `HEAD` and the recorded `base_commit` is an ancestor of `X`. After the
   refresh merge, `X` is the default-branch head that the merge brought in.
   So `base_commit` moves forward along the change-set branch, never back or
-  sideways.
+  sideways. A new `base_commit` makes the impact assessment `stale` until a
+  reviewed `change-set update --impact-file` records the assessment against
+  the new base ([Impact review protocol](#impact-review-protocol)).
 
 `change_set.base_mismatch`, status `5`, and `mutation: "none"` refuse a write
 in each of these cases:
@@ -694,34 +744,31 @@ working tree.
 state of the default branch and the merge is the approval event
 ([ADR-0002](../decisions/0002-ears-specification-record-schema.md#change-set-manifests);
 [Git and Project-Repository
-Integration](git-integration.md#the-merge-is-the-approval-event)). The
-default branch is the one `repository.default_branch` names:
+Integration](git-integration.md#the-merge-is-the-approval-event)). Both rules
+read the default-branch refs of the
+[approval rule](#approved-and-proposed-change-sets):
+`refs/heads/<default_branch>`, and `refs/remotes/<remote>/<default_branch>`
+for each remote whose configured fetch URL is `repository.canonical_remote`.
 
-- Without `--at`, the manifest is `approved` when
-  `refs/heads/<default_branch>` holds its path, or
-  `refs/remotes/origin/<default_branch>` does when the local branch is
-  absent. Otherwise it is `proposed`.
+- Without `--at`, the manifest is `approved` when any of those refs holds its
+  path. Otherwise it is `proposed`.
 - With `--at`, the manifest is `approved` when the commit is on the default
-  branch: `refs/heads/<default_branch>` or
-  `refs/remotes/origin/<default_branch>` is that commit or a descendant of
-  it. Otherwise it is `proposed`. `default_branch` is read from that commit,
-  as a working-tree read takes it from the working tree.
-
-Both rules assume that the remote named `origin` is the canonical remote. In a
-clone where another remote has the `repository.canonical_remote` URL, a merge
-that only that remote's default branch holds reads as `proposed`. Issue #208
-decides which remote-tracking ref counts for both rules.
+  branch: any of those refs is that commit or a descendant of it. Otherwise
+  it is `proposed`. `default_branch` and `canonical_remote` are read from that
+  commit, as a working-tree read takes them from the working tree. The remotes
+  are always the ones the local repository configures.
 
 So a manifest is `proposed` at a change-set branch tip before the merge, and
 `approved` at the merge commit and at every later default-branch commit.
-Both refs count with `--at`, so a local default branch that is behind its
-remote-tracking branch does not hide a merge. When neither ref resolves, the
-read fails with `project.default_branch_unresolved` and status `3`. Both
+Every ref counts in both rules, so a local default branch that is behind the
+canonical remote's branch does not hide a merge. A remote with another URL,
+such as a fork named `origin`, counts in neither rule. When no ref resolves,
+the read fails with `project.default_branch_unresolved` and status `3`. Both
 rules check `default_branch` against the Git branch-name rule that `check`
 applies before any Git command runs, because Git would read a name such as
 `main~1` or `main@{1}` as another commit. A name that fails the rule is
 `project.invalid_configuration` with status `3`. With `--at`, "descendant"
-uses the ancestry test of [Change sets](#change-sets): it ignores Git
+uses the ancestry test of the [ancestry check](#ancestry-check): it ignores Git
 replace refs. One ref that proves the commit is on the default branch is
 enough. In a shallow clone, when no ref proves it, the answer is
 `git.read_failed`, status `6`, because the history is incomplete.
@@ -759,8 +806,10 @@ from records that could still be read.
 `--change-set` narrows that impact check to the named proposed manifest.
 "Matches" means that every current mechanical candidate has exactly one final
 recorded disposition, every recorded `mechanical` entry is still a current
-mechanical candidate, and every `semantic` entry names an unchanged active
-requirement that is not in the change-set operations. Semantic entries are
+mechanical candidate, every `semantic` entry names an unchanged active
+requirement that is not in the change-set operations, and
+`impact_assessment_base_commit` equals `base_commit`
+([Impact review protocol](#impact-review-protocol)). Semantic entries are
 permitted extras; unreviewed or duplicate entries are not.
 
 Success data contains:
@@ -881,8 +930,9 @@ disposition and rationale when an assessment already contains it. Candidates
 are sorted by requirement ID.
 
 Impact candidate completeness applies only to proposed change sets. `check`
-receives proposed-change-set context from its caller and recomputes the
-candidate set for those manifests. Approved manifests are immutable historical
+tells proposed from approved change sets by the
+[approval rule](#approved-and-proposed-change-sets) and recomputes the
+candidate set for the proposed ones. Approved manifests are immutable historical
 records: validation checks their stored assessment shape and references but
 does not mark them stale or invalid because later requirements changed.
 The result shape is:
@@ -939,7 +989,8 @@ Retired requirements are retained in the change-set delta but are never
 delivery obligations.
 
 If `impact` finds no candidates, `assessment_status` is `complete` only when
-the change set has no unreviewed recorded entries. A prior complete assessment
+the change set has no unreviewed recorded entries and its assessment was
+recorded against the current base commit. A prior complete assessment
 becomes `stale` whenever any input that can alter the mechanical candidate set
 changes: the base commit, affected interfaces, affected scopes, changed
 requirement/interface/artifact operations, or relevant requirement
@@ -948,6 +999,26 @@ when current candidates lack final dispositions, `stale` when the recorded
 assessment was computed from different inputs, and `complete` only when the
 matching rule above passes. Approval is blocked for either incomplete or
 stale status.
+
+`impact` recomputes the candidate set from every input except the base
+commit, which it does not read. For the base commit, the manifest records
+`impact_assessment_base_commit`
+([ADR-0002](../decisions/0002-ears-specification-record-schema.md#change-set-manifests)):
+
+- `change-set create` sets it to `base_commit`;
+- a reviewed `change-set update --impact-file` sets it to the `base_commit`
+  that the same update leaves in the manifest; and
+- `change-set update --base-commit` leaves it unchanged.
+
+A proposed change set whose `impact_assessment_base_commit` is missing or
+differs from `base_commit`, ignoring letter case, has a `stale` assessment,
+even when it has no candidates and no entries. So after a base update,
+`impact` and
+`change-set update` report `stale`, and `check` returns
+`change_set.assessment_incomplete`, status `5`, with a
+`change_set.stale_impact` diagnostic on `impact_assessment_base_commit`,
+until a reviewed `change-set update --impact-file` records the assessment
+against the new base.
 
 ---
 
@@ -963,9 +1034,9 @@ Every mutating command follows this sequence:
 3. Validate the request and all affected records, references, relationships,
    registered paths, projection classifications, and structured-store
    integrity digests.
-4. For an existing-change-set write, verify that the change set is proposed
-   and that `HEAD` passes the ancestry check in
-   [Change sets](#change-sets). `project init` instead verifies that the
+4. For an existing-change-set write, verify that the change set is
+   [proposed](#approved-and-proposed-change-sets) and that `HEAD` passes the
+   [ancestry check](#ancestry-check). `project init` instead verifies that the
    control namespace is absent. In the EM-04 first release, `change-set create`
    verifies project configuration and base availability only; branch state and
    initialization branch reuse are deferred to the follow-on Git integration.

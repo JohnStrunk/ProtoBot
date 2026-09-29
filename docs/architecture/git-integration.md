@@ -557,7 +557,7 @@ Never rebase, and never reset the branch onto the new head. The
 `base_commit` field names an immutable object rather than a
 mutable ref; while the change set is proposed, `change-set update`
 may repoint it, forward only
-([`ears-manager` ancestry check](ears-manager-cli.md#change-sets)).
+([`ears-manager` ancestry check](ears-manager-cli.md#ancestry-check)).
 After the pull request merges, the manifest is
 immutable and the field is frozen
 ([ADR-0002][adr2-changeset]).
@@ -607,7 +607,12 @@ report is a view of the Finding Ledger.
 - CI runs `ears-manager check` on every branch push and as the merge gate.
   A bare `check` resolves and validates every proposed change-set manifest in
   the branch, including its impact assessment; interactive callers may pass
-  `--change-set CS-<NNNNN>` to narrow the check.
+  `--change-set CS-<NNNNN>` to narrow the check. Before `check`, CI
+  fetches `repository.default_branch` from a remote whose configured
+  URL equals `repository.canonical_remote`, or creates the local
+  default branch, so that `check` can tell approved from proposed
+  change sets
+  ([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets)).
 - Path ownership in CI rejects a change that edits files outside
   the owning component's paths.
 - Branch protection on the default branch requires the pull
@@ -641,7 +646,11 @@ Approved specification state is the state of the default branch. A
 change-set manifest becomes immutable when its pull request merges
 ([ADR-0002][adr2-changeset]); `ears-manager` refuses to modify an
 approved manifest afterwards
-([ADR-0001][adr1-history]).
+([ADR-0001][adr1-history]). `ears-manager` reads approval from the
+local default branch and from the remote-tracking ref of the
+canonical remote's default branch, so after a fetch it sees a merge
+on the host even while the local default branch is behind
+([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets)).
 
 Merges use merge commits. Squash and rebase are forbidden on this
 path because they destroy the intermediate Drafting Table commits

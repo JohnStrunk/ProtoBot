@@ -144,32 +144,34 @@ func toImpactAssessmentJSON(value records.ImpactAssessment) impactAssessmentJSON
 }
 
 type changeSetJSON struct {
-	ID                      string                     `json:"id"`
-	BaseCommit              string                     `json:"base_commit"`
-	Intent                  string                     `json:"intent"`
-	Operations              []requirementOperationJSON `json:"operations"`
-	InterfaceOperations     []interfaceOperationJSON   `json:"interface_operations,omitempty"`
-	ArtifactOperations      []artifactOperationJSON    `json:"artifact_operations,omitempty"`
-	AffectedInterfaces      []string                   `json:"affected_interfaces"`
-	AffectedScopes          []string                   `json:"affected_scopes,omitempty"`
-	ImplementationRequired  bool                       `json:"implementation_required"`
-	ImplementationRationale string                     `json:"implementation_rationale,omitempty"`
-	ImpactAssessment        []impactAssessmentJSON     `json:"impact_assessment,omitempty"`
-	Created                 string                     `json:"created"`
+	ID                         string                     `json:"id"`
+	BaseCommit                 string                     `json:"base_commit"`
+	Intent                     string                     `json:"intent"`
+	Operations                 []requirementOperationJSON `json:"operations"`
+	InterfaceOperations        []interfaceOperationJSON   `json:"interface_operations,omitempty"`
+	ArtifactOperations         []artifactOperationJSON    `json:"artifact_operations,omitempty"`
+	AffectedInterfaces         []string                   `json:"affected_interfaces"`
+	AffectedScopes             []string                   `json:"affected_scopes,omitempty"`
+	ImplementationRequired     bool                       `json:"implementation_required"`
+	ImplementationRationale    string                     `json:"implementation_rationale,omitempty"`
+	ImpactAssessment           []impactAssessmentJSON     `json:"impact_assessment,omitempty"`
+	ImpactAssessmentBaseCommit string                     `json:"impact_assessment_base_commit,omitempty"`
+	Created                    string                     `json:"created"`
 }
 
 func toChangeSetJSON(value records.ChangeSet) changeSetJSON {
 	value = records.CanonicalChangeSet(value)
 	result := changeSetJSON{
-		ID:                      value.ID,
-		BaseCommit:              strings.ToLower(value.BaseCommit),
-		Intent:                  value.Intent,
-		Operations:              []requirementOperationJSON{},
-		AffectedInterfaces:      append([]string{}, value.AffectedInterfaces...),
-		AffectedScopes:          append([]string{}, value.AffectedScopes...),
-		ImplementationRequired:  value.ImplementationRequired,
-		ImplementationRationale: value.ImplementationRationale,
-		Created:                 value.Created,
+		ID:                         value.ID,
+		BaseCommit:                 strings.ToLower(value.BaseCommit),
+		Intent:                     value.Intent,
+		Operations:                 []requirementOperationJSON{},
+		AffectedInterfaces:         append([]string{}, value.AffectedInterfaces...),
+		AffectedScopes:             append([]string{}, value.AffectedScopes...),
+		ImplementationRequired:     value.ImplementationRequired,
+		ImplementationRationale:    value.ImplementationRationale,
+		ImpactAssessmentBaseCommit: strings.ToLower(value.ImpactAssessmentBaseCommit),
+		Created:                    value.Created,
 	}
 	if result.AffectedInterfaces == nil {
 		result.AffectedInterfaces = []string{}
