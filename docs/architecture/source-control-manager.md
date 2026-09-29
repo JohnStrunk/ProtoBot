@@ -801,10 +801,10 @@ follow-on Git integration (see the
    a digest mismatch of a registered artifact outside the file set,
    which the commit leaves out. CI still gates the merge on the impact
    assessment (#34).
-   - A digest mismatch of an artifact of the file set, or of any
-     structured store, makes the refusal `SPEC_DIGEST_MISMATCH`, because
-     #34 compares every store, not only those that the change set
-     touches. The validator of #108 reports both on
+   - With status `4` or `5`, a digest mismatch of an artifact of the
+     file set, or of any structured store, makes the refusal
+     `SPEC_DIGEST_MISMATCH`, because #34 compares every store, not only
+     those that the change set touches. The validator of #108 reports both on
      `.protobot/project.yaml`, where the digests live:
      `artifact.digest_mismatch` names the artifact by its `record_id`,
      and `project.store_digest_mismatch` names the store by its
@@ -825,8 +825,9 @@ follow-on Git integration (see the
      and the role repeats that write. A mismatch of a registered
      artifact outside the file set is the second warning: #34 checks
      the artifacts that the change set touches, and the commit leaves
-     that path out. #30 lists no code for a digest mismatch; the
-     validator of #108 adds both, as #30 allows.
+     that path out. The validator of #108 added both codes, as #30
+     allows, and #30 gives both status `4`
+     ([`check`](ears-manager-cli.md#check)).
    - Any other status `4`, apart from that warning, a specification
      that is not valid, is `SPEC_CHECK_FAILED`, with the envelope. A
      `.protobot/` file that carries a credential, which #34 makes a
@@ -1570,7 +1571,7 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `AMBIGUOUS_BRANCH` | `branch_resume` | Two local branches carry the requested change-set number | — | `user` |
 | `UNCOMMITTED_CHANGES` | `branch_init`, `branch_resume`, `commit`, `publish`, `refresh` | Uncommitted changes that the operation would carry or misreport, or, for `commit`, a `projection.yaml` that mixes the change set's entries with a policy edit, or a merge, cherry-pick, or revert in progress; the details name them | — | `user` |
 | `INIT_REMOTE_MISMATCH` | `commit` | On the initialization branch, `repository.canonical_remote` is not the fetch URL of the upstream remote of the default branch; the details name the discard of the uncommitted `.protobot/` and a new `project init` | — | `user` |
-| `SPEC_DIGEST_MISMATCH` | `commit` | `check` reports `artifact.digest_mismatch` for an artifact of the file set, by its `record_id`, or `project.store_digest_mismatch` for any structured store; the details name each artifact or store path, the two routes forward, and, in `untracked`, the entries of a store that the discard leaves | Registered artifact or structured-store digest mismatch | `user` |
+| `SPEC_DIGEST_MISMATCH` | `commit` | `check` fails with status `4` or `5` and reports `artifact.digest_mismatch` for an artifact of the file set, by its `record_id`, or `project.store_digest_mismatch` for any structured store; the details name each artifact or store path, the two routes forward, and, in `untracked`, the entries of a store that the discard leaves | Registered artifact or structured-store digest mismatch | `user` |
 | `SPEC_CHECK_FAILED` | `commit` | `check` failed with status `4`, and without a digest-mismatch diagnostic that makes it `SPEC_DIGEST_MISMATCH` | `ears-manager check` failed; registered path missing from the projection manifest | `revise` |
 | `PATH_NOT_STAGEABLE` | `commit` | A path of the change set is a directory, breaks #34's path rules, is one that the guard keeps from `artifact put`, is `.gitattributes` or `.gitmodules`, or replaces a tracked directory or lies below a tracked file | — | `never` |
 | `STAGED_CONTENT_CHANGED` | `commit` | A Git filter, or a write since the digest check, changed a staged file, so the commit would not hold what `check` saw | — | `user` |
