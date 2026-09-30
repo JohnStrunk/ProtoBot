@@ -88,6 +88,16 @@ func dispatch(args []string, stdin io.Reader) (any, Mutation, *commandFailure) {
 		}
 	case "impact":
 		return runImpact(args[1:])
+	case "project":
+		if len(args) < 2 {
+			return nil, Mutation{}, usageFailure("a project subcommand is required")
+		}
+		switch args[1] {
+		case "init":
+			return runProjectInit(args[2:])
+		default:
+			return nil, Mutation{}, usageFailure(fmt.Sprintf("unsupported project subcommand %q", args[1]))
+		}
 	default:
 		return nil, Mutation{}, usageFailure(fmt.Sprintf("unknown command %q", args[0]))
 	}
@@ -164,6 +174,9 @@ func checkedPaths(snapshot specvalidation.Snapshot) []string {
 	}
 	for _, artifact := range snapshot.Config.Artifacts {
 		paths = append(paths, artifact.Path)
+	}
+	if snapshot.Projection != nil && snapshot.Projection.Present {
+		paths = append(paths, specvalidation.ProjectionPath)
 	}
 	sort.Strings(paths)
 	return uniqueStrings(paths)
@@ -971,6 +984,10 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	}
 	staged.ArtifactContents[canonicalPath] = append([]byte(nil), canonicalContent...)
 	staged.ChangeSets[changeSetIndex].Value = changeSet
+	projectionData, projectionChanged, failure := stageSharedClassification(&staged, canonicalPath)
+	if failure != nil {
+		return nil, Mutation{}, failure
+	}
 	if failure := validateCandidateForChangeSet(staged, changeSetID, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
@@ -982,11 +999,41 @@ func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFail
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
+	if projectionChanged {
+		addRawWrite(&writes, specvalidation.ProjectionPath, projectionData)
+	}
 	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, changeSetID) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
 	return artifactMutationData{Artifact: toArtifactJSON(artifact), Operation: toArtifactOperationJSON(operation)}, mutation, nil
+}
+
+// stageSharedClassification adds the shared projection entry for the one
+// specification path that artifact put registers to the staged snapshot. It
+// returns the replacement manifest bytes and whether the manifest changed.
+// ears-manager writes no other projection entry: a missing entry for another
+// registered path or a store directory is restored through a reviewed policy
+// edit, which the Source Control Manager keeps apart from the change set.
+func stageSharedClassification(staged *specvalidation.Snapshot, path string) ([]byte, bool, *commandFailure) {
+	current := specvalidation.Projection{}
+	if staged.Projection != nil {
+		current = staged.Projection.Clone()
+	}
+	data, changed, err := specvalidation.AddSharedClassifications(current.Data, []string{path})
+	if len(current.Diagnostics) > 0 || errors.Is(err, specvalidation.ErrProjectionInvalid) {
+		diagnostics := append([]specvalidation.Diagnostic(nil), current.Diagnostics...)
+		return nil, false, validationFailure("validation.failed", "The projection manifest must be corrected before a path can be registered.", diagnostics)
+	}
+	if err != nil {
+		return nil, false, internalFailure("the projection manifest could not be updated")
+	}
+	if !changed {
+		return nil, false, nil
+	}
+	updated := specvalidation.ParseProjection(data)
+	staged.Projection = &updated
+	return data, true, nil
 }
 
 type artifactMutationData struct {

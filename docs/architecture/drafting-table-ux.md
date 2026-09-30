@@ -263,16 +263,30 @@ The protocol enforces six non-negotiable invariants:
 
 ### Starting a new project
 
-The user starts a new project by providing an initial description or IdeaBot
-artifacts. The Drafting Table:
-
-This is the target end-to-end workflow. The EM-04 first release defers project
-initialization and branch automation; its `change-set create` command records
-the manifest but does not create or check out a branch. See the
+This is the target end-to-end workflow. EM-06 implements project initialization
+through `ears-manager project init`, which adopts the existing repository and
+does not create or check out a branch. The Source Control Manager's
+[`branch_init`](source-control-manager.md#branch_init) cuts and checks out the
+initialization branch in step 1. The first-release `change-set create` command
+records the manifest but does not create or check out a branch. See the
 [`ears-manager` CLI first-release
 scope](ears-manager-cli.md#em-04-first-release-scope).
 
-1. Creates and checks out `cs/00001-project-init` from the default branch.
+`project init` registers Vision and Architecture files that already exist and
+are committed on the default branch; it creates no content, and it refuses a
+selected file that is not committed at `HEAD` or has uncommitted changes, with
+`project.invalid_path`. `branch_init` does not check these files: it carries an
+untracked file over. A new project therefore needs both files committed on its
+default branch before step 1. Until the Drafting Table owns that
+step, the user commits them, for example as short placeholders that the
+initial Sketch later rewrites through `ears-manager artifact put`
+([Q22](open-questions.md#q22-initial-vision-and-architecture-files)).
+
+The user starts a new project by providing an initial description or IdeaBot
+artifacts. The Drafting Table:
+
+1. Creates and checks out `cs/00001-project-init` from the default branch
+   through `branch_init`.
 2. Runs `ears-manager project init` and `change-set create` on that branch.
    See the [project initialization grammar][project-init-grammar].
 3. On explicit approval, commits the control namespace and initial manifest

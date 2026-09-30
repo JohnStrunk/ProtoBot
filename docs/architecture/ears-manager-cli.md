@@ -95,19 +95,19 @@ Reads are root-relative and deterministic:
 - `check`, `change-set compare`, and `impact` read the complete relevant
   store rather than trusting a caller-provided subset.
 
-In the target contract, the optional `--at <full-commit-sha>` selector
-provides read-revision semantics accepted only by read and analysis commands.
-`change-set show` implements it; the other read and analysis commands defer
-it to follow-on scope. It must name a full 40-character commit present in the
+In the target contract, the optional `--at <full-commit-sha>` selector provides
+read-revision semantics accepted only by read and analysis commands.
+`change-set show` implements it; the other read and analysis commands defer it
+to follow-on scope. It must name a full 40-character commit present in the
 local repository. The default is the current working tree. A read at a commit
 still resolves the Git repository from the working tree, but it takes
-`.protobot/project.yaml`, the structured stores, and the registered artifacts
-from the tree of that commit. The working tree need not contain
-`.protobot/project.yaml`, and an uncommitted, untracked, or deleted file there
-does not change the result. The CLI reads the commit through the local `git`
-executable, ignores Git replace refs, and writes nothing under `.git/`. It
-may stage that tree in a private temporary directory outside the project root
-and removes it before it exits; that copy is not a governed write.
+`.protobot/project.yaml`, `.protobot/projection.yaml`, the structured stores,
+and the registered artifacts from the tree of that commit. The working tree
+need not contain `.protobot/project.yaml`, and an uncommitted, untracked, or
+deleted file there does not change the result. The CLI reads the commit through
+the local `git` executable, ignores Git replace refs, and writes nothing under
+`.git/`. It may stage that tree in a private temporary directory outside the
+project root and removes it before it exits; that copy is not a governed write.
 
 ### Write authority
 
@@ -115,7 +115,9 @@ Only `ears-manager` writes these paths:
 
 - `.protobot/project.yaml`;
 - `.protobot/projection.yaml` classification entries for registered
-  specification paths;
+  specification paths and configured store directories, except that a
+  reviewed policy edit restores a missing entry or corrects a class (see
+  [Projection classification](#projection-classification));
 - registered Vision, Architecture, interface-IDL, and interface-prose
   artifacts;
 - requirement and interface records; and
@@ -246,11 +248,13 @@ release implements `check`, requirement add/list/show/update/retire,
 interface add/list/show, artifact get/put, and minimal proposed change-set
 creation. EM-05 adds change-set list/show/update/compare and `impact`,
 including proposed-change-set impact-completeness checks. Issue #206 adds the
-immutable `--at` read to `change-set show`. Project initialization, artifact
-listing, interface updates, `--at` reads on the other read and analysis
-commands, explicit `--against` comparison revisions, and governed
-branch/commit/pull-request automation remain follow-on work. The
-dispatcher must not claim those remaining operations are available.
+immutable `--at` read to `change-set show`. EM-06 adds `project init` and the
+`shared` projection classification that `project init` and `artifact put`
+write and `check` validates. Artifact listing, interface updates, `--at` reads
+on the other read and analysis commands, explicit `--against` comparison
+revisions, and governed branch/commit/pull-request automation remain
+follow-on work. The dispatcher must not claim those remaining operations are
+available.
 
 In the first release, `change-set create` allocates the ID, records the base
 commit, and writes the manifest. It does not create or check out the change-set
@@ -316,16 +320,20 @@ The defaults are `main`, `cs/`, `docs/vision.md`, and
 `docs/architecture.md`. Initialization creates the `.protobot/` control
 namespace, seeds the version-1 schema keys, the default `stores` block, and
 the initial `store_digests` values, registers the opaque Vision and
-Architecture artifacts, and classifies registered
-specification paths as `shared` in
+Architecture artifacts, and classifies the registered specification paths
+and the configured store directories as `shared` in
 `.protobot/projection.yaml`. It does not create content, commit, push, or
 merge anything. The caller follows the project-initialization sequence in
 [Git and Project-Repository Integration][git-init].
 
 The selected Vision and Architecture paths must already exist so initialization
-can compute their registry digests without writing content. The fixture seeds
-those files as pre-existing project content. A missing selected path returns
-`project.invalid_path` before the control namespace is created.
+can compute their registry digests without writing content. They must also be
+committed at `HEAD` with no uncommitted change, because the initialization
+commit holds only the control namespace; an untracked, only staged, or
+modified file would be missing or stale there and fail `check` in CI. The
+fixture seeds those files as committed project content. A missing or
+uncommitted selected path returns `project.invalid_path` before the control
+namespace is created.
 
 `--canonical-remote` must use a credential-free `https://` or `ssh://` URL,
 or the standard `git@host:path` SSH form. Any URL userinfo, including a
@@ -510,7 +518,7 @@ The process status is part of the contract:
 | ---: | --- | --- | --- |
 | `0` | Success | Read succeeded, validation passed, or a write was applied | No retry needed |
 | `2` | Usage | Unknown command/option, missing option, malformed option value | Correct the request; no mutation occurred |
-| `3` | Project | Project not initialized, project outside Git root, unsupported store version, invalid project configuration, unresolved default branch | Select or upgrade the project; no mutation occurred |
+| `3` | Project | Project not initialized, project outside Git root, unsupported store version, invalid project configuration or repository state, unresolved default branch | Select or upgrade the project; no mutation occurred |
 | `4` | Validation | Invalid EARS text, missing required metadata, dangling reference, invalid relationship, invalid artifact content, invalid base commit, a structured store or registered artifact that does not match its digest, an `--at` value that is not a full hash or names no local commit | Revise the proposed request; no mutation occurred |
 | `5` | Conflict or stale state | Approved manifest, duplicate ID, branch conflict, changed base, impact assessment no longer matches candidates | Refresh and review; no mutation occurred |
 | `6` | I/O or external boundary | Permission failure, unreadable input, Git read failure, atomic write failure with known rollback | Fix the environment, then retry after checking state |
@@ -545,18 +553,79 @@ configuration or `--change-set`. It is atomic across `project.yaml` and
 `projection.yaml`. The initial change set and Git branch follow the #34
 sequence; initialization itself does not approve or commit the project.
 
+Initialization adopts an existing repository. It registers the files already
+at the selected Vision and Architecture paths without moving or rewriting
+them, computes the store digests of the configured stores as they are, and
+creates no store directory. It leaves Git history, the index, and every
+other working-tree path untouched.
+
+Diagnostic results use these statuses:
+
+| Code | Status | Condition |
+| --- | ---: | --- |
+| `project.not_git_root` | `3` | The current directory is not in a Git working tree, or a `.protobot/project.yaml` exists in a directory between the current directory and the working-tree root. The command walks up from the current directory only, as [project resolution](git-integration.md#the-project-root) does; a `.protobot/project.yaml` elsewhere below the root, such as in a nested clone or a test fixture, does not block it. The diagnostic names the misplaced file by its root-relative path; the command never relocates it. |
+| `project.invalid_configuration` | `3` | The repository has no commit, or the selected default branch does not resolve to a commit. An empty repository is initialized outside this contract. |
+| `project.already_initialized` | `5` | Anything named `.protobot` exists at the working-tree root, including a symbolic link or a file. |
+| `project.invalid_path` | `4` | A selected path is unsafe, reserved, missing, not a regular file, selected twice, not a file in the `HEAD` commit, or different in the working tree from `HEAD`. |
+| `project.remote_credentials` | `4` | The canonical remote carries userinfo other than the fixed `git@host:path` form. |
+| `project.invalid_configuration` | `4` | Another request value is invalid, such as a reserved branch prefix, an unknown review mode, an unsupported remote, or selected content that is not UTF-8 text without a BOM. |
+
+`project.invalid_configuration` carries two statuses. Status `3` means the
+repository state cannot hold a project yet: correct the repository, then
+retry. Status `4` means a request value is invalid: revise the request. The
+Source Control Manager's `ears-manager` test stub follows the same split.
+
+#### Projection classification
+
+`projection.yaml` is a YAML mapping. Its integer `version` key names the
+manifest format; this contract defines version `1`. The version belongs to
+the manifest, not to `schema_versions` in `project.yaml`. A manifest without
+`version: 1` is refused as `projection.invalid`. Its `paths` key lists
+entries with exactly the keys `path` and `class`, and each `class` is one of
+the projection classes defined by [Worker repository
+projections](components.md#worker-repository-projections-decided). Other
+top-level keys are reviewed project policy.
+
+A trailing `/` on a `path` names a directory, and a directory entry
+classifies every path below it. A path and the same path with a trailing
+`/` are one entry, so listing both is `projection.invalid`. A path takes the
+class of its most specific entry: its own entry, else the entry of its
+nearest ancestor directory. A file entry therefore overrides the entry of the
+directory that holds it.
+
+`project init` writes a `shared` entry for each registered specification
+path and a directory entry for each configured store directory: requirement,
+interface, and change-set. `artifact put` adds a `shared` entry only for the
+path it registers, when no entry already covers that path as `shared`, in
+the same transaction as the registry write. `ears-manager` never adds an
+entry for another path, and never changes or removes an entry or key.
+`check` and every write that validates the full project report a registered
+path or a configured store directory that is not covered as `shared` as
+`projection.unclassified`, naming the path and the required class, and a
+manifest outside this format as `projection.invalid`.
+
+A missing entry, for example after a merge conflict in `paths` or after a
+person deletes the manifest, is not repaired by `ears-manager`. A reviewed
+policy edit of `projection.yaml` restores it, in the same way as a class
+correction; the diagnostic hint names that route. The Source Control
+Manager keeps such a policy edit out of a change-set commit
+([`commit`](source-control-manager.md#commit)), so the person commits it
+apart and it merges through its own review.
+
 ### Artifacts
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_id`, `artifact.invalid_path`, `artifact.invalid_content`, `artifact.owner_immutable`, `artifact.validator_not_allowed`, `artifact.validator_incompatible`, `artifact.write_not_allowed`, or a validator diagnostic |
+| `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_id`, `artifact.invalid_path`, `artifact.invalid_content`, `artifact.owner_immutable`, `artifact.validator_not_allowed`, `artifact.validator_incompatible`, `artifact.write_not_allowed`, `projection.invalid`, `projection.unclassified`, or a validator diagnostic |
 | `artifact get` | Exactly one of artifact ID or kind, where kind must match one opaque artifact entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
 | `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
 
 `artifact put` is the only route for Vision, Architecture, interface prose,
 and external interface-IDL content. It updates the registry digest, records
 the artifact operation in the change-set manifest, and, for a new registered
-path, adds the `shared` projection classification in the same transaction. It
+path, adds the `shared` projection classification of that path only in the
+same transaction. It refuses to register a path while `projection.yaml` is
+malformed, reporting `projection.invalid`. It
 accepts only a stable validator registry name; the selected code-controlled
 adapter may invoke an approved external tool with fixed arguments, but a
 caller-supplied executable or command line is never executed.
@@ -1070,10 +1139,10 @@ path as a workaround. Safe retries are:
 
 [`fixtures/ears-manager-cli-golden.jsonl`](fixtures/ears-manager-cli-golden.jsonl)
 is the harness-neutral follow-on fixture for the complete target contract. Its
-`fixture-scope` record identifies the subset implemented by EM-04 and EM-05
-and the commands deferred to later increments. Implementation tests exercise
-the implemented subset directly; the deferred fixture steps remain acceptance
-data for their owning follow-on issues. The fixture covers:
+`fixture-scope` record identifies the subset implemented by EM-04, EM-05, and
+EM-06 and the commands deferred to later increments. Implementation tests
+exercise the implemented subset directly; the deferred fixture steps remain
+acceptance data for their owning follow-on issues. The fixture covers:
 
 - project initialization;
 - change-set creation;

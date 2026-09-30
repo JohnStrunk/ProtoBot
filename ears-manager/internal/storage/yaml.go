@@ -71,7 +71,29 @@ func DecodeSchemaVersions(data []byte) (records.SchemaVersions, map[string]bool,
 	return versions, fields, nil
 }
 
+// DecodeNode safely parses one YAML document into its root node. It applies
+// the same alias, tag, null, merge-key, and duplicate-key restrictions as
+// DecodeFields without binding the document to a typed model.
+func DecodeNode(data []byte) (*yaml.Node, error) {
+	return decodeDocument(data)
+}
+
+// DecodeDocumentNode safely parses one YAML document and returns its document
+// node. It applies the same restrictions as DecodeFields and preserves document
+// comments for callers that edit and re-encode the node tree.
+func DecodeDocumentNode(data []byte) (*yaml.Node, error) {
+	return decodeDocumentNode(data)
+}
+
 func decodeDocument(data []byte) (*yaml.Node, error) {
+	document, err := decodeDocumentNode(data)
+	if err != nil {
+		return nil, err
+	}
+	return document.Content[0], nil
+}
+
+func decodeDocumentNode(data []byte) (*yaml.Node, error) {
 	if !utf8.Valid(data) {
 		return nil, fmt.Errorf("YAML input is not valid UTF-8")
 	}
@@ -98,7 +120,7 @@ func decodeDocument(data []byte) (*yaml.Node, error) {
 		}
 		return nil, fmt.Errorf("read YAML document boundary: %w", err)
 	}
-	return document.Content[0], nil
+	return &document, nil
 }
 
 func Encode(value any) ([]byte, error) {

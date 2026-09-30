@@ -110,7 +110,8 @@ func TestGoldenFixtureDeclaresFollowOnScope(t *testing.T) {
 			break
 		}
 	}
-	if scope.Release != "follow-on" || !containsString(scope.ImplementedCommands, "impact") || !containsString(scope.ImplementedCommands, "change-set compare") || containsString(scope.DeferredCommands, "impact") {
+	if scope.Release != "follow-on" || !containsString(scope.ImplementedCommands, "impact") || !containsString(scope.ImplementedCommands, "change-set compare") || containsString(scope.DeferredCommands, "impact") ||
+		!containsString(scope.ImplementedCommands, "project init") || containsString(scope.DeferredCommands, "project init") {
 		t.Fatalf("fixture scope = %#v", scope)
 	}
 }
@@ -625,6 +626,10 @@ func newFixtureProject(t *testing.T) string {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(root, ".protobot", "project.yaml"), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	projection := []byte("version: 1\npaths:\n  - path: .protobot/change-sets/\n    class: shared\n  - path: .protobot/interfaces/\n    class: shared\n  - path: .protobot/requirements/\n    class: shared\n  - path: docs/vision.md\n    class: shared\n")
+	if err := os.WriteFile(filepath.Join(root, ".protobot", "projection.yaml"), projection, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	git(t, root, "init", "-b", "main")

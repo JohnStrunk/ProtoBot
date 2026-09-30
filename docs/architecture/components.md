@@ -468,22 +468,23 @@ It is used by these callers:
 
 ### Subcommands
 
-The table describes the target `ears-manager` subcommand surface. EM-04 and
-EM-05 implement a subset and do not create change-set branches; see the
+The table describes the target `ears-manager` subcommand surface. EM-04,
+EM-05, and EM-06 implement a subset and do not create change-set branches;
+see the
 [`ears-manager` CLI first-release
 scope](ears-manager-cli.md#em-04-first-release-scope).
 
 | Subcommand | Purpose |
 | --- | --- |
-| `ears-manager project init` | Initialize `.protobot/project.yaml`, seed version-1 schema keys, stores, store integrity digests, and opaque artifact entries, and classify registered specification paths. |
-| `ears-manager check` | Validate all spec files: project configuration and store integrity, EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
+| `ears-manager project init` | Initialize `.protobot/project.yaml`, seed version-1 schema keys, store paths, store integrity digests, and opaque artifact entries, and write a version-1 `.protobot/projection.yaml` that classifies the registered specification paths and the configured store directories as `shared`. It creates no store directory and no artifact content. |
+| `ears-manager check` | Validate all spec files: project configuration and store integrity, projection classification (`projection.invalid`, `projection.unclassified`), EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
 | `ears-manager requirement add` | Add a new EARS requirement with interface or project-wide applicability selectors and optional narrower scopes. Validates the EARS statement and metadata before writing. |
 | `ears-manager requirement list/show` | Read requirements at the working tree or an immutable `--at` revision. |
 | `ears-manager requirement update/retire` | Modify requirements through a proposed change set. |
 | `ears-manager interface add` | Register a new interface in the Architecture within the active proposed change set. |
 | `ears-manager interface list/show` | Read interfaces at the working tree or an immutable `--at` revision. |
 | `ears-manager interface update` | Modify interfaces through a proposed change set. |
-| `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest and invokes the selected code-controlled validator adapter without requiring `ears-manager` to understand every format. |
+| `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest, adds the `shared` projection entry of a newly registered path, and invokes the selected code-controlled validator adapter without requiring `ears-manager` to understand every format. |
 | `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by ID or unique kind through the governed path registry. |
 | `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, requirement operations, and reviewed impact dispositions. EM-04 implemented minimal creation; EM-05 adds list/show/update; #206 adds a `show` read at an immutable `--at` revision. None of them cuts a branch; see the [`ears-manager` CLI first-release scope](ears-manager-cli.md#em-04-first-release-scope). Approved change sets are immutable. |
 | `ears-manager change-set compare` | Compare a proposed change set with the current Schematic and open deltas. Reports exact duplicates, stable-ID before/after changes, declared conflicts/supersession, and dependency cycles for agent/user review. |
@@ -518,6 +519,12 @@ scope](ears-manager-cli.md#em-04-first-release-scope).
 - **Project and repository configuration.** Schema versions, configured
   store paths and integrity digests, canonical remotes, review modes, and
   branch prefixes are validated before records are trusted.
+- **Projection classification.** `.protobot/projection.yaml` must
+  declare `version: 1` and use the manifest format of the
+  [`ears-manager` CLI contract](ears-manager-cli.md#projection-classification);
+  otherwise it is `projection.invalid`. Every registered specification path
+  and every configured store directory must be covered as `shared`;
+  otherwise it is `projection.unclassified`.
 - **Artifact governance.** Vision, Architecture, interface IDL, and
   interface-prose files are registered by kind, path, digest, owner, and
   validator. Structured requirement, interface, and change-set records use
@@ -973,7 +980,7 @@ language/source/test layout:
 | Path | Owner and purpose |
 | --- | --- |
 | `.protobot/project.yaml` | Project identity, configured artifact paths, non-secret WMS/backend references, the canonical remote, default branch and declared review mode ([git-integration.md](git-integration.md#repository-fields)), schema versions, store paths, and store integrity digests. |
-| `.protobot/projection.yaml` | Deny-by-default path classification for Worker and attestation projections. `ears-manager` writes the class for a registered specification path ([git-integration.md](git-integration.md#path-rules)); every other entry is reviewed project policy. |
+| `.protobot/projection.yaml` | Deny-by-default path classification for Worker and attestation projections, versioned by its own `version` key (format version `1`, defined by the [`ears-manager` CLI contract](ears-manager-cli.md#projection-classification)). `ears-manager` writes the `shared` class for a registered specification path and, at initialization, for each configured store directory ([git-integration.md](git-integration.md#path-rules)); every other entry, and the restoration of a missing entry, is reviewed project policy. |
 | `.protobot/policy.yaml` | Required Inspectors, WIP/scheduling policy, sandbox profile, and other reviewed project policy. |
 | `.protobot/kits.lock` | Optional Kit source/version/digest/provenance locks. |
 | `.protobot/interfaces/` | One YAML file per structured interface record, unless a project registers another relative path in `project.yaml`. |
