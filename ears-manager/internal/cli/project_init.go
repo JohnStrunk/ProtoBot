@@ -141,7 +141,7 @@ func runProjectInit(args []string) (any, Mutation, *commandFailure) {
 	if failure := validateInitCandidate(root, configData, projectionData); failure != nil {
 		return nil, Mutation{}, failure
 	}
-	if _, failure := resolveDefaultBranchRef(root, defaultBranch); failure != nil {
+	if _, failure := resolveDefaultBranchRefs(root, config.Repository); failure != nil {
 		return nil, Mutation{}, initStateFailure("repository.default_branch", "The default branch has no commit to base the project on.", "Create the default branch with at least one commit before initializing.")
 	}
 
