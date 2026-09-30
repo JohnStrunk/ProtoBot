@@ -287,7 +287,9 @@ func cutChangeSetBranch(root string, repository records.RepositoryConfig, branch
 	case strings.Contains(text, "already exists"):
 		return branchExistsFailure(branch.name, "locally")
 	case strings.Contains(text, "would be overwritten"):
-		return conflictFailure("change_set.uncommitted_changes", "An untracked file would be overwritten by the default-branch head. Move or remove it, then create the change set.", nil)
+		// Git checks the tree before it creates the ref, but the rollback
+		// keeps the result independent of that order.
+		return restoreOriginalBranch(root, branch, conflictFailure("change_set.uncommitted_changes", "An untracked file would be overwritten by the default-branch head. Move or remove it, then create the change set.", nil))
 	}
 	return restoreOriginalBranch(root, branch, ioFailure("git.write_failed", fmt.Sprintf("Git could not cut and check out branch %s: %s", branch.name, firstLine(text))))
 }
