@@ -388,15 +388,10 @@ review boundary
 Every Dimensioning session operates on a **change set** — a proposed
 specification transaction:
 
-The sequence below describes the target workflow. In the EM-04 first release,
-`ears-manager change-set create` records the manifest but does not create or
-check out the change-set branch; branch creation and reuse are deferred to
-follow-on Git integration (see the
-[`ears-manager` CLI first-release
-scope](ears-manager-cli.md#em-04-first-release-scope)).
-
 1. **Open a change set:** The agent creates a change set via
-   `ears-manager change-set create`, recording base commit, intent, and scope.
+   `ears-manager change-set create`, which cuts and checks out the change-set
+   branch and records base commit, intent, and scope
+   ([`change-set create`](ears-manager-cli.md#change-set-create)).
 2. **Identify affected scope:** The agent determines which interfaces and
    scopes the requested change affects.
 3. **Sequential interface dimensioning:** The agent dimensions one affected

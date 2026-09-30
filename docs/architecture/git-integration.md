@@ -77,10 +77,9 @@ Git history_. Adjacent contracts define the surfaces around it:
   command and result boundary for specification reads and writes.
   This document names `ears-manager` operations; #30 defines their
   request and result shapes in the
-  [`ears-manager` CLI Integration Contract](ears-manager-cli.md). The
-  EM-04 first release records a change-set manifest but defers branch
-  creation; this document defines the target Git workflow for that
-  follow-on behavior.
+  [`ears-manager` CLI Integration Contract](ears-manager-cli.md).
+  `ears-manager change-set create` cuts the change-set branch by the
+  rules of [Change-set branches](#change-set-branches).
 - **#33** ([Agent Harness Adapter Contract](agent-harness/adapter-contract.md),
   with the [OpenCode](agent-harness/opencode.md),
   [Claude Code](agent-harness/claude-code.md), and
@@ -159,7 +158,7 @@ This document adds a `repository` block for the Git-facing fields:
 | `project.id` | Stable project identifier. Used as the WMS project key and in materialization keys. |
 | `project.name` | Human-readable project name. |
 | `repository.canonical_remote` | URL of the canonical repository. The Drafting Table pushes to this remote only. |
-| `repository.default_branch` | The branch that holds approved specification state. `main` by default. It must lie outside `repository.branch_prefix` and outside the reserved `wi/` namespace: a default branch inside the prefix would read as a change-set branch, which the Drafting Table may write. The Source Control Manager enforces this when it loads the project, and when it cuts the branch; `ears-manager` does not check it yet. |
+| `repository.default_branch` | The branch that holds approved specification state. `main` by default. It must lie outside `repository.branch_prefix` and outside the reserved `wi/` namespace: a default branch inside the prefix would read as a change-set branch, which the Drafting Table may write. The Source Control Manager enforces this when it loads the project, and when `branch_init` cuts the initialization branch; `ears-manager` does not check it yet. |
 | `repository.review_mode` | `single-player` or `multi-player`. Declares the review ceremony. |
 | `repository.branch_prefix` | Prefix for change-set branches. `cs/` by default. It may not lie in the reserved `wi/` namespace, the only reserved one today: neither `wi/` itself nor a prefix below it, such as `wi/cs/`; `ears-manager project init` and `check` reject it, and the Source Control Manager refuses to load such a project. A further reserved prefix has to be recorded in the [Content Storage Model](components.md#content-storage-model) before it can be enforced. |
 | `schema_versions` | One version per store, as decided by [ADR-0002][adr2-versioning]. |
@@ -386,8 +385,9 @@ cs/<nnnnn>-<slug>
 - `<nnnnn>` is the five-digit zero-padded sequence number of the change-set ID.
   Change set `CS-00005` uses `cs/00005-…`
   ([ADR-0002 — Change-Set Manifests][adr2-changeset]).
-- `<slug>` is derived from the manifest `intent`: lowercased,
-  non-alphanumeric runs replaced by a single hyphen, then cut at
+- `<slug>` is derived from the manifest `intent`: lowercased, every
+  run of characters other than `a`–`z` and `0`–`9` replaced by a
+  single hyphen, and a hyphen at either end removed; then cut at
   the last hyphen before position 40, or at exactly 40 characters
   when no hyphen precedes it. When nothing alphanumeric survives,
   the slug is `change-set`, so `CS-00005` becomes
@@ -405,9 +405,9 @@ convention is the authoritative one for branch names.
 
 ### When the branch is created
 
-The branch is cut from `repository.default_branch` when
-`ears-manager change-set create` runs, not at session start and
-not on the first write. The commit it is cut from is recorded as
+The branch is cut from `repository.default_branch` and checked out
+when `ears-manager change-set create` runs, not at session start
+and not on the first write. The commit it is cut from is recorded as
 the manifest's `base_commit`, as a full 40-character hexadecimal
 hash; a branch name or tag is never accepted there
 ([ADR-0002][adr2-changeset]).
@@ -420,12 +420,16 @@ way, `change-set create` records the default-branch head as
 
 That head is read from the local ref for
 `repository.default_branch`, after a fetch from
-`repository.canonical_remote`. A branch is never cut from a stale
-ref, and the recorded `base_commit` is never the remote-tracking
-ref, so the branch and the manifest always name the same commit.
-A fetch alone moves only the remote-tracking ref, so the SCM's
-`repo_state` fetches and then fast-forwards the local ref
-([`repo_state`](source-control-manager.md#repo_state)).
+`repository.canonical_remote`. The recorded `base_commit` is never
+the remote-tracking ref, so the branch and the manifest always name
+the same commit. A fetch alone moves only the remote-tracking ref,
+so the SCM's `repo_state` fetches and then fast-forwards the local
+ref ([`repo_state`](source-control-manager.md#repo_state)).
+`ears-manager` reads the local ref and never fetches
+([`change-set create`](ears-manager-cli.md#change-set-create)), so
+the Drafting Table runs `repo_state` first. A branch cut from a
+stale ref anyway fails `publish` with `DEFAULT_MOVED` until it is
+refreshed.
 
 The initial Sketch is a change set like any other. Its Vision and
 Architecture artifacts are written through
@@ -844,7 +848,8 @@ principle that _Git operations are explicit_
 ([Governed tool integrations][governed-tools]).
 
 The Drafting Table performs these operations through the
-[Source Control Manager](source-control-manager.md). Its Drafting
+[Source Control Manager](source-control-manager.md), apart from
+the branch cut of `ears-manager change-set create`. Its Drafting
 Table face offers a stricter subset of this list as tools. It takes
 no ref, path, remote, or message from the agent, except the checked
 prefix and default branch at initialization and an optional commit
@@ -872,7 +877,7 @@ blocks Git writes and Git host calls but not Git reads
 | Read repository state | `status`, `log`, `diff`, `show`, `ls-files`, `rev-parse`, `merge-base`, and `remote` for listing only |
 | Fetch | From `repository.canonical_remote` only, into remote-tracking refs only, never a local branch or a tag, pruning the ones whose branch the remote deleted. Before `project.yaml` exists, from the upstream remote of the local default branch only, to cut the initialization branch from a fresh head, and `git ls-remote` of that remote, to see whether the initialization branch exists there |
 | Fast-forward the local default branch | Only to the head of `repository.default_branch` on the canonical remote, or, before `project.yaml` exists, on the upstream remote of the local default branch; only by fast-forward; and, when it is checked out, only with no uncommitted change to a tracked file; a fetch alone leaves the local ref stale, and a change-set branch is cut from it |
-| Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` |
+| Create a change-set branch | Named `cs/<nnnnn>-<slug>`, cut from `repository.default_branch` and checked out by `ears-manager change-set create`, which, when its write fails, checks the original branch out again and deletes the branch it cut |
 | Switch to an existing change-set branch | Only to the branch of a change set in the store, on resume |
 | Stage | Registered `artifacts` entries owned by `ears-manager` or `user` and touched by the active change set, structured requirement and interface records touched by the active change set, the active change-set manifest file itself (always), `project.yaml`, and the `ears-manager` classification entries in `projection.yaml`, by explicit path, each a file, never a directory. A failed commit leaves the user's index as it was, content that was already staged included; after a successful commit, the index entries of exactly those paths are set to the new commit |
 | Commit | On explicit user request, with the required message and trailer |
@@ -902,7 +907,8 @@ caller and scopes the credential, and in every mode branch
 protection and CI path ownership catch what reaches the host.
 
 The Drafting Table's Git role is scoped to change-set branches and
-nothing else, and it exercises that role only through the SCM.
+nothing else, and it exercises that role only through the SCM,
+apart from the branch cut of `ears-manager change-set create`.
 Workers and implementation-aware test agents receive no Git
 mutation role at all, and only the Materializer, the
 Integration/Merge service, the WMS control plane, and the SCM

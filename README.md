@@ -102,10 +102,11 @@ it does not create content, branches, commits, pushes, or pull requests.
 Writes are validated against a candidate specification before an atomic file
 transaction is applied; JSON output and exit statuses are deterministic.
 
-`change-set show --at FULL-SHA` reads a manifest at a named commit. Immutable
-historical `--at` reads on the other commands, explicit `--against`
-comparisons, and governed Git branch/commit/pull-request automation remain
-separate follow-on work.
+`change-set create` cuts and checks out the change-set branch, and
+`change-set show --at FULL-SHA` reads a manifest at a named commit. The
+Source Control Manager commits, pushes, and opens the pull request. Immutable
+historical `--at` reads on the other commands and explicit `--against`
+comparisons remain separate follow-on work.
 
 ## Documentation
 

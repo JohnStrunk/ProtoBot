@@ -67,7 +67,7 @@ The same binary serves these callers:
 
 | Caller | Reads | Writes |
 | --- | --- | --- |
-| Drafting Table through the Specification Toolkit | Proposed and approved specification state, comparison, impact candidates, validation results | Proposed specification records and change-set manifests on the active change-set branch |
+| Drafting Table through the Specification Toolkit | Proposed and approved specification state, comparison, impact candidates, validation results | Proposed specification records and change-set manifests on the active change-set branch, which `change-set create` cuts |
 | CI | Registered records and artifacts at the checked-out revision | None |
 | Job Site Materializer | The approved manifest and requirements at an immutable specification commit | None; it passes lifecycle state to the WMS Adapter |
 | [Source Control Manager](source-control-manager.md) | A change set's paths, comparison, impact candidates, and validation result, and a change set's manifest, status, and manifest path at a commit | None; it stages, commits, and publishes what `ears-manager` wrote |
@@ -129,12 +129,11 @@ does not commit, push, open, or merge a pull request. The Git integration
 contract owns those operations. The
 [Source Control Manager](source-control-manager.md) performs the commit,
 the push, and the pull-request operations; a person merges.
-In the target Git integration, `change-set create` is the governed seam at
-which the Drafting Table requests a change-set branch; branch naming and
-branch lifecycle still follow [Git and Project-Repository
-Integration](git-integration.md#change-set-branches). The EM-04 first release
-only records the manifest and does not request or create a branch (see
-[first-release scope](#em-04-first-release-scope)).
+`change-set create` is the governed seam at which the Drafting Table gets a
+change-set branch: it cuts the branch and checks it out before it writes the
+manifest ([`change-set create`](#change-set-create)). Branch naming and
+branch lifecycle follow [Git and Project-Repository
+Integration](git-integration.md#change-set-branches).
 
 The write destination allowlist is independent of Git staging. A write may
 target a registered specification artifact, the registered requirement or
@@ -250,18 +249,17 @@ creation. EM-05 adds change-set list/show/update/compare and `impact`,
 including proposed-change-set impact-completeness checks. Issue #206 adds the
 immutable `--at` read to `change-set show`. EM-06 adds `project init` and the
 `shared` projection classification that `project init` and `artifact put`
-write and `check` validates. Artifact listing, interface updates, `--at` reads
-on the other read and analysis commands, explicit `--against` comparison
-revisions, and governed branch/commit/pull-request automation remain
-follow-on work. The dispatcher must not claim those remaining operations are
-available.
+write and `check` validates. EM-07 (#114) adds the change-set branch cut to
+`change-set create`. Artifact listing, interface updates, `--at` reads on the
+other read and analysis commands, and explicit `--against` comparison
+revisions remain follow-on work. The dispatcher must not claim those remaining
+operations are available. The CLI never commits, pushes, or opens a pull
+request; the Source Control Manager does ([Write authority](#write-authority)).
 
-In the first release, `change-set create` allocates the ID, records the base
-commit, and writes the manifest. It does not create or check out the change-set
-branch, so its success data contains `id`, `base_commit`, and
-`manifest_path`. The branch behavior in [Git and Project-Repository
-Integration](git-integration.md#change-set-branches) remains the target
-integration contract for the follow-on Git workflow.
+`change-set create` allocates the ID, records the default-branch head as the
+base commit, cuts and checks out the change-set branch, and writes the
+manifest on it, so its success data contains `id`, `base_commit`, `branch`,
+and `manifest_path` ([`change-set create`](#change-set-create)).
 
 Every command accepts `--help`. Help is a read-only successful operation and
 exits with status `0`. `--version` is accepted at the top level and prints
@@ -662,18 +660,17 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, and manifest path; EM-04 does not return branch data or the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, branch, and manifest path; not the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, `change_set.branch_exists`, `change_set.unexpected_branch`, `change_set.uncommitted_changes`, `change_set.sequence_exhausted`, `git.read_failed`, `git.write_failed`, `git.write_unknown`, or project diagnostics |
 | `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed`, `project.default_branch_unresolved`, or `git.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `git.read_failed`, `project.default_branch_unresolved`, `project.invalid_configuration`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
 | `change-set update` | `--change-set CS-ID` plus metadata, `--base-commit`, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_base`, `change_set.invalid_impact`, `git.read_failed`, or validation diagnostics |
 | `change-set compare` | `--change-set CS-ID` and optional `--against` full commit (deferred to follow-on scope) | Deterministic comparison report described below | `change_set.not_found`, `change_set.invalid_base`, or read/validation diagnostics |
 
-In the EM-04 first release, `change-set create` allocates the next unused
-sequence number, records a full 40-character `base_commit` and the same value
-as `impact_assessment_base_commit`, and writes the manifest. It does not
-create or check out a branch. Branch creation and branch
-reuse are deferred to the follow-on Git integration. A failed creation leaves
-no manifest.
+`change-set create` allocates the next sequence number, cuts and checks out
+the change-set branch, and writes the manifest on it, with the default-branch
+head as `base_commit` and as `impact_assessment_base_commit`. A creation that
+fails with `mutation: "none"` leaves no manifest and no branch. [`change-set
+create`](#change-set-create) gives the rules.
 
 Every successful `change-set update` returns a `before` and `after` manifest
 summary, the resulting `assessment_status`, and sorted `changed_paths`.
@@ -794,6 +791,72 @@ The [Source Control Manager's `publish`](source-control-manager.md#publish)
 refuses a `base_commit` that is not reachable from the default branch of the
 canonical remote (`BASE_NOT_ON_DEFAULT`), and a `base_commit` that differs
 from the default-branch head reachable from `HEAD` (`BASE_COMMIT_STALE`).
+
+### `change-set create`
+
+```text
+ears-manager change-set create --intent TEXT [--affected-interface ID]... \
+  [--affected-scope SCOPE]... --implementation-required true|false \
+  [--implementation-rationale TEXT] --created ISO8601
+```
+
+`change-set create` starts a change set on its own branch
+([One branch per change set](git-integration.md#one-branch-per-change-set)).
+It reads the head of the local default branch,
+`refs/heads/<default_branch>`, and records that commit as `base_commit` and
+as `impact_assessment_base_commit`. It never takes the base from `HEAD`, and
+it never fetches: the Source Control Manager's
+[`repo_state`](source-control-manager.md#repo_state) fetches and
+fast-forwards the local default branch first
+([When the branch is created](git-integration.md#when-the-branch-is-created)).
+
+There are two cases:
+
+- **Initialization.** `HEAD` is on `<branch_prefix>00001-project-init`, and
+  the change-set store holds no manifest. The Source Control Manager's
+  `branch_init` cut that branch before `project init` wrote the project
+  ([Project initialization](git-integration.md#project-initialization)), so
+  `change-set create` records it as the branch of `CS-00001` and cuts
+  nothing. The branch must descend from the default-branch head.
+- **Every other change set.** The sequence number is one more than the
+  highest in use: in the manifests of the working tree, in the change-set
+  store at every default-branch ref of the
+  [approval rule](#approved-and-proposed-change-sets), and in the name of
+  every change-set branch, local or a remote-tracking ref of the
+  canonical remote. So the new ID names no manifest and no branch that the
+  checkout knows, and a change set under review on another branch keeps its
+  number. The branch is `<branch_prefix><nnnnn>-<slug>`. The command creates
+  it at the default-branch head, checks it out, reads the project there, and
+  writes the manifest on it.
+
+The command runs its Git writes with no hook and no `fsmonitor` program, the
+rule of the Source Control Manager
+([Design principles](source-control-manager.md#design-principles)), so a
+repository cannot ship a program that runs when the branch is cut. It checks
+the branch out rather than only writing the ref, so the index and the working
+tree move to the default-branch head with it.
+
+A refusal changes nothing and reports `mutation: "none"`:
+
+| Code | Status | Condition |
+| --- | ---: | --- |
+| `project.default_branch_unresolved` | `3` | `refs/heads/<default_branch>` does not resolve to a commit |
+| `change_set.unexpected_branch` | `5` | `HEAD` is detached, as during a rebase or a bisect. Or the default branch holds no `.protobot/project.yaml` yet, and the initialization case does not apply: `HEAD` is on another branch, or `CS-00001` exists but is not merged |
+| `change_set.base_mismatch` | `5` | In the initialization case, the initialization branch does not descend from the default-branch head, because the default branch moved after the cut. In either case, `HEAD` moved while the command prepared its write |
+| `change_set.uncommitted_changes` | `5` | Every other change set only: a tracked file has an uncommitted change, staged or not, which would move one change set's draft to the branch of another; or the checkout would overwrite an untracked file. Other untracked files stay in the working tree |
+| `change_set.branch_exists` | `5` | The branch exists locally or on the canonical remote, as of the last fetch; the diagnostic says which. The allocation skips every number that a known branch uses, so another writer created the branch during the command |
+| `change_set.sequence_exhausted` | `5` | No sequence number up to `99999` is free |
+| `git.read_failed` | `6` | Git could not read the status, the refs, the remotes, or the change-set store at a default-branch ref |
+| `git.write_failed` | `6` | Git could not cut or check out the branch, and the original branch is checked out again |
+
+A failure after the cut, such as a project at the default-branch head that
+does not validate, checks the original branch out again and deletes the new
+branch. The result is that failure, with `mutation: "none"`. When the command
+cannot establish that state, the result is `git.write_unknown`, status `6`,
+with `mutation: "unknown"`; the caller checks `git status` and the branch list
+before it retries. A manifest write whose own rollback fails returns
+`storage.write_unknown`, as every write does, and leaves the new branch checked
+out, so the caller finds the files where they were written.
 
 ### `change-set show`
 
@@ -1106,12 +1169,14 @@ Every mutating command follows this sequence:
 4. For an existing-change-set write, verify that the change set is
    [proposed](#approved-and-proposed-change-sets) and that `HEAD` passes the
    [ancestry check](#ancestry-check). `project init` instead verifies that the
-   control namespace is absent. In the EM-04 first release, `change-set create`
-   verifies project configuration and base availability only; branch state and
-   initialization branch reuse are deferred to the follow-on Git integration.
+   control namespace is absent. `change-set create` instead checks the branch
+   state, then reuses the initialization branch or cuts and checks out the new
+   branch, and loads the project again from there
+   ([`change-set create`](#change-set-create)).
 5. Except for `project init`, verify that `HEAD` has not moved since the
-   command read it in step 2. Then write a complete replacement set through a
-   temporary file or directory.
+   command last read it: in step 2, or, for `change-set create`, after the cut.
+   Then write a complete replacement set through a temporary file or
+   directory.
 6. Re-read and validate the replacement set.
 7. Atomically replace the governed paths and return the result.
 
@@ -1139,10 +1204,10 @@ path as a workaround. Safe retries are:
 
 [`fixtures/ears-manager-cli-golden.jsonl`](fixtures/ears-manager-cli-golden.jsonl)
 is the harness-neutral follow-on fixture for the complete target contract. Its
-`fixture-scope` record identifies the subset implemented by EM-04, EM-05, and
-EM-06 and the commands deferred to later increments. Implementation tests
-exercise the implemented subset directly; the deferred fixture steps remain
-acceptance data for their owning follow-on issues. The fixture covers:
+`fixture-scope` record identifies the subset implemented by EM-04, EM-05,
+EM-06, and EM-07 and the commands deferred to later increments. Implementation
+tests exercise the implemented subset directly; the deferred fixture steps
+remain acceptance data for their owning follow-on issues. The fixture covers:
 
 - project initialization;
 - change-set creation;
