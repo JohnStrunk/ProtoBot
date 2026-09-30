@@ -828,16 +828,21 @@ There are two cases:
   every change-set branch, local or a remote-tracking ref of the
   canonical remote. So the new ID names no manifest and no branch that the
   checkout knows, and a change set under review on another branch keeps its
-  number. The branch is `<branch_prefix><nnnnn>-<slug>`. The command creates
-  it at the default-branch head, checks it out, reads the project there, and
-  writes the manifest on it.
+  number. Two clones that have not fetched each other's change-set branches
+  can still allocate the same number. Their manifests then share one path,
+  so Git refuses the second merge with a conflict. The branch is
+  `<branch_prefix><nnnnn>-<slug>`. The command creates it at the
+  default-branch head, checks it out, reads the project there, and writes the
+  manifest on it.
 
 The command runs its Git writes with no hook and no `fsmonitor` program, the
 rule of the Source Control Manager
 ([Design principles](source-control-manager.md#design-principles)), so a
 repository cannot ship a program that runs when the branch is cut. It checks
 the branch out rather than only writing the ref, so the index and the working
-tree move to the default-branch head with it.
+tree move to the default-branch head with it. It ignores Git replace refs,
+as a read at a commit does, so the new branch starts from the tree of the
+recorded base commit.
 
 A refusal changes nothing and reports `mutation: "none"`:
 

@@ -162,7 +162,7 @@ func highestChangeSetNumber(state projectState, prefix string) (int, *commandFai
 	}
 	store := strings.TrimSuffix(state.snapshot.Config.Stores.WithDefaults().ChangeSets, "/") + "/"
 	for _, ref := range refs {
-		output, err := gitCommand("-C", state.root, "ls-tree", "-z", "--name-only", ref, "--", store).Output()
+		output, err := gitCommand("--no-replace-objects", "-C", state.root, "ls-tree", "-z", "--name-only", ref, "--", store).Output()
 		if err != nil {
 			return 0, ioFailure("git.read_failed", fmt.Sprintf("Git could not list the change-set store at %s.", ref))
 		}
@@ -229,7 +229,7 @@ func fiveDigits(digits string, ok bool) (int, bool) {
 // tracking ref never counts: the new branch and its manifest name the same
 // commit (git-integration.md#when-the-branch-is-created).
 func localBranchHead(root, branch string) (string, *commandFailure) {
-	output, err := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}").Output()
+	output, err := gitCommand("--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}").Output()
 	commit := strings.ToLower(strings.TrimSpace(string(output)))
 	if err != nil || !fullCommitID(commit) {
 		return "", projectFailure("project.default_branch_unresolved", fmt.Sprintf("The local default branch %s does not resolve to a commit.", branch))
@@ -252,9 +252,10 @@ func checkedOutBranch(root string) (string, *commandFailure) {
 	return branch, nil
 }
 
-// treeHasPath reports whether the tree of commit holds path.
+// treeHasPath reports whether the tree of commit holds path, with replace
+// refs ignored.
 func treeHasPath(root, commit, relative string) bool {
-	return gitCommand("-C", root, "rev-parse", "--verify", "--quiet", commit+":"+relative).Run() == nil
+	return gitCommand("--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", commit+":"+relative).Run() == nil
 }
 
 // requireNoTrackedChanges refuses a tracked file with an uncommitted change,
@@ -354,9 +355,12 @@ func restoreOriginalBranch(root string, branch changeSetBranch, cause *commandFa
 // repositoryGit builds a Git command that runs no program that a repository
 // can ship: no hook and no fsmonitor, as in the Source Control Manager
 // (source-control-manager.md#design-principles). It never recurses into a
-// submodule, which is another repository.
+// submodule, which is another repository. It ignores replace refs, so the
+// status it reads and the tree it checks out are those of the commits that
+// the refs name, and a new branch starts from the tree of its base commit.
 func repositoryGit(root string, args ...string) *exec.Cmd {
 	return gitCommand(append([]string{
+		"--no-replace-objects",
 		"-C", root,
 		"-c", "core.hooksPath=" + os.DevNull,
 		"-c", "core.fsmonitor=false",

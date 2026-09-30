@@ -399,6 +399,67 @@ func TestChangeSetCreateRunsNoRepositoryProgram(t *testing.T) {
 	}
 }
 
+// TestChangeSetCreateIgnoresReplaceRefs replaces the default-branch head with
+// a commit whose tree holds one more file. The new branch starts from the tree
+// of the recorded base commit, and a working tree that holds the replacement
+// tree is refused.
+func TestChangeSetCreateIgnoresReplaceRefs(t *testing.T) {
+	replaceDefaultHead := func(t *testing.T, root string) string {
+		t.Helper()
+		base := gitOutput(t, root, "rev-parse", "main")
+		if err := os.WriteFile(filepath.Join(root, "replaced.txt"), []byte("only in the replacement\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		git(t, root, "add", "replaced.txt")
+		replacement := gitOutput(t, root, "commit-tree", gitOutput(t, root, "write-tree"), "-m", "replacement")
+		git(t, root, "reset", "-q", "--hard")
+		git(t, root, "replace", base, replacement)
+		return base
+	}
+
+	t.Run("from another branch", func(t *testing.T) {
+		root := newFixtureProject(t)
+		t.Chdir(root)
+		git(t, root, "switch", "-q", "-c", "feature")
+		if err := os.WriteFile(filepath.Join(root, "feature.txt"), []byte("feature work\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		commitAll(t, root, "feature work")
+		base := replaceDefaultHead(t, root)
+
+		code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Ignore replace refs", "--implementation-required", "true", "--created", "2026-09-30T15:00:00Z")
+		assertSuccess(t, code, stdout, stderr)
+		if jsonString(t, stdout, "data", "change_set", "base_commit") != base {
+			t.Fatalf("the manifest does not record the default head %s: %s", base, stdout)
+		}
+		if _, err := os.Stat(filepath.Join(root, "replaced.txt")); !os.IsNotExist(err) {
+			t.Fatalf("the working tree holds the file of the replacement: %v", err)
+		}
+		if status := gitOutput(t, root, "--no-replace-objects", "status", "--porcelain=v1", "--untracked-files=all"); strings.Contains(status, "replaced.txt") {
+			t.Fatalf("the new branch differs from its base commit:\n%s", status)
+		}
+	})
+
+	t.Run("on the replaced default branch", func(t *testing.T) {
+		root := newFixtureProject(t)
+		t.Chdir(root)
+		replaceDefaultHead(t, root)
+		// A checkout that honors the replace ref puts the replacement tree in
+		// the index and the working tree.
+		git(t, root, "reset", "-q", "--hard")
+		if _, err := os.Stat(filepath.Join(root, "replaced.txt")); err != nil {
+			t.Fatalf("the checkout did not use the replacement: %v", err)
+		}
+		before := repositoryState(t, root)
+
+		code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Ignore replace refs", "--implementation-required", "true", "--created", "2026-09-30T15:00:00Z")
+		assertRefusedCreate(t, code, stdout, stderr, 5, "change_set.uncommitted_changes")
+		if after := repositoryState(t, root); after != before {
+			t.Fatalf("the refused create changed the repository:\n%s\n---\n%s", before, after)
+		}
+	})
+}
+
 func TestChangeSetSlug(t *testing.T) {
 	for _, test := range []struct{ intent, want string }{
 		{"Add the initial Sketch", "add-the-initial-sketch"},
