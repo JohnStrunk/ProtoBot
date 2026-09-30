@@ -6,7 +6,6 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"os/exec"
 	"slices"
 	"sort"
 	"strings"
@@ -1144,7 +1143,7 @@ func artifactContentFailure(err error) *commandFailure {
 }
 
 func currentCommit(root string) (string, *commandFailure) {
-	output, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
+	output, err := gitCommand("-C", root, "rev-parse", "HEAD").Output()
 	if err != nil {
 		return "", conflictFailure("change_set.no_base", "The repository does not have a usable base commit.", nil)
 	}

@@ -82,7 +82,10 @@ not change the command or JSON contract.
 `ears-manager` is the read authority for registered specification artifacts
 and records. It resolves the project from the Git working tree containing
 `.protobot/project.yaml`; a caller-supplied project name, branch, remote, or
-path does not override that identity. There are two exceptions. The
+path does not override that identity. Nor does Git's environment: the CLI
+runs every Git command without the variables that name another repository,
+index, or configuration, such as `GIT_DIR`, `GIT_WORK_TREE`, and
+`GIT_CONFIG_PARAMETERS`. There are two exceptions. The
 initialization command resolves the Git working-tree root before
 `.protobot/project.yaml` exists, and a read at a commit with `--at` takes
 `.protobot/project.yaml` from that commit, as described below.
@@ -660,7 +663,7 @@ explicit.
 
 | Command | Request | Success result | Diagnostic result |
 | --- | --- | --- | --- |
-| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, branch, and manifest path; not the manifest body | `change_set.no_base`, `change_set.invalid_scope`, `change_set.base_mismatch`, `change_set.branch_exists`, `change_set.unexpected_branch`, `change_set.uncommitted_changes`, `change_set.sequence_exhausted`, `git.read_failed`, `git.write_failed`, `git.write_unknown`, or project diagnostics |
+| `change-set create` | Intent, affected interfaces/scopes, implementation decision, and `--created` | Change-set ID, full base commit, branch, and manifest path; not the manifest body | `change_set.no_base`, `project.default_branch_unresolved`, `change_set.invalid_scope`, `change_set.base_mismatch`, `change_set.branch_exists`, `change_set.unexpected_branch`, `change_set.uncommitted_changes`, `change_set.sequence_exhausted`, `git.read_failed`, `git.write_failed`, `git.write_unknown`, or project diagnostics |
 | `change-set list` | Optional status, interface, and scope filters, and optional --at (deferred to follow-on scope) | Proposed/approved manifests sorted by ID | `change_set.read_failed`, `project.default_branch_unresolved`, or `git.read_failed` |
 | `change-set show` | `--change-set CS-ID` and optional `--at` full commit | Complete manifest, derived status, changed/applicable counts, and exact paths, each a file: every registered artifact and every structured requirement and interface record that the change set touches, and its manifest | `change_set.not_found`, `git.read_failed`, `project.default_branch_unresolved`, `project.invalid_configuration`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
 | `change-set update` | `--change-set CS-ID` plus metadata, `--base-commit`, or complete impact assessment | `before`, `after`, `assessment_status`, and `changed_paths` in the result | `change_set.not_proposed`, `change_set.base_mismatch`, `change_set.invalid_base`, `change_set.invalid_impact`, `git.read_failed`, or validation diagnostics |
@@ -841,6 +844,7 @@ A refusal changes nothing and reports `mutation: "none"`:
 | Code | Status | Condition |
 | --- | ---: | --- |
 | `project.default_branch_unresolved` | `3` | `refs/heads/<default_branch>` does not resolve to a commit |
+| `change_set.no_base` | `5` | `HEAD` names no commit, as in a repository without one |
 | `change_set.unexpected_branch` | `5` | `HEAD` is detached, as during a rebase or a bisect. Or the default branch holds no `.protobot/project.yaml` yet, and the initialization case does not apply: `HEAD` is on another branch, or `CS-00001` exists but is not merged |
 | `change_set.base_mismatch` | `5` | In the initialization case, the initialization branch does not descend from the default-branch head, because the default branch moved after the cut. In either case, `HEAD` moved while the command prepared its write |
 | `change_set.uncommitted_changes` | `5` | Every other change set only: a tracked file has an uncommitted change, staged or not, which would move one change set's draft to the branch of another; or the checkout would overwrite an untracked file. Other untracked files stay in the working tree |

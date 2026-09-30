@@ -279,26 +279,91 @@ func TestChangeSetCreateRefusesAnExistingBranch(t *testing.T) {
 
 // TestChangeSetCreateRestoresTheBranchAfterAFailedWrite makes the write on
 // the new branch fail: the default-branch head holds a record that its store
-// digest does not cover.
+// digest does not cover. The original branch named -f is one that git branch
+// refuses and git switch would read as an option.
 func TestChangeSetCreateRestoresTheBranchAfterAFailedWrite(t *testing.T) {
-	root := newFixtureProject(t)
-	t.Chdir(root)
-	git(t, root, "branch", "valid")
-	if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "REQ-FIX-00001.yaml"), []byte("id: REQ-FIX-00001\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	commitAll(t, root, "a record outside ears-manager")
-	git(t, root, "switch", "valid")
-	before := repositoryState(t, root)
+	for _, original := range []string{"valid", "-f"} {
+		t.Run(original, func(t *testing.T) {
+			root := newFixtureProject(t)
+			t.Chdir(root)
+			valid := gitOutput(t, root, "rev-parse", "HEAD")
+			if err := os.WriteFile(filepath.Join(root, ".protobot", "requirements", "REQ-FIX-00001.yaml"), []byte("id: REQ-FIX-00001\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			commitAll(t, root, "a record outside ears-manager")
+			git(t, root, "update-ref", "refs/heads/"+original, valid)
+			git(t, root, "symbolic-ref", "HEAD", "refs/heads/"+original)
+			git(t, root, "reset", "-q", "--hard")
+			before := repositoryState(t, root)
 
-	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Another change", "--implementation-required", "true", "--created", "2026-09-30T12:00:00Z")
-	assertRefusedCreate(t, code, stdout, stderr, 4, "validation.failed")
-	if after := repositoryState(t, root); after != before {
-		t.Fatalf("the failed create left a change:\n%s\n---\n%s", before, after)
+			code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Another change", "--implementation-required", "true", "--created", "2026-09-30T12:00:00Z")
+			assertRefusedCreate(t, code, stdout, stderr, 4, "validation.failed")
+			if after := repositoryState(t, root); after != before {
+				t.Fatalf("the failed create left a change:\n%s\n---\n%s", before, after)
+			}
+			// The write failed after the cut, not before it.
+			if reflog := gitOutput(t, root, "reflog", "--format=%gs", "HEAD"); !strings.Contains(reflog, "to cs/00001-another-change") {
+				t.Fatalf("the create did not check out the new branch before it failed:\n%s", reflog)
+			}
+		})
 	}
-	// The write failed after the cut, not before it.
-	if reflog := gitOutput(t, root, "reflog", "--format=%gs", "HEAD"); !strings.Contains(reflog, "to cs/00001-another-change") {
-		t.Fatalf("the create did not check out the new branch before it failed:\n%s", reflog)
+}
+
+// TestChangeSetRollbackKeepsTheBranchWhenTheSwitchBackFails removes the
+// original branch, so the switch back fails. The rollback must not delete the
+// branch that is still checked out.
+func TestChangeSetRollbackKeepsTheBranchWhenTheSwitchBackFails(t *testing.T) {
+	root := newFixtureProject(t)
+	base := gitOutput(t, root, "rev-parse", "main")
+	git(t, root, "switch", "-q", "-c", "cs/00001-cut")
+	git(t, root, "branch", "-q", "-D", "main")
+	branch := changeSetBranch{id: "CS-00001", name: "cs/00001-cut", base: base, original: "main", cut: true}
+
+	failure := restoreOriginalBranch(root, branch, validationFailure("validation.failed", "The specification is not valid.", nil))
+	if failure == nil || failure.Code != "git.write_unknown" || failure.ExitCode != 6 || failure.Mutation != "unknown" {
+		t.Fatalf("rollback after a failed switch back = %#v", failure)
+	}
+	if head := gitOutput(t, root, "symbolic-ref", "--short", "HEAD"); head != branch.name {
+		t.Fatalf("HEAD is on %s, want %s", head, branch.name)
+	}
+	if tip := gitOutput(t, root, "rev-parse", "refs/heads/"+branch.name); tip != base {
+		t.Fatalf("the checked-out branch is at %s, want %s", tip, base)
+	}
+}
+
+// TestChangeSetCreateIgnoresTheGitVariablesOfTheCaller points GIT_DIR,
+// GIT_WORK_TREE, and GIT_INDEX_FILE at another repository. A caller-supplied
+// path never selects the project, so the branch is cut in the project and the
+// other repository stays as it was.
+func TestChangeSetCreateIgnoresTheGitVariablesOfTheCaller(t *testing.T) {
+	root := newFixtureProject(t)
+	other := newFixtureProject(t)
+	before := repositoryState(t, other)
+	t.Chdir(root)
+	redirect := map[string]string{
+		"GIT_DIR":        filepath.Join(other, ".git"),
+		"GIT_WORK_TREE":  other,
+		"GIT_INDEX_FILE": filepath.Join(other, ".git", "index"),
+	}
+	for name, value := range redirect {
+		t.Setenv(name, value)
+	}
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Ignore the caller", "--implementation-required", "true", "--created", "2026-09-30T14:00:00Z")
+	for name := range redirect {
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	assertSuccess(t, code, stdout, stderr)
+	if head := gitOutput(t, root, "symbolic-ref", "--short", "HEAD"); head != "cs/00001-ignore-the-caller" {
+		t.Fatalf("HEAD of the project is on %s", head)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")); err != nil {
+		t.Fatalf("the manifest is not in the project: %v", err)
+	}
+	if after := repositoryState(t, other); after != before {
+		t.Fatalf("the create changed the other repository:\n%s\n---\n%s", before, after)
 	}
 }
 

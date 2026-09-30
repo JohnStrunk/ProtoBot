@@ -162,7 +162,7 @@ func highestChangeSetNumber(state projectState, prefix string) (int, *commandFai
 	}
 	store := strings.TrimSuffix(state.snapshot.Config.Stores.WithDefaults().ChangeSets, "/") + "/"
 	for _, ref := range refs {
-		output, err := exec.Command("git", "-C", state.root, "ls-tree", "-z", "--name-only", ref, "--", store).Output()
+		output, err := gitCommand("-C", state.root, "ls-tree", "-z", "--name-only", ref, "--", store).Output()
 		if err != nil {
 			return 0, ioFailure("git.read_failed", fmt.Sprintf("Git could not list the change-set store at %s.", ref))
 		}
@@ -180,7 +180,7 @@ func highestChangeSetNumber(state projectState, prefix string) (int, *commandFai
 	for _, remote := range remotes {
 		namespaces = append(namespaces, "refs/remotes/"+remote+"/")
 	}
-	output, err := exec.Command("git", append([]string{"-C", state.root, "for-each-ref", "--format=%(refname)"}, namespaces...)...).Output()
+	output, err := gitCommand(append([]string{"-C", state.root, "for-each-ref", "--format=%(refname)"}, namespaces...)...).Output()
 	if err != nil {
 		return 0, ioFailure("git.read_failed", "Git could not list the change-set branches.")
 	}
@@ -229,7 +229,7 @@ func fiveDigits(digits string, ok bool) (int, bool) {
 // tracking ref never counts: the new branch and its manifest name the same
 // commit (git-integration.md#when-the-branch-is-created).
 func localBranchHead(root, branch string) (string, *commandFailure) {
-	output, err := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}").Output()
+	output, err := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}").Output()
 	commit := strings.ToLower(strings.TrimSpace(string(output)))
 	if err != nil || !fullCommitID(commit) {
 		return "", projectFailure("project.default_branch_unresolved", fmt.Sprintf("The local default branch %s does not resolve to a commit.", branch))
@@ -240,7 +240,7 @@ func localBranchHead(root, branch string) (string, *commandFailure) {
 // checkedOutBranch returns the short name of the branch that HEAD is on. A
 // detached HEAD, as during a rebase or a bisect, is refused.
 func checkedOutBranch(root string) (string, *commandFailure) {
-	output, err := exec.Command("git", "-C", root, "symbolic-ref", "--quiet", "HEAD").Output()
+	output, err := gitCommand("-C", root, "symbolic-ref", "--quiet", "HEAD").Output()
 	var exitErr *exec.ExitError
 	if err != nil && (!errors.As(err, &exitErr) || exitErr.ExitCode() != 1) {
 		return "", ioFailure("git.read_failed", "Git could not read the branch that HEAD is on.")
@@ -254,7 +254,7 @@ func checkedOutBranch(root string) (string, *commandFailure) {
 
 // treeHasPath reports whether the tree of commit holds path.
 func treeHasPath(root, commit, relative string) bool {
-	return exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", commit+":"+relative).Run() == nil
+	return gitCommand("-C", root, "rev-parse", "--verify", "--quiet", commit+":"+relative).Run() == nil
 }
 
 // requireNoTrackedChanges refuses a tracked file with an uncommitted change,
@@ -320,15 +320,16 @@ func branchExistsFailure(name, where string) *commandFailure {
 }
 
 func refExists(root, ref string) bool {
-	return exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", ref).Run() == nil
+	return gitCommand("-C", root, "rev-parse", "--verify", "--quiet", ref).Run() == nil
 }
 
 // restoreOriginalBranch undoes a cut after a failed create: it checks out the
-// original branch again and deletes the new one, when it still is at the
-// base. It returns cause when the original state is back, and a failure with
-// mutation unknown when it is not. After a file write whose own rollback
-// failed, it leaves Git as it is, so the caller finds the files on the branch
-// where they were written.
+// original branch again and then deletes the new one, when it still is at the
+// base. It never deletes the new branch while HEAD is on it, so a failed
+// switch back leaves the new branch checked out. It returns cause when the
+// original state is back, and a failure with mutation unknown when it is not.
+// After a file write whose own rollback failed, it leaves Git as it is, so the
+// caller finds the files on the branch where they were written.
 func restoreOriginalBranch(root string, branch changeSetBranch, cause *commandFailure) *commandFailure {
 	if cause.Mutation == "unknown" {
 		cause.Message = fmt.Sprintf("%s Branch %s is checked out.", cause.Message, branch.name)
@@ -336,12 +337,13 @@ func restoreOriginalBranch(root string, branch changeSetBranch, cause *commandFa
 	}
 	ref := "refs/heads/" + branch.name
 	if current, failure := checkedOutBranch(root); failure == nil && current == branch.name {
-		_ = repositoryGit(root, "switch", "--quiet", "--no-guess", branch.original).Run()
+		_ = repositoryGit(root, "switch", "--quiet", "--no-guess", "--", branch.original).Run()
 	}
-	if refExists(root, ref) {
+	current, failure := checkedOutBranch(root)
+	if failure == nil && current == branch.original && refExists(root, ref) {
 		_ = repositoryGit(root, "update-ref", "-d", ref, branch.base).Run()
 	}
-	if current, failure := checkedOutBranch(root); failure == nil && current == branch.original && !refExists(root, ref) {
+	if failure == nil && current == branch.original && !refExists(root, ref) {
 		return cause
 	}
 	return unknownIOFailure("git.write_unknown", fmt.Sprintf("%s Branch %s could not be removed, or branch %s could not be checked out again. Check git status and git branch before you retry.", cause.Message, branch.name, branch.original))
@@ -350,17 +352,14 @@ func restoreOriginalBranch(root string, branch changeSetBranch, cause *commandFa
 // repositoryGit builds a Git command that runs no program that a repository
 // can ship: no hook and no fsmonitor, as in the Source Control Manager
 // (source-control-manager.md#design-principles). It never recurses into a
-// submodule, which is another repository. Git's messages are in the C
-// locale, so a refusal is told apart by its text.
+// submodule, which is another repository.
 func repositoryGit(root string, args ...string) *exec.Cmd {
-	command := exec.Command("git", append([]string{
+	return gitCommand(append([]string{
 		"-C", root,
 		"-c", "core.hooksPath=" + os.DevNull,
 		"-c", "core.fsmonitor=false",
 		"-c", "submodule.recurse=false",
 	}, args...)...)
-	command.Env = append(os.Environ(), "LC_ALL=C", "LANGUAGE=", "GIT_OPTIONAL_LOCKS=0")
-	return command
 }
 
 func firstLine(text string) string {
