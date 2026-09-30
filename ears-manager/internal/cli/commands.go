@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"slices"
 	"sort"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -1159,26 +1158,6 @@ func currentCommit(root string) (string, *commandFailure) {
 		}
 	}
 	return strings.ToLower(commit), nil
-}
-
-func nextChangeSetID(snapshot specvalidation.Snapshot) (string, *commandFailure) {
-	used := make(map[int]bool, len(snapshot.ChangeSets))
-	for _, document := range snapshot.ChangeSets {
-		id := document.Value.ID
-		if len(id) != len("CS-00000") || !strings.HasPrefix(id, "CS-") {
-			continue
-		}
-		value, err := strconv.Atoi(id[len("CS-"):])
-		if err == nil {
-			used[value] = true
-		}
-	}
-	for number := 1; number <= 99999; number++ {
-		if !used[number] {
-			return fmt.Sprintf("CS-%05d", number), nil
-		}
-	}
-	return "", conflictFailure("change_set.sequence_exhausted", "No change-set sequence number is available.", nil)
 }
 
 func validEARSStyle(value string) bool {

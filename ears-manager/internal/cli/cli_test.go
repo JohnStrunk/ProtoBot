@@ -22,12 +22,13 @@ func TestCLICommandFlowAndDeterministicJSON(t *testing.T) {
 
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add CLI records", "--implementation-required", "true", "--created", "2026-09-18T12:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
-	if strings.Contains(stdout, `"branch"`) {
-		t.Fatalf("change-set create reported an uncreated branch: %s", stdout)
-	}
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
 	if changeSetID != "CS-00001" {
 		t.Fatalf("change set ID = %q, want CS-00001", changeSetID)
+	}
+	branch := jsonString(t, stdout, "data", "change_set", "branch")
+	if head := gitOutput(t, root, "symbolic-ref", "--short", "HEAD"); branch != "cs/00001-add-cli-records" || head != branch {
+		t.Fatalf("change-set branch = %q, HEAD = %q, want cs/00001-add-cli-records", branch, head)
 	}
 
 	code, stdout, stderr = runCLI(nil, "--output", "json", "interface", "add", "--change-set", changeSetID, "--id", "cli-main", "--name", "CLI", "--type", "cli", "--spec-approach", "prose", "--created", "2026-09-18T12:01:00Z")
@@ -73,6 +74,10 @@ func TestCLICommandFlowAndDeterministicJSON(t *testing.T) {
 		t.Fatalf("failed mutation left an unexpected record: code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 
+	// The next change set starts at the default-branch head, so the record
+	// it retires must be approved first.
+	commitAll(t, root, "spec(CS-00001): add CLI records")
+	mergeIntoMain(t, root, branch)
 	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Retire CLI record", "--implementation-required", "false", "--implementation-rationale", "Documentation-only retirement", "--created", "2026-09-18T12:04:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	retirementChangeSet := jsonString(t, stdout, "data", "change_set", "id")
@@ -318,8 +323,8 @@ func TestCheckReportsStoreEditOutsideEarsManagerAsValidationFailure(t *testing.T
 			t.Chdir(root)
 			code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Approved change", "--implementation-required", "false", "--implementation-rationale", "Fixture history.", "--created", "2026-09-29T10:00:00Z")
 			assertSuccess(t, code, stdout, stderr)
-			git(t, root, "add", ".")
-			git(t, root, "commit", "-m", "approve CS-00001")
+			commitAll(t, root, "spec(CS-00001): approved change")
+			mergeIntoMain(t, root, jsonString(t, stdout, "data", "change_set", "branch"))
 			code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Proposed change", "--implementation-required", "false", "--implementation-rationale", "Fixture draft.", "--created", "2026-09-29T10:01:00Z")
 			assertSuccess(t, code, stdout, stderr)
 			code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", "CS-00002")
