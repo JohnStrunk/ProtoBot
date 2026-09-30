@@ -38,17 +38,13 @@ func runChangeSetCreate(args []string) (any, Mutation, *commandFailure) {
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
-	baseCommit, failure := currentCommit(state.root)
-	if failure != nil {
-		return nil, Mutation{}, failure
-	}
-	id, failure := nextChangeSetID(state.snapshot)
+	branch, failure := planChangeSetBranch(state, intent)
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
 	changeSet := records.ChangeSet{
-		ID:                      id,
-		BaseCommit:              baseCommit,
+		ID:                      branch.id,
+		BaseCommit:              branch.base,
 		Intent:                  intent,
 		Operations:              []records.RequirementOperation{},
 		AffectedInterfaces:      append([]string{}, parsed.list("affected-interface")...),
@@ -57,15 +53,45 @@ func runChangeSetCreate(args []string) (any, Mutation, *commandFailure) {
 		ImplementationRationale: parsed.one("implementation-rationale"),
 		// A new change set has no reviewed entry yet. Its empty
 		// assessment is recorded against the base it starts from.
-		ImpactAssessmentBaseCommit: baseCommit,
+		ImpactAssessmentBaseCommit: branch.base,
 		Created:                    created,
 	}
+	if !branch.cut {
+		return writeNewChangeSet(state, branch, changeSet)
+	}
+	if failure := cutChangeSetBranch(state.root, state.snapshot.Config.Repository, branch); failure != nil {
+		return nil, Mutation{}, failure
+	}
+	// The working tree is now the default-branch head, so the manifest is
+	// written into the project as it is there.
+	cut, failure := loadState()
+	if failure == nil && cut.head != branch.base {
+		failure = conflictFailure("change_set.base_mismatch", "The repository advanced while the command was preparing its write.", nil)
+	}
+	if failure == nil {
+		if _, _, exists := findChangeSet(cut.snapshot, branch.id); exists {
+			failure = conflictFailure("change_set.concurrent_update", "The project changed while the command was preparing its write.", nil)
+		}
+	}
+	if failure != nil {
+		return nil, Mutation{}, restoreOriginalBranch(state.root, branch, failure)
+	}
+	data, mutation, failure := writeNewChangeSet(cut, branch, changeSet)
+	if failure != nil {
+		return nil, Mutation{}, restoreOriginalBranch(state.root, branch, failure)
+	}
+	return data, mutation, nil
+}
+
+// writeNewChangeSet writes the manifest of a new change set and the project
+// configuration with its new store digest, on the branch that is checked out.
+func writeNewChangeSet(state projectState, branch changeSetBranch, changeSet records.ChangeSet) (any, Mutation, *commandFailure) {
 	staged := cloneSnapshot(state.snapshot)
 	changeSetPath, err := upsertChangeSet(&staged, changeSet)
 	if err != nil {
 		return nil, Mutation{}, internalFailure("the change-set path could not be determined")
 	}
-	if failure := validateCandidateForChangeSet(staged, id, true); failure != nil {
+	if failure := validateCandidateForChangeSet(staged, changeSet.ID, true); failure != nil {
 		return nil, Mutation{}, failure
 	}
 	writes := []fileWrite{}
@@ -75,12 +101,12 @@ func runChangeSetCreate(args []string) (any, Mutation, *commandFailure) {
 	if err := addConfigWrite(state.root, &staged, &writes, state.observed); err != nil {
 		return nil, Mutation{}, configWriteFailure(err, "the project configuration could not be serialized")
 	}
-	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, id) })
+	mutation, failure := applyStateTransaction(state, writes, func() *commandFailure { return persistedValidation(state.root, true, changeSet.ID) })
 	if failure != nil {
 		return nil, Mutation{}, failure
 	}
 	return changeSetCreateData{ChangeSet: changeSetCreateRecord{
-		ID: id, BaseCommit: baseCommit, ManifestPath: changeSetPath,
+		ID: changeSet.ID, BaseCommit: branch.base, Branch: branch.name, ManifestPath: changeSetPath,
 	}}, mutation, nil
 }
 
@@ -91,6 +117,7 @@ type changeSetCreateData struct {
 type changeSetCreateRecord struct {
 	ID           string `json:"id"`
 	BaseCommit   string `json:"base_commit"`
+	Branch       string `json:"branch"`
 	ManifestPath string `json:"manifest_path"`
 }
 

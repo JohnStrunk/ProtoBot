@@ -74,7 +74,7 @@ func TestChangeSetShowAtDerivesApprovalFromTheDefaultBranch(t *testing.T) {
 	}
 
 	git(t, root, "switch", "main")
-	git(t, root, "merge", "--no-ff", "-m", "Merge change set", "cs/00001-show-at")
+	git(t, root, "merge", "--no-ff", "-m", "Merge change set", "cs/00001-read-a-manifest-at-a-commit")
 	merge := gitOutput(t, root, "rev-parse", "HEAD")
 	if status := show(merge); status != "approved" {
 		t.Fatalf("status at the merge commit = %s", status)
@@ -115,7 +115,7 @@ func TestChangeSetShowAtFindsTheMergeInAShallowClone(t *testing.T) {
 	clone := filepath.Join(t.TempDir(), "clone")
 	git(t, source, "clone", "--depth", "1", "--branch", "main", "file://"+source, clone)
 	git(t, source, "switch", "main")
-	git(t, source, "merge", "--no-ff", "-m", "Merge change set", "cs/00001-show-at")
+	git(t, source, "merge", "--no-ff", "-m", "Merge change set", "cs/00001-read-a-manifest-at-a-commit")
 	merge := gitOutput(t, source, "rev-parse", "HEAD")
 	git(t, clone, "fetch", "--depth", "1", "origin", "main")
 	if gitOutput(t, clone, "rev-parse", "refs/remotes/origin/main") != merge || gitOutput(t, clone, "rev-parse", "--is-shallow-repository") != "true" {
@@ -151,7 +151,7 @@ func TestChangeSetShowRefusesADefaultBranchThatIsNotABranchName(t *testing.T) {
 	}
 	// Git resolves this revision to the change-set branch tip itself, so the
 	// unreviewed tip would read as approved.
-	config.Repository.DefaultBranch = "cs/00001-show-at~0"
+	config.Repository.DefaultBranch = "cs/00001-read-a-manifest-at-a-commit~0"
 	data, err := storage.Encode(config)
 	if err != nil {
 		t.Fatal(err)
@@ -289,13 +289,13 @@ func TestChangeSetShowAtRefusesASymlinkedStoreEntryAsTheWorkingTreeDoes(t *testi
 }
 
 // newCommittedChangeSet commits change set CS-00001 with one requirement on
-// branch cs/00001-show-at, cut from main. It returns the project root, the
-// change-set ID, and the branch tip.
+// branch cs/00001-read-a-manifest-at-a-commit, which change-set create cuts
+// from main. It returns the project root, the change-set ID, and the branch
+// tip.
 func newCommittedChangeSet(t *testing.T) (string, string, string) {
 	t.Helper()
 	root := newFixtureProject(t)
 	t.Chdir(root)
-	git(t, root, "switch", "-c", "cs/00001-show-at")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Read a manifest at a commit", "--affected-scope", "cli", "--implementation-required", "true", "--created", "2026-09-29T10:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")

@@ -266,18 +266,13 @@ instead, stop: the guard hook is not running. Tell the user to start
 the session through the launcher, .codex/drafting-table, and do
 nothing else in this session.
 
-In the EM-04 first release, `ears-manager change-set create` writes the
-manifest but does not create or check out a branch. Do not report its
-success as branch creation or treat it as the target branch-start step;
-branch creation is deferred to follow-on Git integration (see the
-[`ears-manager` CLI first-release
-scope](../ears-manager-cli.md#em-04-first-release-scope)). Run it only
-when an appropriate change-set branch already exists; otherwise stop and
-explain that branch-start integration is deferred. Registration needs the
-network and is refused in this sandbox. When the session
-protocol reaches registration, print its exact command as the shell
-operations show it, ask the user to run it in their own shell, and read
-the state again through `repo_state` and `ears-manager` before continuing.
+`ears-manager change-set create` writes .git/ when it cuts a change-set
+branch, and this sandbox refuses that write; the refused command leaves
+no manifest and no branch. Registration needs the network and is refused
+too. When the session protocol reaches either and the sandbox refuses
+it, print its exact command as the shell operations show it, ask the
+user to run it in their own shell, and read the state again through
+`repo_state` and `ears-manager` before continuing.
 
 Your skills are these Toolkit skills and no others. Open a skill by
 reading its SKILL.md under .agents/skills/, and read its references the
@@ -353,17 +348,12 @@ checks the profile as it stands.
   shell can write inside the working tree and `$TMPDIR`, which is what
   `ears-manager` needs, and nothing else. Codex keeps `.git/`,
   `.agents/`, and `.codex/` read-only in that mode and, with
-  `network_access` off, gives the shell no network (documented). The
-  EM-04 `change-set create` command writes only the manifest, so it is not
-  refused on `.git/` write grounds and does not create or check out a
-  branch. The target branch-cutting behavior would write `.git/` and be
-  refused if run as a shell command in this sandbox; it remains follow-on
-  scope (see the [`ears-manager` CLI first-release
-  scope](../ears-manager-cli.md#em-04-first-release-scope)).
-  `register-approved-change-set` still needs network, so the user runs it
+  `network_access` off, gives the shell no network (documented).
+  `ears-manager change-set create` writes `.git/` when it cuts the
+  change-set branch, so the sandbox refuses it, and
+  `register-approved-change-set` needs the network; the user runs both
   ([What the user runs in Codex](#what-the-user-runs-in-codex)). The
-  supported EM-04 `ears-manager` commands and the `wms` and `scm` tools
-  otherwise work.
+  other `ears-manager` commands and the `wms` and `scm` tools work.
 - **`web_search = "disabled"` and `multi_agent = false` hide the web and
   subagent tools (H9).** With them, a model without an `apply_patch`
   tool type gets `exec_command`, `write_stdin`, `request_user_input`,
@@ -401,26 +391,24 @@ checks the profile as it stands.
 
 ### What the user runs in Codex
 
-Registration is the user-run shell operation in the EM-04 first release
-because it needs network access. Branch creation is not implemented by
-that release's CLI, so there is no branch-start command for the role to
-delegate. When the user runs an available command, the role prints it
-exactly as the [shell operations](adapter-contract.md#shell-operations)
-show it, with placeholders filled, and reads the state again before it
-continues, as it does for a discard and a merge:
+Two shell operations are the user's in Codex: starting a change set
+outside initialization, because a branch-cutting `change-set create`
+writes `.git/`, which the sandbox keeps read-only, and registration,
+because it needs network access. The
+role prints each exactly as the
+[shell operations](adapter-contract.md#shell-operations) show it, with
+placeholders filled, and reads the state again before it continues, as it
+does for a discard and a merge:
 
 | Step | Commands the user runs |
 | --- | --- |
-| Start a change set | Not available as an end-to-end EM-04 step: `change-set create` writes the manifest only and does not create or check out the branch; see the [`ears-manager` CLI first-release scope](../ears-manager-cli.md#em-04-first-release-scope) |
+| Start a change set | `ears-manager --output json change-set create ...`, with the values the role prints; it cuts and checks out the branch ([`change-set create`](../ears-manager-cli.md#change-set-create)). On the initialization branch it cuts nothing and writes no `.git/`, so the role runs it |
 | Register after the merge | `register-approved-change-set --change-set CS-<nnnnn>` |
 
-The role runs the supported EM-04 `ears-manager` commands, including
-metadata-only `change-set create` when an appropriate branch is already
-established, and every `wms` and `scm` tool available to the binding.
-Neither the CLI call nor the Codex sandbox starts a new change-set
-branch. A session started in OpenCode or Claude Code and resumed in
-Codex, or the other way round, finds the same state; only the
-network-dependent registration step is user-run in this release.
+The role runs every other `ears-manager` command and every `wms` and
+`scm` tool available to the binding. A session started in OpenCode or
+Claude Code and resumed in Codex, or the other way round, finds the same
+state; only these two steps are user-run.
 
 ### Read forms
 
@@ -565,10 +553,9 @@ file.
 run. "Observed" means a stub run or `codex debug prompt-input` showed
 it. Nothing else is marked met.
 
-One limitation sits outside the obligations: EM-04 `change-set create`
-does not cut a branch; that behavior is deferred. The sandbox keeps
-`.git/` read-only, so a future shell-based branch cut would be refused,
-and the role's shell has no network, so registration is the user's
+One limitation sits outside the obligations: the sandbox keeps `.git/`
+read-only, so the branch cut of `change-set create` is the user's, and
+the role's shell has no network, so registration is the user's too
 ([What the user runs in Codex](#what-the-user-runs-in-codex)). Git and
 the Git host reach the role through the `scm` server, outside the
 sandbox.
@@ -681,7 +668,7 @@ harness commands. For Codex:
 | List discovered skills (step 1) | `codex debug prompt-input` from a subdirectory of the clone, without the profile; the names in `<skills_instructions>` |
 | Headless turn in the role (steps 2 to 14) | `.codex/drafting-table exec --strict-config --json "<intent>"`; `.codex/drafting-table exec resume --last` or `resume <id>` to continue |
 | Headless turn outside the role (steps 2, 7, 9) | `codex exec --json "<prompt>"` |
-| Out-of-role setup and refused commands | Setup prepares the EM-04 `change-set create` manifest; that command does not write `.git/` and is not refused by the sandbox. Step 9 runs `git checkout -- docs/vision.md` outside the session after the role or out-of-role turn names it. Step 14 runs through the `scm` tools, and the `gh` stub records the call. The out-of-role run uses `workspace-write` too, so `echo x >> vision.md` succeeds inside the workspace |
+| Out-of-role setup and refused commands | Setup runs `change-set create` outside the session, because it writes `.git/`, which the sandbox refuses. Step 9 runs `git checkout -- docs/vision.md` outside the session after the role or out-of-role turn names it. Step 14 runs through the `scm` tools, and the `gh` stub records the call. The out-of-role run uses `workspace-write` too, so `echo x >> vision.md` succeeds inside the workspace |
 | Resolved native rules | No command prints them; the fixture keeps the profile and `hooks.json` next to the export |
 | Session export (step 15) | The session file under the fixture's `$CODEX_HOME/sessions/` and the `--json` event stream |
 

@@ -111,13 +111,12 @@ ProtoBot has eight primary logical components and reusable asset families:
    turns the user's decision about a governed object into Git and Git
    host state: commits, pushes, pull requests, refresh merges, and the
    initialization branch. The Drafting Table is designed to reach Git
-   and the Git host only through it, apart from the target change-set
-   branch behavior assigned to `ears-manager change-set create`; the
+   and the Git host only through it, apart from the change-set branch
+   that `ears-manager change-set create` cuts
+   ([`change-set create`](ears-manager-cli.md#change-set-create)); the
    guard enforces this on the calls it checks
    ([Permitted Git operations](git-integration.md#permitted-git-operations)).
-   The EM-04 first release writes the manifest but does not cut that
-   branch (see the [`ears-manager` CLI first-release
-   scope](ears-manager-cli.md#em-04-first-release-scope)). The Job Site
+   The Job Site
    reads approved merge commits through the SCM. It never decides content.
 7. **Validation Rules** — Domain logic that enforces well-formedness
    on work item state transitions. Shared across the Drafting
@@ -300,11 +299,9 @@ The final cross-harness packaging boundary remains an open question.
   project's git repo (on contributor or change-set branches before
   approval and build-work-item branches during execution), accessed
   exclusively through `ears-manager`. Commits, pushes, PRs, refresh
-  merges, and the initialization branch are made through the SCM; the
-  target `ears-manager change-set create` contract cuts change-set
-  branches. EM-04 currently defers that behavior to follow-on Git
-  integration (see the [`ears-manager` CLI first-release
-  scope](ears-manager-cli.md#em-04-first-release-scope)). The
+  merges, and the initialization branch are made through the SCM;
+  `ears-manager change-set create` cuts change-set branches
+  ([`change-set create`](ears-manager-cli.md#change-set-create)). The
   toolkit does not maintain its own state store.
 - **Versioned and testable.** The toolkit should be versioned
   alongside the WMS Adapter API and the Source Control Manager's tool
@@ -344,10 +341,7 @@ The final cross-harness packaging boundary remains an open question.
   describe and the agent runs through the harness's shell tool, and
   Git and the Git host through the Source Control Manager's MCP tools.
   The WMS Adapter tools handle work item lifecycle; `ears-manager`
-  handles all spec read/write operations and, in the target contract,
-  cuts change-set branches. EM-04 defers branch cutting (see the
-  [`ears-manager` CLI first-release
-  scope](ears-manager-cli.md#em-04-first-release-scope));
+  handles all spec read/write operations and cuts change-set branches;
   the SCM handles commits, pushes, PRs, refresh merges, and the
   initialization branch. The agent should not need to manipulate spec
   files or run Git directly. Whether `ears-manager` also moves to
@@ -457,6 +451,11 @@ It is used by these callers:
   proposed change sets
   ([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets));
   `ears-manager` never fetches.
+- **Git refs (write):** `change-set create` cuts and checks out the
+  change-set branch at the local default-branch head, and after a failed
+  write checks the original branch out again and deletes the branch it cut
+  ([`change-set create`](ears-manager-cli.md#change-set-create)). It runs
+  no hook and no `fsmonitor` program.
 - **Validator registry:** Code-controlled, extensible format-specific
   IDL/prose/schema checks selected by stable names in the artifact registry.
   New formats, such as Smithy, add a registry entry and controlled adapter.
@@ -469,8 +468,7 @@ It is used by these callers:
 ### Subcommands
 
 The table describes the target `ears-manager` subcommand surface. EM-04,
-EM-05, and EM-06 implement a subset and do not create change-set branches;
-see the
+EM-05, EM-06, and EM-07 implement a subset; see the
 [`ears-manager` CLI first-release
 scope](ears-manager-cli.md#em-04-first-release-scope).
 
@@ -486,7 +484,7 @@ scope](ears-manager-cli.md#em-04-first-release-scope).
 | `ears-manager interface update` | Modify interfaces through a proposed change set. |
 | `ears-manager artifact put` | Create/update a registered Vision, Architecture, or external interface-IDL artifact within the active change set. Records kind/path/digest, adds the `shared` projection entry of a newly registered path, and invokes the selected code-controlled validator adapter without requiring `ears-manager` to understand every format. |
 | `ears-manager artifact get/list` | Read a registered opaque/prose/IDL artifact by ID or unique kind through the governed path registry. |
-| `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, requirement operations, and reviewed impact dispositions. EM-04 implemented minimal creation; EM-05 adds list/show/update; #206 adds a `show` read at an immutable `--at` revision. None of them cuts a branch; see the [`ears-manager` CLI first-release scope](ears-manager-cli.md#em-04-first-release-scope). Approved change sets are immutable. |
+| `ears-manager change-set create/list/show/update` | Create, inspect, and update a proposed change set. Records its base revision, intent, affected scope, requirement operations, and reviewed impact dispositions. EM-04 implemented minimal creation; EM-05 adds list/show/update; #206 adds a `show` read at an immutable `--at` revision; EM-07 makes `create` cut and check out the change-set branch ([`change-set create`](ears-manager-cli.md#change-set-create)). Approved change sets are immutable. |
 | `ears-manager change-set compare` | Compare a proposed change set with the current Schematic and open deltas. Reports exact duplicates, stable-ID before/after changes, declared conflicts/supersession, and dependency cycles for agent/user review. |
 | `ears-manager impact` | Read-only comparison of a proposed change set with the Schematic that produces potentially applicable requirements from scope intersections and explicit relationships. Reviewed dispositions are written by `change-set update`. |
 

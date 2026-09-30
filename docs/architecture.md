@@ -213,12 +213,9 @@ prompt loading; no harness-specific APIs beyond those.
 
 **Runtime dependencies:** The WMS Adapter API (for work-item
 lifecycle state), the `ears-manager` binary (for all
-specification reads and writes, and, in the target contract, change-set
-branches), the Source Control Manager (for commits, pushes, PRs, refresh
-merges, and the initialization branch), and a Git working tree. The EM-04
-first release writes change-set manifests but does not cut branches; see
-the [`ears-manager` CLI first-release
-scope](architecture/ears-manager-cli.md#em-04-first-release-scope).
+specification reads and writes, and for change-set branches), the Source
+Control Manager (for commits, pushes, PRs, refresh merges, and the
+initialization branch), and a Git working tree.
 
 See [System Components — Specification
 Toolkit](architecture/components.md#specification-toolkit) for design details.
@@ -232,11 +229,11 @@ specification store. It abstracts the underlying file format,
 manages change sets, and enforces EARS methodology rules
 deterministically.
 
-This section describes the target CLI surface. The EM-04 first release
-implements a subset, and its `change-set create` command records a manifest
-without creating a branch; see the
-[`ears-manager` CLI first-release
-scope](architecture/ears-manager-cli.md#em-04-first-release-scope).
+This section describes the target CLI surface. The current release
+implements a subset; see the [`ears-manager` CLI first-release
+scope](architecture/ears-manager-cli.md#em-04-first-release-scope). Its
+`change-set create` command cuts and checks out the change-set branch and
+writes the manifest on it.
 
 **Interface type:** CLI — a statically linked Go binary with a
 stable subcommand surface.
@@ -264,7 +261,7 @@ project-initialization boundary.
 | `artifact put` | Create/update a registered artifact (Vision, Architecture, IDL). |
 | `artifact get` | Read a registered artifact by kind or ID. |
 | `artifact list` | List registered artifacts. |
-| `change-set create` | Create a new proposed change set. |
+| `change-set create` | Create a new proposed change set on its own branch. |
 | `change-set list` | List change sets (filterable). |
 | `change-set show` | Show a change set by ID. |
 | `change-set compare` | Compare a change set with the current Schematic. |
@@ -379,14 +376,12 @@ in the
 The Source Control Manager (SCM) is the governed boundary between
 ProtoBot and Git and the Git host. It turns the user's decision about a
 proposed change set into commits, pushes, PRs, and refresh merges, cuts
-the initialization branch, and reports that state back. In the target
-architecture `ears-manager change-set create` cuts every other change-set
-branch. The EM-04 first release only writes the manifest; branch creation
-is deferred as described in the
-[EM-04 first-release scope][ears-manager-first-release].
+the initialization branch, and reports that state back.
+`ears-manager change-set create` cuts every other change-set branch
+([`change-set create`][ears-manager-change-set-create]).
 The agent decides _when_; the SCM decides _how_.
 
-[ears-manager-first-release]: architecture/ears-manager-cli.md#em-04-first-release-scope
+[ears-manager-change-set-create]: architecture/ears-manager-cli.md#change-set-create
 
 **Interface type:** MCP tool surface + CLI — one executable,
 `source-control-manager`, with one narrow face per role. The MCP face
@@ -769,7 +764,7 @@ stops](architecture/agent-harness/adapter-contract.md#what-the-harness-layer-sto
 | `ears-manager requirement *` | Specification store | Add, list, show, update, retire requirements |
 | `ears-manager interface *` | Specification store | Add, list, show, update interfaces |
 | `ears-manager artifact put/get/list` | Specification store | Manage Vision, Architecture, IDL artifacts |
-| `ears-manager change-set *` | Specification store | Create, list, show, compare, update change sets |
+| `ears-manager change-set *` | Specification store; project repository | Create, list, show, compare, update change sets; `create` cuts the change-set branch |
 | `ears-manager impact` | Specification store | Generate applicable-requirement candidates |
 | `ears-manager check` | Specification store | Validate spec well-formedness |
 | WMS request operations | WMS Adapter | `request.create`, `request.refine`, `request.link-change-set`, `request.link-build-work-item`; `request.update-priority` is human-maintainer only |

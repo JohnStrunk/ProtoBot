@@ -250,7 +250,7 @@ func alreadyInitializedFailure(detail string) *commandFailure {
 // requireInitCommit refuses a repository without a commit. Initialization
 // records no base commit; change-set create records it later.
 func requireInitCommit(root string) *commandFailure {
-	command := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
+	command := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")
 	if err := command.Run(); err != nil {
 		return initStateFailure("", "The repository has no commits.", "Create an initial commit on the default branch before initializing; an empty repository is initialized outside ears-manager.")
 	}
@@ -338,11 +338,11 @@ func requireCommittedInitArtifact(root, option, path string) *commandFailure {
 			Hint:     "Commit the file on the default branch, then retry initialization.",
 		}})
 	}
-	kind, err := exec.Command("git", "--no-replace-objects", "-C", root, "cat-file", "-t", "HEAD:"+path).Output()
+	kind, err := gitCommand("--no-replace-objects", "-C", root, "cat-file", "-t", "HEAD:"+path).Output()
 	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
 		return notCommitted("The selected path is not committed at HEAD; initialization registers only committed files.")
 	}
-	diff := exec.Command("git", "--no-replace-objects", "-C", root, "--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--", path)
+	diff := gitCommand("--no-replace-objects", "-C", root, "--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--", path)
 	if err := diff.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {

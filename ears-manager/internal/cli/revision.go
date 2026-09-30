@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -169,7 +168,7 @@ func listRevisionTree(root, commit string, paths []string) ([]treeEntry, *comman
 		return nil, nil
 	}
 	args := append([]string{"--no-replace-objects", "-C", root, "--literal-pathspecs", "ls-tree", "-r", "-t", "-z", "--full-tree", commit, "--"}, paths...)
-	output, err := exec.Command("git", args...).Output()
+	output, err := gitCommand(args...).Output()
 	if err != nil {
 		return nil, ioFailure("revision.read_failed", fmt.Sprintf("The tree of commit %s could not be read.", commit))
 	}
@@ -230,7 +229,7 @@ func readRevisionBlobs(root string, entries []treeEntry) (map[string][]byte, *co
 	if request.Len() == 0 {
 		return contents, nil
 	}
-	command := exec.Command("git", "--no-replace-objects", "-C", root, "cat-file", "--batch")
+	command := gitCommand("--no-replace-objects", "-C", root, "cat-file", "--batch")
 	command.Stdin = &request
 	output, err := command.Output()
 	if err != nil {
@@ -307,7 +306,7 @@ func commitOnDefaultBranch(root string, repository records.RepositoryConfig, com
 	resolved := false
 	var firstFailure *commandFailure
 	for _, ref := range refs {
-		output, err := exec.Command("git", "--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Output()
+		output, err := gitCommand("--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Output()
 		if err != nil {
 			continue
 		}

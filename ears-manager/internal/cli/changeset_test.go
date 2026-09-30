@@ -118,8 +118,8 @@ func TestApprovedChangeSetCannotBeUpdated(t *testing.T) {
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Approve me", "--implementation-required", "true", "--created", "2026-09-18T18:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
-	git(t, root, "add", ".")
-	git(t, root, "commit", "-m", "approve change set")
+	commitAll(t, root, "spec(CS-00001): approve me")
+	mergeIntoMain(t, root, jsonString(t, stdout, "data", "change_set", "branch"))
 
 	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", changeSetID, "--intent", "Rewrite history")
 	if code != 5 || stderr != "" || !strings.Contains(stdout, "change_set.not_proposed") {
@@ -147,7 +147,6 @@ func TestChangeSetApprovedOnCanonicalRemoteCannotBeUpdated(t *testing.T) {
 	git(t, root, "remote", "add", "origin", fork)
 	git(t, root, "push", "-q", "upstream", "main")
 
-	git(t, root, "checkout", "-b", "cs/00001-merged-on-host")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Merged on the host", "--implementation-required", "true", "--created", "2026-09-29T16:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
@@ -369,7 +368,6 @@ func TestChangeSetMutationFailsClosedWhenDefaultBranchRefMissing(t *testing.T) {
 func TestChangeSetWritesAfterCommitsOnChangeSetBranch(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)
-	git(t, root, "checkout", "-b", "cs/00001-several-commits")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Several commits", "--implementation-required", "true", "--created", "2026-09-29T10:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
@@ -412,12 +410,11 @@ func TestChangeSetWritesAfterCommitsOnChangeSetBranch(t *testing.T) {
 
 func TestChangeSetRefreshAfterDefaultBranchMerge(t *testing.T) {
 	root := newAnalysisFixture(t)
-	commitAll(t, root, "fixture requirements")
 	t.Chdir(root)
-	git(t, root, "checkout", "-b", "cs/00001-refresh")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Refresh from main", "--affected-scope", "cli", "--implementation-required", "true", "--created", "2026-09-29T11:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	branch := jsonString(t, stdout, "data", "change_set", "branch")
 	code, stdout, stderr = runCLI(nil, "--output", "json", "requirement", "add", "--change-set", changeSetID, "--id", "REQ-CLI-00001", "--type", "ubiquitous", "--text", "The fixture CLI shall print usage.", "--scope", "cli", "--verification-mode", "isolated-interface", "--provenance", "user-authored", "--created", "2026-09-29T11:01:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	review, err := json.Marshal([]impactAssessmentJSON{
@@ -436,7 +433,7 @@ func TestChangeSetRefreshAfterDefaultBranchMerge(t *testing.T) {
 	}
 	commitAll(t, root, "unrelated default-branch change")
 	defaultHead := gitOutput(t, root, "rev-parse", "HEAD")
-	git(t, root, "checkout", "cs/00001-refresh")
+	git(t, root, "checkout", branch)
 	git(t, root, "merge", "--no-ff", "--no-edit", "main")
 
 	// A write after the merge and before the base update is accepted.
@@ -486,7 +483,6 @@ func TestChangeSetRefreshAfterDefaultBranchMerge(t *testing.T) {
 func TestChangeSetBaseRefreshWithoutCandidates(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)
-	git(t, root, "checkout", "-b", "cs/00001-add-the-initial-sketch")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add the initial Sketch", "--implementation-required", "false", "--implementation-rationale", "The Sketch changes no interface yet.", "--created", "2026-09-29T17:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
@@ -532,7 +528,6 @@ func TestChangeSetBaseRefreshWithoutCandidates(t *testing.T) {
 func TestChangeSetBaseAndImpactInOneUpdate(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)
-	git(t, root, "checkout", "-b", "cs/00001-one-update")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "One update", "--implementation-required", "true", "--created", "2026-09-29T18:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
@@ -558,10 +553,10 @@ func TestChangeSetBaseRefreshRefusesCommitOutsideBranchHistory(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)
 	firstCommit := gitOutput(t, root, "rev-parse", "HEAD")
-	git(t, root, "checkout", "-b", "cs/00001-refuse")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Refuse bad bases", "--implementation-required", "true", "--created", "2026-09-29T12:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	branch := jsonString(t, stdout, "data", "change_set", "branch")
 	commitAll(t, root, "spec(CS-00001): create the change set")
 	git(t, root, "checkout", "main")
 	if err := os.WriteFile(filepath.Join(root, "unrelated.txt"), []byte("default branch change\n"), 0o644); err != nil {
@@ -569,7 +564,7 @@ func TestChangeSetBaseRefreshRefusesCommitOutsideBranchHistory(t *testing.T) {
 	}
 	commitAll(t, root, "unrelated default-branch change")
 	defaultHead := gitOutput(t, root, "rev-parse", "HEAD")
-	git(t, root, "checkout", "cs/00001-refuse")
+	git(t, root, "checkout", branch)
 
 	assertBaseMismatch := func(baseCommit string) {
 		t.Helper()
@@ -592,7 +587,6 @@ func TestChangeSetBaseRefreshRefusesCommitOutsideBranchHistory(t *testing.T) {
 func TestChangeSetBaseRefreshRefusesTagObject(t *testing.T) {
 	root := newFixtureProject(t)
 	t.Chdir(root)
-	git(t, root, "checkout", "-b", "cs/00001-tag")
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Refuse a tag", "--implementation-required", "true", "--created", "2026-09-29T13:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
@@ -649,16 +643,16 @@ func TestChangeSetWriteRefusesUnusableRecordedBase(t *testing.T) {
 
 func TestChangeSetWriteInShallowCloneReportsIncompleteHistory(t *testing.T) {
 	root := newFixtureProject(t)
-	git(t, root, "checkout", "-b", "cs/00001-shallow")
 	t.Chdir(root)
 	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Shallow clone", "--implementation-required", "true", "--created", "2026-09-29T15:00:00Z")
 	assertSuccess(t, code, stdout, stderr)
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
+	branch := jsonString(t, stdout, "data", "change_set", "branch")
 	commitAll(t, root, "spec(CS-00001): create the change set")
 	git(t, root, "commit", "--allow-empty", "-m", "spec(CS-00001): a later commit")
 
 	clone := filepath.Join(t.TempDir(), "clone")
-	git(t, root, "clone", "-q", "--depth", "1", "--no-single-branch", "--branch", "cs/00001-shallow", "file://"+root, clone)
+	git(t, root, "clone", "-q", "--depth", "1", "--no-single-branch", "--branch", branch, "file://"+root, clone)
 	// The clone has no local default branch. Its origin must be the
 	// canonical remote, so that origin/main decides approval.
 	git(t, clone, "remote", "set-url", "origin", "https://example.invalid/fixture.git")
@@ -699,7 +693,17 @@ func newAnalysisFixture(t *testing.T) string {
 		Status:       records.StatusActive,
 	})
 	refreshProjectDigests(t, root)
+	// change-set create refuses an uncommitted change to a tracked file.
+	commitAll(t, root, "fixture requirements")
 	return root
+}
+
+// mergeIntoMain merges a change-set branch into main with a merge commit, in
+// place of the host merge button, and leaves main checked out.
+func mergeIntoMain(t *testing.T, root, branch string) {
+	t.Helper()
+	git(t, root, "checkout", "main")
+	git(t, root, "merge", "--no-ff", "--no-edit", branch)
 }
 
 func writeFixtureRequirement(t *testing.T, root string, requirement records.Requirement) {

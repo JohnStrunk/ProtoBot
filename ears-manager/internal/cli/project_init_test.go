@@ -196,6 +196,9 @@ func TestProjectInitThenArtifactPutClassifiesNewPath(t *testing.T) {
 	assertSuccess(t, code, stdout, stderr)
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-m", "initialize")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add CLI prose", "--implementation-required", "true", "--created", "2026-09-28T12:00:00Z")
+	assertSuccess(t, code, stdout, stderr)
+	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
 
 	// A person adds a policy entry; ears-manager must preserve it.
 	projectionPath := filepath.Join(root, ".protobot", "projection.yaml")
@@ -209,10 +212,6 @@ func TestProjectInitThenArtifactPutClassifiesNewPath(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-
-	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "create", "--intent", "Add CLI prose", "--implementation-required", "true", "--created", "2026-09-28T12:00:00Z")
-	assertSuccess(t, code, stdout, stderr)
-	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
 
 	code, stdout, stderr = runCLI([]byte("# CLI\n"), "--output", "json", "artifact", "put", "--change-set", changeSetID, "--id", "cli-prose", "--kind", "interface-prose", "--path", "docs/interfaces/cli.md", "--owner", "user", "--content-stdin")
 	assertSuccess(t, code, stdout, stderr)

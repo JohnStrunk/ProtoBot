@@ -15,7 +15,6 @@ import (
 	"sync/atomic"
 	"syscall"
 
-	"github.com/redhat-et/protobot/ears-manager/internal/project"
 	"github.com/redhat-et/protobot/ears-manager/internal/records"
 	"github.com/redhat-et/protobot/ears-manager/internal/specvalidation"
 	"github.com/redhat-et/protobot/ears-manager/internal/storage"
@@ -44,10 +43,11 @@ func resolveRoot() (string, *commandFailure) {
 	if err != nil {
 		return "", projectFailure("project.not_git_root", "Unable to determine the current working directory.")
 	}
-	root, err := project.GitRoot(cwd)
+	output, err := gitCommand("-C", cwd, "rev-parse", "--show-toplevel").Output()
 	if err != nil {
 		return "", projectFailure("project.not_git_root", "The current directory is not inside a Git working tree.")
 	}
+	root := strings.TrimSpace(string(output))
 	if root == "" {
 		return "", projectFailure("project.not_git_root", "Git did not return a working-tree root.")
 	}
@@ -913,7 +913,7 @@ func resolveDefaultBranchRefs(root string, repository records.RepositoryConfig) 
 	}
 	refs := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
-		cmd := exec.Command("git", "-C", root, "rev-parse", "--verify", "--quiet", candidate+"^{commit}")
+		cmd := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", candidate+"^{commit}")
 		if err := cmd.Run(); err == nil {
 			refs = append(refs, candidate)
 		}
@@ -966,7 +966,7 @@ func defaultBranchRefs(root string, repository records.RepositoryConfig) ([]stri
 // Manager uses to find its remote. A remote whose name is not a valid ref
 // name has no remote-tracking refs, so it is left out.
 func canonicalRemoteNames(root, canonicalRemote string) ([]string, *commandFailure) {
-	output, err := exec.Command("git", "-C", root, "config", "-z", "--get-regexp", `^remote\..+\.url$`).Output()
+	output, err := gitCommand("-C", root, "config", "-z", "--get-regexp", `^remote\..+\.url$`).Output()
 	var exitErr *exec.ExitError
 	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
 		return nil, nil
@@ -1026,7 +1026,7 @@ func changeSetApprovedAt(root string, refs []string, manifestPath string) (bool,
 		return false, projectFailure("change_set.invalid_manifest", "Manifest path is empty.")
 	}
 	for _, ref := range refs {
-		cmd := exec.Command("git", "-C", root, "cat-file", "-e", ref+":"+relative)
+		cmd := gitCommand("-C", root, "cat-file", "-e", ref+":"+relative)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err == nil {
@@ -1074,7 +1074,7 @@ func commitExists(root, commit string) bool {
 	if !fullCommitID(commit) {
 		return false
 	}
-	output, err := exec.Command("git", "--no-replace-objects", "-C", root, "cat-file", "-t", commit).Output()
+	output, err := gitCommand("--no-replace-objects", "-C", root, "cat-file", "-t", commit).Output()
 	return err == nil && strings.TrimSpace(string(output)) == "commit"
 }
 
@@ -1098,7 +1098,7 @@ func isAncestor(root, ancestor, descendant string) (bool, *commandFailure) {
 	if !commitExists(root, ancestor) || !commitExists(root, descendant) {
 		return false, nil
 	}
-	err := exec.Command("git", "--no-replace-objects", "-C", root, "merge-base", "--is-ancestor", ancestor, descendant).Run()
+	err := gitCommand("--no-replace-objects", "-C", root, "merge-base", "--is-ancestor", ancestor, descendant).Run()
 	if err == nil {
 		return true, nil
 	}
@@ -1113,7 +1113,7 @@ func isAncestor(root, ancestor, descendant string) (bool, *commandFailure) {
 }
 
 func shallowRepository(root string) bool {
-	output, err := exec.Command("git", "-C", root, "rev-parse", "--is-shallow-repository").Output()
+	output, err := gitCommand("-C", root, "rev-parse", "--is-shallow-repository").Output()
 	return err == nil && strings.TrimSpace(string(output)) == "true"
 }
 
