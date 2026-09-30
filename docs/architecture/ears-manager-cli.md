@@ -327,9 +327,13 @@ merge anything. The caller follows the project-initialization sequence in
 [Git and Project-Repository Integration][git-init].
 
 The selected Vision and Architecture paths must already exist so initialization
-can compute their registry digests without writing content. The fixture seeds
-those files as pre-existing project content. A missing selected path returns
-`project.invalid_path` before the control namespace is created.
+can compute their registry digests without writing content. They must also be
+committed at `HEAD` with no uncommitted change, because the initialization
+commit holds only the control namespace; an untracked, only staged, or
+modified file would be missing or stale there and fail `check` in CI. The
+fixture seeds those files as committed project content. A missing or
+uncommitted selected path returns `project.invalid_path` before the control
+namespace is created.
 
 `--canonical-remote` must use a credential-free `https://` or `ssh://` URL,
 or the standard `git@host:path` SSH form. Any URL userinfo, including a
@@ -562,7 +566,7 @@ Diagnostic results use these statuses:
 | `project.not_git_root` | `3` | The current directory is not in a Git working tree, or a `.protobot/project.yaml` exists in a directory between the current directory and the working-tree root. The command walks up from the current directory only, as [project resolution](git-integration.md#the-project-root) does; a `.protobot/project.yaml` elsewhere below the root, such as in a nested clone or a test fixture, does not block it. The diagnostic names the misplaced file by its root-relative path; the command never relocates it. |
 | `project.invalid_configuration` | `3` | The repository has no commit, or the selected default branch does not resolve to a commit. An empty repository is initialized outside this contract. |
 | `project.already_initialized` | `5` | Anything named `.protobot` exists at the working-tree root, including a symbolic link or a file. |
-| `project.invalid_path` | `4` | A selected path is unsafe, reserved, missing, not a regular file, or selected twice. |
+| `project.invalid_path` | `4` | A selected path is unsafe, reserved, missing, not a regular file, selected twice, not a file in the `HEAD` commit, or different in the working tree from `HEAD`. |
 | `project.remote_credentials` | `4` | The canonical remote carries userinfo other than the fixed `git@host:path` form. |
 | `project.invalid_configuration` | `4` | Another request value is invalid, such as a reserved branch prefix, an unknown review mode, an unsupported remote, or selected content that is not UTF-8 text without a BOM. |
 

@@ -980,8 +980,9 @@ also run against the SCM, with no shell in the caller
 the default branch that holds `docs/vision.md` and
 `docs/architecture.md`, clone it, and configure a Git identity.
 `project init` registers files that already exist and are committed
-([`branch_init`](source-control-manager.md#branch_init)); it creates
-no content. Where
+at `HEAD`, refuses an uncommitted one
+([`project init`](ears-manager-cli.md#project-init)), and creates no
+content. Where
 a step needs a Job Site or a WMS, the fixture substitutes a
 recording stub: registration is asserted by the call the Drafting
 Table makes, not by work-item state.

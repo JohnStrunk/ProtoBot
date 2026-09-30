@@ -273,9 +273,11 @@ records the manifest but does not create or check out a branch. See the
 scope](ears-manager-cli.md#em-04-first-release-scope).
 
 `project init` registers Vision and Architecture files that already exist and
-are committed on the default branch; it creates no content, and `branch_init`
-refuses when either file is uncommitted. A new project therefore needs both
-files on its default branch before step 1. Until the Drafting Table owns that
+are committed on the default branch; it creates no content, and it refuses a
+selected file that is not committed at `HEAD` or has uncommitted changes, with
+`project.invalid_path`. `branch_init` does not check these files: it carries an
+untracked file over. A new project therefore needs both files committed on its
+default branch before step 1. Until the Drafting Table owns that
 step, the user commits them, for example as short placeholders that the
 initial Sketch later rewrites through `ears-manager artifact put`
 ([Q22](open-questions.md#q22-initial-vision-and-architecture-files)).

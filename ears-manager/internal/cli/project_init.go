@@ -306,6 +306,9 @@ func initArtifactEntries(root string, selected []initArtifact) ([]records.Artifa
 				Hint:     "Store the artifact as valid UTF-8 text without a BOM before initializing.",
 			}})
 		}
+		if failure := requireCommittedInitArtifact(root, artifact.option, canonical); failure != nil {
+			return nil, nil, failure
+		}
 		entries = append(entries, records.ArtifactEntry{
 			ID:     artifact.id,
 			Kind:   artifact.kind,
@@ -317,6 +320,37 @@ func initArtifactEntries(root string, selected []initArtifact) ([]records.Artifa
 	}
 	sort.Strings(registered)
 	return entries, registered, nil
+}
+
+// requireCommittedInitArtifact refuses a selected path that is not a file in
+// the HEAD commit, or whose working-tree content differs from HEAD. The
+// initialization commit holds only the control namespace, so a path that is
+// untracked, only staged, or modified would be missing or stale in that
+// commit, and ears-manager check would fail in CI.
+func requireCommittedInitArtifact(root, option, path string) *commandFailure {
+	notCommitted := func(message string) *commandFailure {
+		return validationFailure("project.invalid_path", "A selected project path is not allowed.", []specvalidation.Diagnostic{{
+			Code:     "project.invalid_path",
+			Severity: "error",
+			Path:     path,
+			Field:    option,
+			Message:  message,
+			Hint:     "Commit the file on the default branch, then retry initialization.",
+		}})
+	}
+	kind, err := exec.Command("git", "--no-replace-objects", "-C", root, "cat-file", "-t", "HEAD:"+path).Output()
+	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
+		return notCommitted("The selected path is not committed at HEAD; initialization registers only committed files.")
+	}
+	diff := exec.Command("git", "--no-replace-objects", "-C", root, "--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--", path)
+	if err := diff.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return notCommitted("The selected path has uncommitted changes; initialization registers the committed content only.")
+		}
+		return ioFailure("storage.read_failed", "The Git state of a selected path could not be read.")
+	}
+	return nil
 }
 
 func initPathFailure(option, path, message string) *commandFailure {

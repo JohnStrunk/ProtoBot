@@ -47,10 +47,10 @@ Kits are versioned imports;
 ### Q22: Initial Vision and Architecture files
 
 `ears-manager project init` registers Vision and Architecture files
-   that already exist and are committed on the default branch, and the
-   Source Control Manager's `branch_init` refuses when either is
-   uncommitted
-   ([`branch_init`](source-control-manager.md#branch_init)). A new
+   that already exist and are committed on the default branch, and it
+   refuses a selected file that is not committed at `HEAD` or has
+   uncommitted changes
+   ([`project init`](ears-manager-cli.md#project-init)). A new
    project has neither file before its first Sketch. Today the user
    commits them, for example as placeholders
    ([Starting a new project](drafting-table-ux.md#starting-a-new-project)).

@@ -661,7 +661,9 @@ and the pull request. Its `data` fields are:
    Architecture path that `project init` registers must already be
    committed on the default branch: the initialization commit holds
    only the control namespace (#34), so an untracked one would fail
-   `ears-manager check` in CI.
+   `ears-manager check` in CI. `branch_init` does not check those
+   paths; `project init` refuses one that is not committed at `HEAD`
+   or has uncommitted changes.
 4. Refuse with `DEFAULT_NOT_FOUND` when the local `<default>` does not
    exist, has no commit, has no upstream branch, or is not the branch
    that its upstream remote's `HEAD` names. This ties the default

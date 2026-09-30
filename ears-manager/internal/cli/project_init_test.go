@@ -451,6 +451,55 @@ func TestProjectInitRejectsUnsafeOrMissingPaths(t *testing.T) {
 	}
 }
 
+// The initialization commit holds only the control namespace, so a selected
+// Vision or Architecture file must already be committed, unchanged, at HEAD.
+func TestProjectInitRejectsUncommittedArtifacts(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(t *testing.T, root string)
+		args   []string
+		field  string
+		path   string
+	}{
+		{
+			name:   "untracked",
+			mutate: func(t *testing.T, root string) { writeTestFile(t, root, "spec/vision.md", "# Placeholder\n") },
+			args:   []string{"--vision", "spec/vision.md"},
+			field:  "vision",
+			path:   "spec/vision.md",
+		},
+		{
+			name: "staged only",
+			mutate: func(t *testing.T, root string) {
+				writeTestFile(t, root, "spec/vision.md", "# Placeholder\n")
+				git(t, root, "add", "spec/vision.md")
+			},
+			args:  []string{"--vision", "spec/vision.md"},
+			field: "vision",
+			path:  "spec/vision.md",
+		},
+		{
+			name:   "modified",
+			mutate: func(t *testing.T, root string) { writeTestFile(t, root, "docs/architecture.md", "# Edited\n") },
+			field:  "architecture",
+			path:   "docs/architecture.md",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := newUninitializedRepository(t)
+			tc.mutate(t, root)
+			t.Chdir(root)
+			code, stdout, stderr := runCLI(nil, initArgsWith(tc.args...)...)
+			assertFailure(t, code, stdout, stderr, 4, "project.invalid_path")
+			if !strings.Contains(stdout, `"path":"`+tc.path+`"`) || !strings.Contains(stdout, `"field":"`+tc.field+`"`) || !strings.Contains(stdout, "Commit the file") {
+				t.Fatalf("uncommitted artifact diagnostic = %s", stdout)
+			}
+			assertNotInitialized(t, root)
+		})
+	}
+}
+
 func TestProjectInitRejectsRemoteCredentials(t *testing.T) {
 	root := newUninitializedRepository(t)
 	t.Chdir(root)
