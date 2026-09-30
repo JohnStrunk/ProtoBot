@@ -267,8 +267,9 @@ This is the target end-to-end workflow. EM-06 implements project initialization
 through `ears-manager project init`, which adopts the existing repository and
 does not create or check out a branch. The Source Control Manager's
 [`branch_init`](source-control-manager.md#branch_init) cuts and checks out the
-initialization branch in step 1. The first-release `change-set create` command
-records the manifest but does not create or check out a branch. See the
+initialization branch in step 1. On that branch, `change-set create` records
+the branch as the branch of `CS-00001` and cuts no other
+([`change-set create`](ears-manager-cli.md#change-set-create)). See the
 [`ears-manager` CLI first-release
 scope](ears-manager-cli.md#em-04-first-release-scope).
 
