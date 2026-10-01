@@ -1,8 +1,9 @@
 // Package gitx runs git as a child process with argument lists, never
-// through a shell. Every command gets the same fixed global options: the
-// working-tree root, literal pathspecs, an empty hooks directory of the
-// SCM's own, and core.fsmonitor off. The runner records the commands that
-// can change state, as the result protocol lists them.
+// through a shell. Every command gets the same fixed global options: Git
+// replace refs ignored, the working-tree root, literal pathspecs, an empty
+// hooks directory of the SCM's own, and core.fsmonitor off. The runner
+// records the commands that can change state, as the result protocol lists
+// them.
 package gitx
 
 import (
@@ -80,7 +81,9 @@ var removedPrefixes = []string{"GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"}
 
 // fixedEnv makes a missing credential fail instead of prompting, keeps
 // every read from writing the user's index, keeps git's messages in one
-// language, and never opens an editor or a pager.
+// language, never opens an editor or a pager, and ignores Git replace
+// refs so a refs/replace/ entry cannot change which tree a named commit
+// has.
 var fixedEnv = []string{
 	"GIT_TERMINAL_PROMPT=0",
 	"SSH_ASKPASS_REQUIRE=never",
@@ -92,6 +95,7 @@ var fixedEnv = []string{
 	"GIT_ADVICE=0",
 	"LC_ALL=C",
 	"LANGUAGE=",
+	"GIT_NO_REPLACE_OBJECTS=1",
 }
 
 // Timeout bounds every child process, so a call that waits on a network or
@@ -183,13 +187,15 @@ func (r *Runner) Record(args []string) {
 }
 
 // GlobalArgs are the fixed global options that precede every command:
-// the working-tree root, literal pathspecs, the empty hooks directory, and
-// core.fsmonitor off. The rest pin behavior that would otherwise follow
-// the user's configuration: no fetch, push, or checkout ever recurses into
-// a submodule, which is another repository than the canonical remote, and
-// no merge message gets a shortlog after its trailer.
+// Git replace refs ignored, the working-tree root, literal pathspecs, the
+// empty hooks directory, and core.fsmonitor off. The rest pin behavior
+// that would otherwise follow the user's configuration: no fetch, push, or
+// checkout ever recurses into a submodule, which is another repository
+// than the canonical remote, and no merge message gets a shortlog after
+// its trailer.
 func (r *Runner) GlobalArgs() []string {
 	return []string{
+		"--no-replace-objects",
 		"-C", r.Root,
 		"--literal-pathspecs",
 		"-c", "core.hooksPath=" + r.hooksDir,

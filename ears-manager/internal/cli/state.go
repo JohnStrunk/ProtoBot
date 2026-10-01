@@ -1074,7 +1074,7 @@ func commitExists(root, commit string) bool {
 	if !fullCommitID(commit) {
 		return false
 	}
-	output, err := gitCommand("--no-replace-objects", "-C", root, "cat-file", "-t", commit).Output()
+	output, err := gitCommand("-C", root, "cat-file", "-t", commit).Output()
 	return err == nil && strings.TrimSpace(string(output)) == "commit"
 }
 
@@ -1098,7 +1098,7 @@ func isAncestor(root, ancestor, descendant string) (bool, *commandFailure) {
 	if !commitExists(root, ancestor) || !commitExists(root, descendant) {
 		return false, nil
 	}
-	err := gitCommand("--no-replace-objects", "-C", root, "merge-base", "--is-ancestor", ancestor, descendant).Run()
+	err := gitCommand("-C", root, "merge-base", "--is-ancestor", ancestor, descendant).Run()
 	if err == nil {
 		return true, nil
 	}

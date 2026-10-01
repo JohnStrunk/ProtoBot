@@ -338,11 +338,11 @@ func requireCommittedInitArtifact(root, option, path string) *commandFailure {
 			Hint:     "Commit the file on the default branch, then retry initialization.",
 		}})
 	}
-	kind, err := gitCommand("--no-replace-objects", "-C", root, "cat-file", "-t", "HEAD:"+path).Output()
+	kind, err := gitCommand("-C", root, "cat-file", "-t", "HEAD:"+path).Output()
 	if err != nil || strings.TrimSpace(string(kind)) != "blob" {
 		return notCommitted("The selected path is not committed at HEAD; initialization registers only committed files.")
 	}
-	diff := gitCommand("--no-replace-objects", "-C", root, "--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--", path)
+	diff := gitCommand("-C", root, "--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", "HEAD", "--", path)
 	if err := diff.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
