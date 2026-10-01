@@ -1103,10 +1103,11 @@ it: the fast-forward of the local default branch.
 | Delete a merged change-set branch | The host, or the user |
 
 Every entry of #34's forbidden list has no operation at all. Force,
-rebase, amend, squash, `git add -A`, a direct write to a registered
-file, `wi/` and integration branches, attestation paths, the default
-branch on the remote, tags, remotes, submodules, and any repository
-other than the canonical remote cannot be named in a request.
+rebase, amend, squash, `git add -A`, `git replace`, a direct write to
+a registered file, `wi/` and integration branches, attestation paths,
+the default branch on the remote, tags, remotes, submodules, and any
+repository other than the canonical remote cannot be named in a
+request.
 
 ---
 
@@ -1501,9 +1502,10 @@ Failed result:
 - **`commands`** lists every Git and host command that can change local
   or remote state, in the order it ran, as an argument list. A fetch is
   listed; a pure read is not. The SCM runs every Git command with the
-  same fixed global options, `-C <root>`, `--literal-pathspecs`, its
-  empty hooks directory, and `core.fsmonitor` off, and the list leaves
-  them out. With `--literal-pathspecs` a path is never a pattern, so a
+  same fixed global options, `--no-replace-objects`, `-C <root>`,
+  `--literal-pathspecs`, its empty hooks directory, and
+  `core.fsmonitor` off, and the list leaves them out. With
+  `--literal-pathspecs` a path is never a pattern, so a
   name with `*` or a leading `:` matches only itself. The list also
   leaves out a command's environment: `commit` runs `git add`, `git
   write-tree`, and `git commit-tree` with `GIT_INDEX_FILE` set to its

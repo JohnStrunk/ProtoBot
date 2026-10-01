@@ -3,10 +3,10 @@ package project
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
+	"github.com/redhat-et/protobot/ears-manager/internal/gitcmd"
 	"github.com/redhat-et/protobot/ears-manager/internal/records"
 	"github.com/redhat-et/protobot/ears-manager/internal/schema"
 	"github.com/redhat-et/protobot/ears-manager/internal/storage"
@@ -131,7 +131,7 @@ func GitRoot(path string) (string, error) {
 }
 
 func systemGitRoot(path string) (string, error) {
-	command := exec.Command("git", "-C", path, "rev-parse", "--show-toplevel")
+	command := gitcmd.Command("-C", path, "rev-parse", "--show-toplevel")
 	output, err := command.Output()
 	if err != nil {
 		return "", err

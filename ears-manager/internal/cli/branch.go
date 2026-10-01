@@ -3,7 +3,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path"
 	"strconv"
@@ -162,7 +161,7 @@ func highestChangeSetNumber(state projectState, prefix string) (int, *commandFai
 	}
 	store := strings.TrimSuffix(state.snapshot.Config.Stores.WithDefaults().ChangeSets, "/") + "/"
 	for _, ref := range refs {
-		output, err := gitCommand("--no-replace-objects", "-C", state.root, "ls-tree", "-z", "--name-only", ref, "--", store).Output()
+		output, err := gitCommand("-C", state.root, "ls-tree", "-z", "--name-only", ref, "--", store).Output()
 		if err != nil {
 			return 0, ioFailure("git.read_failed", fmt.Sprintf("Git could not list the change-set store at %s.", ref))
 		}
@@ -229,7 +228,7 @@ func fiveDigits(digits string, ok bool) (int, bool) {
 // tracking ref never counts: the new branch and its manifest name the same
 // commit (git-integration.md#when-the-branch-is-created).
 func localBranchHead(root, branch string) (string, *commandFailure) {
-	output, err := gitCommand("--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}").Output()
+	output, err := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch+"^{commit}").Output()
 	commit := strings.ToLower(strings.TrimSpace(string(output)))
 	if err != nil || !fullCommitID(commit) {
 		return "", projectFailure("project.default_branch_unresolved", fmt.Sprintf("The local default branch %s does not resolve to a commit.", branch))
@@ -255,14 +254,14 @@ func checkedOutBranch(root string) (string, *commandFailure) {
 // treeHasPath reports whether the tree of commit holds path, with replace
 // refs ignored.
 func treeHasPath(root, commit, relative string) bool {
-	return gitCommand("--no-replace-objects", "-C", root, "rev-parse", "--verify", "--quiet", commit+":"+relative).Run() == nil
+	return gitCommand("-C", root, "rev-parse", "--verify", "--quiet", commit+":"+relative).Run() == nil
 }
 
 // requireNoTrackedChanges refuses a tracked file with an uncommitted change,
 // staged or not, so a draft of one change set never moves to the branch of
 // another. An untracked file stays in the working tree.
 func requireNoTrackedChanges(root string) *commandFailure {
-	output, err := repositoryGit(root, "status", "--porcelain=v1", "-z", "--untracked-files=no").Output()
+	output, err := gitCommand("-C", root, "status", "--porcelain=v1", "-z", "--untracked-files=no").Output()
 	if err != nil {
 		return ioFailure("git.read_failed", "Git could not read the status of the working tree.")
 	}
@@ -279,7 +278,7 @@ func cutChangeSetBranch(root string, repository records.RepositoryConfig, branch
 	if failure := refuseExistingBranch(root, repository, branch.name); failure != nil {
 		return failure
 	}
-	output, err := repositoryGit(root, "switch", "--quiet", "--no-track", "--create", branch.name, branch.base).CombinedOutput()
+	output, err := gitCommand("-C", root, "switch", "--quiet", "--no-track", "--create", branch.name, branch.base).CombinedOutput()
 	if err == nil {
 		return nil
 	}
@@ -340,32 +339,16 @@ func restoreOriginalBranch(root string, branch changeSetBranch, cause *commandFa
 	}
 	ref := "refs/heads/" + branch.name
 	if current, failure := checkedOutBranch(root); failure == nil && current == branch.name {
-		_ = repositoryGit(root, "switch", "--quiet", "--no-guess", "--", branch.original).Run()
+		_ = gitCommand("-C", root, "switch", "--quiet", "--no-guess", "--", branch.original).Run()
 	}
 	current, failure := checkedOutBranch(root)
 	if failure == nil && current == branch.original && refExists(root, ref) {
-		_ = repositoryGit(root, "update-ref", "-d", ref, branch.base).Run()
+		_ = gitCommand("-C", root, "update-ref", "-d", ref, branch.base).Run()
 	}
 	if failure == nil && current == branch.original && !refExists(root, ref) {
 		return cause
 	}
 	return unknownIOFailure("git.write_unknown", fmt.Sprintf("%s Branch %s could not be removed, or branch %s could not be checked out again. Check git status and git branch before you retry.", cause.Message, branch.name, branch.original))
-}
-
-// repositoryGit builds a Git command that runs no program that a repository
-// can ship: no hook and no fsmonitor, as in the Source Control Manager
-// (source-control-manager.md#design-principles). It never recurses into a
-// submodule, which is another repository. It ignores replace refs, so the
-// status it reads and the tree it checks out are those of the commits that
-// the refs name, and a new branch starts from the tree of its base commit.
-func repositoryGit(root string, args ...string) *exec.Cmd {
-	return gitCommand(append([]string{
-		"--no-replace-objects",
-		"-C", root,
-		"-c", "core.hooksPath=" + os.DevNull,
-		"-c", "core.fsmonitor=false",
-		"-c", "submodule.recurse=false",
-	}, args...)...)
 }
 
 func firstLine(text string) string {

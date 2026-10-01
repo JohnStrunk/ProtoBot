@@ -900,6 +900,13 @@ blocks Git writes and Git host calls but not Git reads
 | Push to the default branch, in any mode | Approval is the merge of a pull request |
 | Creating tags, adding or changing remotes, submodule operations | Outside the contract; no ProtoBot behavior depends on them |
 | Fetching or pushing any repository other than the canonical remote, apart from the fetch before initialization in the Allowed table | Project identity comes from the working tree, not from a caller-supplied remote |
+| `git replace` and refs under `refs/replace/` | Git replace refs would make a named commit's tree diverge from canonical history, so change-set verification would not be deterministic |
+
+Every Git command that `ears-manager` and the Source Control Manager
+run ignores Git replace refs (`--no-replace-objects` and
+`GIT_NO_REPLACE_OBJECTS=1`). A `refs/replace/` entry cannot change
+which tree a named commit has, so change-set verification reads
+canonical history.
 
 Refusal is not advisory. The SCM refuses what this list forbids in
 every mode, in hosted modes behind a Gate that authenticates the
