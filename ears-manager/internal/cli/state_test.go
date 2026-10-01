@@ -13,6 +13,8 @@ func TestChangeSetApprovedAtIgnoresReplaceRefs(t *testing.T) {
 	changeSetID := jsonString(t, stdout, "data", "change_set", "id")
 	manifest := ".protobot/change-sets/cs-00001.yaml"
 
+	commitAll(t, root, "spec(CS-00001): create the change set")
+
 	approved, failure := changeSetApprovedAt(root, []string{"refs/heads/main"}, manifest)
 	if failure != nil {
 		t.Fatalf("unexpected failure: %v", failure)

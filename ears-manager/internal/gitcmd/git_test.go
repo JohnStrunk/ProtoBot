@@ -1,4 +1,4 @@
-package cli
+package gitcmd
 
 import (
 	"go/ast"
@@ -14,7 +14,7 @@ import (
 )
 
 func TestGitEnvironScrubsRedirectsAndDisablesReplaceRefs(t *testing.T) {
-	env := gitEnviron([]string{
+	env := Environ([]string{
 		"PATH=/usr/bin",
 		"GIT_DIR=/other",
 		"GIT_WORK_TREE=/other",
@@ -48,7 +48,7 @@ func TestGitEnvironScrubsRedirectsAndDisablesReplaceRefs(t *testing.T) {
 }
 
 func TestGitCommandPrependsIsolationArgs(t *testing.T) {
-	cmd := gitCommand("-C", "/repo", "status")
+	cmd := Command("-C", "/repo", "status")
 	want := []string{
 		"git",
 		"--no-replace-objects",

@@ -11,9 +11,3 @@ import (
 func gitCommand(args ...string) *exec.Cmd {
 	return gitcmd.Command(args...)
 }
-
-// gitEnviron returns env without the variables that redirect Git, plus the
-// fixed variables of gitcmd.Environ.
-func gitEnviron(env []string) []string {
-	return gitcmd.Environ(env)
-}
