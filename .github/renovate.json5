@@ -15,6 +15,7 @@
   // review-agent re-runs on busy days.
   "rebaseWhen": "conflicted",
   "dependencyDashboard": true,
+  "platformAutomerge": true,
   // Keep the Skillsaw ruleset version in .skillsaw.yaml updateable.
   "customManagers": [
     {
@@ -54,6 +55,12 @@
     "minimumReleaseAge": null,
   },
   "packageRules": [
+    {
+      // Use GitHub's native auto-merge only for patch and minor updates.
+      "description": "Auto-merge patch and minor updates",
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+    },
     {
       // After fullsend-ai/agents version bump, recompute SHA256 hashes in
       // harness base: URLs.
