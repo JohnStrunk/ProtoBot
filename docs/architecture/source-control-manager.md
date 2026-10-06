@@ -931,6 +931,9 @@ but #33 refused it, and the SCM keeps that refusal
    - `BASE_COMMIT_STALE` when `<remote>/<default>` is reachable from
      `HEAD` but differs from `base_commit`: the default branch was
      merged in, and `change-set update --base-commit` did not run.
+   `ears-manager check` reports the same three base conditions for every
+   proposed change set so CI can refuse a stale `base_commit` before merge
+   ([`check`](ears-manager-cli.md#check)).
 6. Render the title and the body ([Title and body](#title-and-body)).
    Refuse with `UNSAFE_TEXT` when the intent holds text that GitHub acts
    on, when the title is empty or longer than the 256 characters that

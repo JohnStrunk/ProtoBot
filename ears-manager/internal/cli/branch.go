@@ -236,6 +236,31 @@ func localBranchHead(root, branch string) (string, *commandFailure) {
 	return commit, nil
 }
 
+// defaultBranchHead returns the commit that check uses as the default-branch
+// target head. CI fetches repository.default_branch from
+// repository.canonical_remote into the local ref; ears-manager never fetches.
+// The local ref is used when it resolves, otherwise a resolved remote-tracking
+// ref of a canonical remote.
+func defaultBranchHead(root string, repository records.RepositoryConfig) (string, *commandFailure) {
+	branch, failure := defaultBranchName(repository.DefaultBranch)
+	if failure != nil {
+		return "", failure
+	}
+	if head, failure := localBranchHead(root, branch); failure == nil {
+		return head, nil
+	}
+	refs, failure := resolveDefaultBranchRefs(root, repository)
+	if failure != nil {
+		return "", failure
+	}
+	output, err := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", refs[0]+"^{commit}").Output()
+	commit := strings.ToLower(strings.TrimSpace(string(output)))
+	if err != nil || !fullCommitID(commit) {
+		return "", projectFailure("project.default_branch_unresolved", fmt.Sprintf("Repository default branch %q could not be resolved.", branch))
+	}
+	return commit, nil
+}
+
 // checkedOutBranch returns the short name of the branch that HEAD is on. A
 // detached HEAD, as during a rebase or a bisect, is refused.
 func checkedOutBranch(root string) (string, *commandFailure) {

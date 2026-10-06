@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -41,6 +42,114 @@ func TestSelfHostingFixturePassesCheck(t *testing.T) {
 	if got := result.Data.RecordCounts; got.Requirements != 1 || got.Interfaces != 1 || got.ChangeSets != 1 || got.Artifacts != 2 {
 		t.Fatalf("seeded record counts = %#v, want one requirement, interface, and change set plus two artifacts", got)
 	}
+}
+
+func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T) {
+	root := newSelfHostingCheckout(t)
+	t.Chdir(root)
+	baseCommit := gitOutput(t, root, "rev-parse", "refs/heads/main")
+	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
+
+	git(t, root, "checkout", "main")
+	writeTestFile(t, root, "unrelated.txt", "default branch moved\n")
+	commitAll(t, root, "unrelated default-branch change")
+	defaultHead := gitOutput(t, root, "rev-parse", "HEAD")
+	git(t, root, "checkout", branch)
+
+	// CI fetches the default branch, detaches HEAD at the proposed commit,
+	// and points the local default-branch ref at the fetched head.
+	git(t, root, "checkout", "--detach", "HEAD")
+	git(t, root, "update-ref", "refs/heads/main", defaultHead)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "DEFAULT_MOVED" {
+		t.Fatalf("stale proposed base = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+	if !hasDiagnostic(t, stdout, "DEFAULT_MOVED", "base_commit") {
+		t.Fatalf("check omitted DEFAULT_MOVED on base_commit: %s", stdout)
+	}
+	if !strings.Contains(stdout, baseCommit) || !strings.Contains(stdout, defaultHead) {
+		t.Fatalf("diagnostic did not name recorded base %s and default head %s: %s", baseCommit, defaultHead, stdout)
+	}
+
+	humanCode, _, humanStderr := runCLI(nil, "check")
+	if humanCode != 5 || !strings.Contains(humanStderr, "error[DEFAULT_MOVED]:") {
+		t.Fatalf("human check = exit %d stderr %q", humanCode, humanStderr)
+	}
+
+	git(t, root, "checkout", branch)
+	git(t, root, "merge", "--no-ff", "--no-edit", "main")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "BASE_COMMIT_STALE" {
+		t.Fatalf("merged stale base = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+	if !hasDiagnostic(t, stdout, "BASE_COMMIT_STALE", "base_commit") {
+		t.Fatalf("check omitted BASE_COMMIT_STALE on base_commit: %s", stdout)
+	}
+	if !strings.Contains(stdout, baseCommit) || !strings.Contains(stdout, defaultHead) {
+		t.Fatalf("BASE_COMMIT_STALE did not name recorded base %s and default head %s: %s", baseCommit, defaultHead, stdout)
+	}
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", "CS-00001", "--base-commit", defaultHead)
+	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "change_set.assessment_incomplete" {
+		t.Fatalf("base-only update = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+
+	code, stdout, stderr = runCLI([]byte("[]"), "--output", "json", "change-set", "update", "--change-set", "CS-00001", "--impact-file", "-")
+	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", "CS-00001")
+	assertSuccess(t, code, stdout, stderr)
+}
+
+func TestSelfHostingProposedChangeSetBaseNotOnDefaultFailsCheck(t *testing.T) {
+	root := newSelfHostingCheckout(t)
+	t.Chdir(root)
+	head := gitOutput(t, root, "rev-parse", "HEAD")
+	defaultHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
+	path := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+	var changeSet records.ChangeSet
+	if err := storage.ReadFile(path, &changeSet); err != nil {
+		t.Fatal(err)
+	}
+	changeSet.BaseCommit = head
+	changeSet.ImpactAssessmentBaseCommit = head
+	data, err := storage.Encode(changeSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refreshProjectDigests(t, root)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	if code != 4 || stderr != "" || jsonString(t, stdout, "error", "code") != "BASE_NOT_ON_DEFAULT" {
+		t.Fatalf("base not on default = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+	if !hasDiagnostic(t, stdout, "BASE_NOT_ON_DEFAULT", "base_commit") {
+		t.Fatalf("check omitted BASE_NOT_ON_DEFAULT on base_commit: %s", stdout)
+	}
+	if !strings.Contains(stdout, head) || !strings.Contains(stdout, defaultHead) {
+		t.Fatalf("diagnostic did not name recorded base %s and default head %s: %s", head, defaultHead, stdout)
+	}
+}
+
+func TestSelfHostingApprovedChangeSetIgnoresStaleBase(t *testing.T) {
+	root := newSelfHostingCheckout(t)
+	t.Chdir(root)
+	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
+	mergeIntoMain(t, root, branch)
+
+	writeTestFile(t, root, "unrelated.txt", "default branch moved after approval\n")
+	commitAll(t, root, "unrelated default-branch change")
+	git(t, root, "checkout", "-b", "pr/unrelated")
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
 }
 
 func TestSelfHostingFixtureDetectsDirectArtifactEditWithoutStaging(t *testing.T) {
@@ -246,9 +355,32 @@ func newSelfHostingCheckout(t *testing.T) string {
 	} {
 		writeTestFile(t, root, rel, readTestFile(t, source, rel))
 	}
+	pinSelfHostingSeedBase(t, root)
 	git(t, root, "add", ".protobot")
 	git(t, root, "commit", "-m", "propose self-hosting seed")
 	return root
+}
+
+// pinSelfHostingSeedBase rewrites the copied seed's base_commit to the local
+// default-branch head so check can evaluate Git freshness in the temp repo.
+func pinSelfHostingSeedBase(t *testing.T, root string) {
+	t.Helper()
+	base := gitOutput(t, root, "rev-parse", "refs/heads/main")
+	path := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+	var changeSet records.ChangeSet
+	if err := storage.ReadFile(path, &changeSet); err != nil {
+		t.Fatal(err)
+	}
+	changeSet.BaseCommit = base
+	changeSet.ImpactAssessmentBaseCommit = base
+	data, err := storage.Encode(changeSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refreshProjectDigests(t, root)
 }
 
 func initializeSelfHostingProject(t *testing.T) {
