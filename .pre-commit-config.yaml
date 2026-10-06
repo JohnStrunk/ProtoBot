@@ -98,8 +98,18 @@ repos:
           (?x)^(
                 .fullsend/config\.yaml |
                 \.skillsaw-baseline\.json |
-                \.pre-commit-config\.yaml
+                \.pre-commit-config\.yaml |
+                \.protobot/change-sets/.*
             )$
+      # YAML normalization quotes scalar values before line filters run.
+      - id: detect-secrets
+        name: detect-secrets-change-set-records
+        args:
+          - "--baseline"
+          - ".secrets.baseline"
+          - "--exclude-lines"
+          - '^(base_commit|impact_assessment_base_commit): "[0-9a-fA-F]{40}"$'
+        files: ^\.protobot/change-sets/
 
   - repo: https://gitlab.com/bmares/check-json5
     rev: 82381b1133603e4ff6eb3d866ec4501d121b669b  # frozen: v1.0.1

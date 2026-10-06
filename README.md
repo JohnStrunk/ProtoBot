@@ -108,6 +108,55 @@ Source Control Manager commits, pushes, and opens the pull request. Immutable
 historical `--at` reads on the other commands and explicit `--against`
 comparisons remain separate follow-on work.
 
+## Specification store
+
+ProtoBot hosts its own specification store under `.protobot/`. Those files
+are written by `ears-manager`; do not edit them by hand.
+`docs/vision.md` and `docs/architecture.md` are registered artifacts. A
+direct edit that leaves the registry digest unchanged fails
+`ears-manager check`. The initial store includes the governed `CS-00001`
+change set, the `protobot-cli` interface, and requirement `REQ-CLI-00001`.
+
+Run the local check from the checked-out source, so it uses the same
+`ears-manager` version CI builds:
+
+```sh
+cd ears-manager
+go run ./cmd/ears-manager check
+```
+
+Machine-readable diagnostics use the JSON envelope, which is also what CI
+prints:
+
+```sh
+cd ears-manager
+go run ./cmd/ears-manager --output json check
+```
+
+CI fetches the default branch so `check` can tell approved from proposed
+change sets and verifies that already-approved change-set manifests remain
+unchanged, then runs `ears-manager --output json check`. A non-zero
+exit fails the merge gate. The `ears-manager` validation diagnostics use the
+same codes, exit statuses, and JSON shape locally and in CI; the separate
+manifest guard reports changed paths in the Actions log. For matching
+approved/proposed classification, keep the local default-branch ref current;
+`ears-manager` does not fetch it automatically. On a validation failure,
+create or resume a change set with `ears-manager change-set create`, update
+registered files with `ears-manager artifact put`, and edit structured
+records through their `ears-manager` commands. Run formatters before
+`artifact put` so its digest covers the final file contents. When refreshing
+a change-set branch after the default branch moves, follow the governed
+refresh procedure (including `ears-manager change-set update`) and rerun
+`check` so the base, impact assessment, and store digests stay current. Then
+commit and push to the same branch. Do not edit a registered artifact or a
+structured record by hand as a workaround. For a transient runner or fetch
+failure, rerun the failed workflow after service is restored.
+
+The gate detects accidental or incomplete edits; digests are not signatures
+and are not an adversarial security boundary. A pull request can change its
+own validator or workflow, so human review and protected checks remain the
+trust boundary.
+
 ## Documentation
 
 - [ProtoBot project board](https://github.com/orgs/redhat-et/projects/35/views/1)
