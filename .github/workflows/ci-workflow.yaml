@@ -4,8 +4,7 @@ name: CI Workflow
 
 on:  # yamllint disable-line rule:truthy
   push:
-    branches:
-      - main
+    branches: ["**"]
     tags: ["*"]
   pull_request:
     branches:
@@ -104,6 +103,101 @@ jobs:
       - name: Verify install target
         run: go install ./cmd/ears-manager
         working-directory: ears-manager
+
+  spec:
+    name: Specification store check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        # https://github.com/actions/checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Go
+        # https://github.com/actions/setup-go
+        # zizmor: ignore[cache-poisoning]
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ears-manager/go.mod
+
+      - name: Build ears-manager
+        run: CGO_ENABLED=0 go build -trimpath -buildvcs=false -o ears-manager ./cmd/ears-manager
+        working-directory: ears-manager
+
+      # Create local refs/heads/main so check can tell approved from proposed
+      # change sets (docs/architecture/git-integration.md#gates-and-labels).
+      - name: Fetch default branch for change-set approval
+        run: |
+          # This remote and branch are pinned to the committed self-hosting
+          # configuration; the self-hosting test checks that coupling.
+          git fetch --no-tags https://github.com/redhat-et/ProtoBot.git refs/heads/main
+          git checkout --detach HEAD
+          git update-ref refs/heads/main FETCH_HEAD
+
+      - name: Verify change-set store location
+        id: change-set-store
+        run: |
+          store_path() {
+            awk '
+              /^stores:$/ { in_stores = 1; next }
+              in_stores && /^[^[:space:]]/ { exit }
+              in_stores && /^    change_sets: / {
+                sub(/^    change_sets: /, "")
+                print
+                found = 1
+                exit
+              }
+              END { if (!found) exit 1 }
+            '
+          }
+
+          if [ ! -f .protobot/project.yaml ]; then
+            echo "::error::The checked-out revision has no initialized .protobot project"
+            exit 1
+          fi
+          if git cat-file -e refs/heads/main:.protobot/project.yaml 2>/dev/null; then
+            if ! main_store=$(git show refs/heads/main:.protobot/project.yaml | store_path); then
+              echo "::error::Could not read stores.change_sets from the default branch project configuration"
+              exit 1
+            fi
+          else
+            # The initial self-hosting PR establishes this default.
+            main_store=.protobot/change-sets
+          fi
+          if ! current_store=$(store_path < .protobot/project.yaml); then
+            echo "::error::Could not read stores.change_sets from the checked-out project configuration"
+            exit 1
+          fi
+          if [ "$current_store" != "$main_store" ]; then
+            echo "::error::The change-set store path cannot change in the same check that enforces its integrity"
+            exit 1
+          fi
+          printf 'path=%s\n' "$current_store" >> "$GITHUB_OUTPUT"
+
+      # Approved manifests are immutable. New manifests are allowed; only
+      # modifications, deletions, or type changes to paths on main fail.
+      - name: Verify approved change-set manifests are unchanged
+        env:
+          CHANGE_SET_STORE: ${{ steps.change-set-store.outputs.path }}
+        run: |
+          if git diff --quiet --no-renames --diff-filter=MDT refs/heads/main...HEAD -- "$CHANGE_SET_STORE/"; then
+            exit 0
+          else
+            diff_status=$?
+          fi
+          if [ "$diff_status" -ne 1 ]; then
+            echo "::error::Could not compare approved change-set manifests (git diff exited $diff_status)"
+            exit "$diff_status"
+          fi
+          echo "::error::An approved change-set manifest was modified, deleted, or replaced"
+          git diff --name-status --no-renames --diff-filter=MDT refs/heads/main...HEAD -- "$CHANGE_SET_STORE/"
+          exit 1
+
+      - name: Run ears-manager check
+        run: ./ears-manager/ears-manager --output json check
 
   scm:
     name: Source Control Manager checks
@@ -206,6 +300,7 @@ jobs:
     needs:
       - pre-commit
       - go
+      - spec
       - scm
       - wms
     runs-on: ubuntu-latest

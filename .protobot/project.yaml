@@ -1,0 +1,31 @@
+# managed by ears-manager; do not edit by hand
+project:
+    id: protobot
+    name: ProtoBot
+repository:
+    canonical_remote: https://github.com/redhat-et/ProtoBot.git
+    default_branch: main
+    review_mode: multi-player
+    branch_prefix: cs/
+schema_versions:
+    project: 1
+    specification: 1
+stores:
+    requirements: .protobot/requirements
+    interfaces: .protobot/interfaces
+    change_sets: .protobot/change-sets
+store_digests:
+    requirements: sha256:9a358a00bdabb03a3cff5cdce0fac181510eb977b166d476c0d67801beecef22
+    interfaces: sha256:8e787702f4ccb37bac8f5e209d3d1da0f2e75d5fe42c32e71d46e179a5102b60
+    change_sets: sha256:ed5c0a991449ae68571c17b3ab60b2a07b16b2c3bac1e5dd582edb7d90d4669a
+artifacts:
+    - id: architecture
+      kind: architecture
+      path: docs/architecture.md
+      digest: sha256:07b9d32b2bb2114665cdebf63f9f76342a3ca4dabf8863b7a055e8b2916aa75b
+      owner: user
+    - id: vision
+      kind: vision
+      path: docs/vision.md
+      digest: sha256:c6ea1591d136354dd9b730d1b04db6b3b2dfd9919a6a20e89d3497ba83f85c82
+      owner: user
