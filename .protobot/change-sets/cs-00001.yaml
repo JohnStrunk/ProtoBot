@@ -1,6 +1,6 @@
 # managed by ears-manager; do not edit by hand
 id: CS-00001
-base_commit: ef53befe72751665a0030d6a09c6212a9fb659a6
+base_commit: ffc3d4eb0e0c81c23eff627db0fc8208436a3cc0
 intent: Seed ProtoBot's initial specification records
 operations:
     - action: add
@@ -14,5 +14,5 @@ affected_scopes:
     - ears-manager
 implementation_required: false
 implementation_rationale: This initial record set specifies the existing CLI boundary and does not change implementation behavior.
-impact_assessment_base_commit: ef53befe72751665a0030d6a09c6212a9fb659a6
+impact_assessment_base_commit: ffc3d4eb0e0c81c23eff627db0fc8208436a3cc0
 created: "2026-10-05T16:00:00Z"
