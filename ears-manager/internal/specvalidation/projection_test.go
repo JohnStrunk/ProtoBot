@@ -13,7 +13,7 @@ func TestParseProjectionAcceptsPolicyAndDirectories(t *testing.T) {
 	if len(projection.Diagnostics) > 0 {
 		t.Fatalf("diagnostics = %#v", projection.Diagnostics)
 	}
-	if projection.Version != 1 || projection.Classes["docs/vision.md"] != "shared" || projection.Classes["src"] != "implementation" {
+	if projection.Version != 1 || projection.Classes["docs/vision.md"] != "shared" || projection.Classes["src/"] != "implementation" {
 		t.Fatalf("projection = %#v", projection)
 	}
 }
@@ -84,6 +84,32 @@ func TestProjectionClassUsesMostSpecificEntry(t *testing.T) {
 	}
 }
 
+func TestProjectionClassFileEntryDoesNotCoverDescendants(t *testing.T) {
+	projection := ParseProjection([]byte("version: 1\npaths:\n  - path: src\n    class: implementation\n  - path: src/lib/file.go\n    class: shared\n"))
+	if len(projection.Diagnostics) > 0 {
+		t.Fatalf("diagnostics = %#v", projection.Diagnostics)
+	}
+	if projection.Classes["src"] != "implementation" || projection.Classes["src/"] != "" {
+		t.Fatalf("file entry was stored as a directory: %#v", projection.Classes)
+	}
+	cases := []struct {
+		path  string
+		want  string
+		found bool
+	}{
+		{path: "src", want: "implementation", found: true},
+		{path: "src/main.go", found: false},
+		{path: "src/lib/file.go", want: "shared", found: true},
+		{path: "src/lib/other.go", found: false},
+	}
+	for _, tc := range cases {
+		got, found := projectionClass(projection.Classes, tc.path)
+		if got != tc.want || found != tc.found {
+			t.Errorf("projectionClass(%q) = %q, %v; want %q, %v", tc.path, got, found, tc.want, tc.found)
+		}
+	}
+}
+
 func TestAddSharedClassificationsCreatesVersionedManifest(t *testing.T) {
 	data, changed, err := AddSharedClassifications(nil, []string{"docs/vision.md", "docs/architecture.md", "docs/vision.md", "records/requirements/"})
 	if err != nil || !changed {
@@ -94,7 +120,7 @@ func TestAddSharedClassificationsCreatesVersionedManifest(t *testing.T) {
 		t.Fatalf("manifest =\n%s\nwant\n%s", data, want)
 	}
 	parsed := ParseProjection(data)
-	if len(parsed.Diagnostics) > 0 || parsed.Version != 1 || parsed.Classes["records/requirements"] != "shared" {
+	if len(parsed.Diagnostics) > 0 || parsed.Version != 1 || parsed.Classes["records/requirements/"] != "shared" {
 		t.Fatalf("projection = %#v", parsed)
 	}
 	// The Source Control Manager fixture appends a hand-written entry to the
@@ -115,7 +141,7 @@ func TestAddSharedClassificationsPreservesPolicyAndHeaderComments(t *testing.T) 
 	if len(parsed.Diagnostics) > 0 {
 		t.Fatalf("diagnostics = %#v", parsed.Diagnostics)
 	}
-	if parsed.Classes["src"] != "implementation" || parsed.Classes["docs/cli.md"] != "shared" {
+	if parsed.Classes["src/"] != "implementation" || parsed.Classes["docs/cli.md"] != "shared" {
 		t.Fatalf("classes = %#v", parsed.Classes)
 	}
 	if parsed.Classes["docs/vision.md"] != "test" {

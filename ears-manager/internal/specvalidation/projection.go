@@ -41,9 +41,11 @@ type Projection struct {
 	Version int
 	// Data holds the exact manifest bytes that were read or staged.
 	Data []byte
-	// Classes maps a canonical project path, without a trailing slash, to its
-	// projection class. A path and the same path with a trailing slash are one
-	// entry, as in the Source Control Manager's reading of the manifest.
+	// Classes maps a canonical project path to its projection class. Directory
+	// entries keep a trailing slash; file entries do not. A file entry applies
+	// only to that file; only a trailing-slash directory entry applies to
+	// descendants. Listing both a path and the same path with a trailing slash
+	// is invalid.
 	Classes map[string]string
 	// Diagnostics records structural problems found while parsing.
 	Diagnostics []Diagnostic
@@ -64,8 +66,9 @@ func (p Projection) Clone() Projection {
 // ParseProjection parses projection manifest bytes. The accepted format is a
 // mapping whose integer `version` key is 1 and whose optional `paths` list
 // holds entries with exactly the `path` and `class` keys. A trailing slash on
-// a path names a directory. Other top-level keys are preserved as project
-// policy.
+// a path names a directory. A file entry applies only to that file; only a
+// trailing-slash directory entry applies to descendants. Other top-level keys
+// are preserved as project policy.
 func ParseProjection(data []byte) Projection {
 	projection := Projection{Present: true, Data: append([]byte(nil), data...), Classes: map[string]string{}}
 	if isBlankYAML(data) {
@@ -107,6 +110,7 @@ func ParseProjection(data []byte) Projection {
 			projection.addDiagnostic(field, "Projection entries must contain exactly a string path and a string class.")
 			continue
 		}
+		isDirectory := strings.HasSuffix(entryPath, "/")
 		canonical, err := canonicalProjectPath(strings.TrimSuffix(entryPath, "/"))
 		if err != nil {
 			projection.addDiagnostic(field+".path", "Projection path must be a slash-separated project-relative path.")
@@ -116,11 +120,21 @@ func ParseProjection(data []byte) Projection {
 			projection.addDiagnostic(field+".class", "Projection class must be shared, test, implementation, integration-only, or attestation-only.")
 			continue
 		}
-		if _, duplicate := projection.Classes[canonical]; duplicate {
+		key := canonical
+		counterpart := canonical + "/"
+		if isDirectory {
+			key = canonical + "/"
+			counterpart = canonical
+		}
+		if _, duplicate := projection.Classes[key]; duplicate {
 			projection.addDiagnostic(field+".path", "Projection path is classified more than once.")
 			continue
 		}
-		projection.Classes[canonical] = class
+		if _, conflict := projection.Classes[counterpart]; conflict {
+			projection.addDiagnostic(field+".path", "Projection path is classified more than once.")
+			continue
+		}
+		projection.Classes[key] = class
 	}
 	return projection
 }
@@ -194,7 +208,11 @@ func AddSharedClassifications(data []byte, paths []string) ([]byte, bool, error)
 		if err != nil {
 			return nil, false, fmt.Errorf("projection path: %w", err)
 		}
-		if _, exists := current.Classes[canonical]; exists || seen[canonical] {
+		key := canonical
+		if isDirectory {
+			key += "/"
+		}
+		if _, exists := current.Classes[key]; exists || seen[canonical] {
 			continue
 		}
 		if class, covered := projectionClass(current.Classes, canonical); covered && class == ProjectionClassShared {
@@ -289,13 +307,22 @@ func loadProjection(rootHandle *os.Root) Projection {
 	return ParseProjection(data)
 }
 
-// projectionClass resolves the class of a canonical path: its own entry
-// first, then the entry of its nearest ancestor directory. The most specific
+// projectionClass resolves the class of a canonical path: its own file
+// entry first, then a directory entry for the path itself, then the entry of
+// its nearest ancestor directory. A file entry applies only to that file; only
+// a trailing-slash directory entry applies to descendants. The most specific
 // entry wins, so a file entry overrides the entry of a directory that holds
 // it.
 func projectionClass(classes map[string]string, path string) (string, bool) {
-	for current := path; current != "." && current != "/" && current != ""; current = filepath.ToSlash(filepath.Dir(current)) {
-		if class, ok := classes[current]; ok {
+	path = strings.TrimSuffix(path, "/")
+	if class, ok := classes[path]; ok {
+		return class, true
+	}
+	if class, ok := classes[path+"/"]; ok {
+		return class, true
+	}
+	for current := filepath.ToSlash(filepath.Dir(path)); current != "." && current != "/" && current != ""; current = filepath.ToSlash(filepath.Dir(current)) {
+		if class, ok := classes[current+"/"]; ok {
 			return class, true
 		}
 	}
