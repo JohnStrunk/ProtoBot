@@ -593,3 +593,65 @@ func assertSyntheticRoot(t *testing.T, repoPath, commit string) {
 		t.Fatalf("HEAD = %s", branch)
 	}
 }
+
+func TestApplyPatchEmptyOperationsDoesNotMoveIntegrationHEAD(t *testing.T) {
+	sourceRoot := t.TempDir()
+	source, err := BuildSourceFixture(sourceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	result, err := Export(ExportRequest{
+		SourceRoot:   source.Root,
+		SourceCommit: source.SourceCommit,
+		Policy:       source.Policy,
+		PolicyDigest: source.PolicyDigest,
+		OutputDir:    out,
+		WorkItem:     fixtureWorkItem,
+		Cycle:        1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	before, err := integrationHead(result.Integration.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emptyBundle := PatchBundle{
+		Version:         1,
+		Role:            RoleWorkerA,
+		WorkItem:        fixtureWorkItem,
+		Cycle:           1,
+		PolicyDigest:    result.Policy.Digest,
+		SourceCommit:    result.SourceCommit,
+		WorkerRoot:      result.WorkerA.RootCommit,
+		IntegrationBase: before,
+		Operations:      []Operation{},
+	}
+	digest, err := bundleDigest(emptyBundle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	emptyBundle.BundleDigest = digest
+
+	res, err := ApplyPatch(result.Integration, result.Policy, emptyBundle)
+	if errorCode(err) != CodePatchRejected {
+		t.Fatalf("err = %v, want %s", err, CodePatchRejected)
+	}
+	if res == nil || res.Decision.Decision != DecisionReject {
+		t.Fatalf("expected reject decision on PatchResult, got: %#v", res)
+	}
+	if !strings.Contains(res.Decision.RejectionReason, "must contain at least one operation") {
+		t.Fatalf("unexpected rejection reason: %q", res.Decision.RejectionReason)
+	}
+
+	after, err := integrationHead(result.Integration.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after != before {
+		t.Fatalf("empty bundle moved integration HEAD: %s -> %s", before, after)
+	}
+}

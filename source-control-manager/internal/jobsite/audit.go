@@ -68,7 +68,29 @@ func writeAudit(dir string, name string, record AuditRecord) error {
 	return os.WriteFile(filepath.Join(dir, name), data, 0o600)
 }
 
-func uniqueAuditName(dir, prefix, bundleDigest string) string {
+func writeAuditExcl(dir string, name string, record AuditRecord) error {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(record, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+const maxAuditSuffix = 1000
+
+func uniqueAuditName(dir, prefix, bundleDigest string) (string, error) {
 	clean := strings.Map(func(r rune) rune {
 		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
 			return r
@@ -82,16 +104,23 @@ func uniqueAuditName(dir, prefix, bundleDigest string) string {
 	base := fmt.Sprintf("patch-%s-%s", prefix, clean)
 	name := base + ".json"
 	path := filepath.Join(dir, name)
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return name
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return name, nil
+		}
+		return "", err
 	}
-	for i := 1; ; i++ {
+	for i := 1; i <= maxAuditSuffix; i++ {
 		name = fmt.Sprintf("%s-%d.json", base, i)
 		path = filepath.Join(dir, name)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			return name
+		if _, err := os.Stat(path); err != nil {
+			if os.IsNotExist(err) {
+				return name, nil
+			}
+			return "", err
 		}
 	}
+	return "", fmt.Errorf("exhausted suffix limit searching for unique audit name")
 }
 
 func newExportAudit(policy Policy, sourceCommit, role, workerRoot string, visible, denied []string, cycle int, workItem, decision, reason, resulting string) AuditRecord {

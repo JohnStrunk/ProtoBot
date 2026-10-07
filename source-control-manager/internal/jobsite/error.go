@@ -16,6 +16,7 @@ const (
 	CodePatchRejected     = "patch.rejected"
 	CodePatchStale        = "patch.stale_base"
 	CodePatchTampered     = "patch.tampered"
+	CodePatchRollbackFailed = "patch.rollback_failed"
 )
 
 // Error is a fail-closed export or patch decision.

@@ -2,6 +2,7 @@ package jobsite
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -239,6 +240,19 @@ func (g *gitRepo) updateRef(ref, oid string) error {
 func (g *gitRepo) updateRefCAS(ref, newOID, oldOID string) error {
 	res, err := g.run("update-ref", ref, newOID, oldOID)
 	return g.check(res, err, "update-ref")
+}
+
+func (g *gitRepo) isCASMismatch(err error, expectedOld string) bool {
+	var cmdErr *gitx.CommandError
+	if errors.As(err, &cmdErr) {
+		if strings.Contains(cmdErr.Stderr, "but expected") || strings.Contains(cmdErr.Stderr, "is at") {
+			return true
+		}
+	}
+	if currentHead, headErr := g.head(); headErr == nil && currentHead != expectedOld {
+		return true
+	}
+	return false
 }
 
 func (g *gitRepo) commitTree(tree, message string) (string, error) {

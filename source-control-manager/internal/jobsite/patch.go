@@ -4,7 +4,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -88,11 +90,15 @@ func ApplyPatch(integration Repository, policy Policy, bundle PatchBundle) (*Pat
 	auditDir := filepath.Join(filepath.Dir(integration.Path), auditDirName)
 	reject := func(code, reason string) (*PatchResult, error) {
 		record := newPatchAudit(policy, bundle.SourceCommit, bundle.Role, bundle.WorkerRoot, bundle.BundleDigest, bundle.IntegrationBase, bundle.Cycle, bundle.WorkItem, DecisionReject, reason, "")
-		uniqueName := uniqueAuditName(auditDir, "rejected", bundle.BundleDigest)
-		if err := writeAudit(auditDir, uniqueName, record); err != nil {
+		uniqueName, err := uniqueAuditName(auditDir, "rejected", bundle.BundleDigest)
+		if err != nil {
+			return nil, err
+		}
+		if err := writeAuditExcl(auditDir, uniqueName, record); err != nil {
 			return nil, err
 		}
 		if err := writeAudit(auditDir, "patch-rejected.json", record); err != nil {
+			_ = os.Remove(filepath.Join(auditDir, uniqueName))
 			return nil, err
 		}
 		return &PatchResult{Decision: record}, fail(code, reason)
@@ -113,6 +119,9 @@ func ApplyPatch(integration Repository, policy Policy, bundle PatchBundle) (*Pat
 	}
 	if computed != bundle.BundleDigest {
 		return reject(CodePatchTampered, "PatchBundle digest does not match the canonical payload.")
+	}
+	if len(bundle.Operations) == 0 {
+		return reject(CodePatchRejected, "PatchBundle must contain at least one operation.")
 	}
 	if reason := verifyOperationContents(bundle.Operations); reason != "" {
 		return reject(CodePatchTampered, reason)
@@ -149,34 +158,63 @@ func ApplyPatch(integration Repository, policy Policy, bundle PatchBundle) (*Pat
 	}
 
 	if err := repo.updateRefCAS("refs/heads/"+branchMain, commit, head); err != nil {
+		if repo.isCASMismatch(err, head) {
+			return reject(CodePatchStale, "PatchBundle integration base is stale.")
+		}
 		return nil, err
 	}
 
-	rollback := func() {
-		_ = repo.updateRef("refs/heads/"+branchMain, head)
-		_ = repo.checkout(branchMain)
+	var writtenUnique string
+	handleApplyError := func(origErr error) error {
+		if rbErr := rollbackIntegration(repo, auditDir, writtenUnique, head); rbErr != nil {
+			return fail(CodePatchRollbackFailed, fmt.Sprintf("Failed to restore Integration HEAD to %s during rollback: %v.", head, rbErr))
+		}
+		return origErr
 	}
 
 	if err := repo.checkout(branchMain); err != nil {
-		rollback()
-		return nil, err
+		return nil, handleApplyError(err)
 	}
 	if err := repo.scrubMeta(); err != nil {
-		rollback()
-		return nil, err
+		return nil, handleApplyError(err)
 	}
 
 	record := newPatchAudit(policy, bundle.SourceCommit, bundle.Role, bundle.WorkerRoot, bundle.BundleDigest, bundle.IntegrationBase, bundle.Cycle, bundle.WorkItem, DecisionAccept, "", commit)
-	uniqueName := uniqueAuditName(auditDir, "accepted", bundle.BundleDigest)
-	if err := writeAudit(auditDir, uniqueName, record); err != nil {
-		rollback()
-		return nil, err
+	uniqueName, err := uniqueAuditName(auditDir, "accepted", bundle.BundleDigest)
+	if err != nil {
+		return nil, handleApplyError(err)
 	}
+	if err := writeAuditExcl(auditDir, uniqueName, record); err != nil {
+		return nil, handleApplyError(err)
+	}
+	writtenUnique = uniqueName
 	if err := writeAudit(auditDir, "patch-accepted.json", record); err != nil {
-		rollback()
-		return nil, err
+		return nil, handleApplyError(err)
 	}
 	return &PatchResult{Decision: record, Commit: commit}, nil
+}
+
+func rollbackIntegration(repo *gitRepo, auditDir, writtenUnique, head string) error {
+	if writtenUnique != "" {
+		_ = os.Remove(filepath.Join(auditDir, writtenUnique))
+	}
+	var errs []error
+	if err := repo.updateRef("refs/heads/"+branchMain, head); err != nil {
+		errs = append(errs, err)
+	}
+	if err := repo.checkout(branchMain); err != nil {
+		errs = append(errs, err)
+	}
+	currentHead, err := repo.head()
+	if err != nil {
+		errs = append(errs, err)
+	} else if currentHead != head {
+		errs = append(errs, fmt.Errorf("integration HEAD is %s, expected %s", currentHead, head))
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
 }
 
 func normalizeOperations(ops []Operation) ([]Operation, error) {
@@ -210,6 +248,9 @@ func isPrefixOrDescendant(a, b string) bool {
 }
 
 func validateOperations(policy Policy, bundle PatchBundle, present map[string]blobEntry) string {
+	if len(bundle.Operations) == 0 {
+		return "PatchBundle must contain at least one operation."
+	}
 	seen := map[string]bool{}
 	folded := map[string]string{}
 	for path := range present {
