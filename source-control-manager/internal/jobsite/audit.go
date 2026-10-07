@@ -13,9 +13,14 @@ import (
 // FixtureVersion identifies this reference fixture.
 const FixtureVersion = "jobsite-projection/v1"
 
+// Audit event types.
 const (
-	EventExport    = "export"
-	EventPatch     = "patch"
+	EventExport = "export"
+	EventPatch  = "patch"
+)
+
+// Decision outcomes.
+const (
 	DecisionAccept = "accept"
 	DecisionReject = "reject"
 )

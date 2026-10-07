@@ -46,6 +46,10 @@ func TestParsePolicyFailClosed(t *testing.T) {
 		"absolute path":       "version: 1\npaths:\n  - path: /etc/passwd\n    class: shared\n",
 		"unknown class":       "version: 1\npaths:\n  - path: src/\n    class: public\n",
 		"not mapping":         "- src/\n",
+		"duplicate paths key": "version: 1\npaths: []\npaths: []\n",
+		"merge key":           "version: 1\ndefaults: &defs\n  class: shared\npaths:\n  - <<: *defs\n    path: docs/\n",
+		"alias":               "version: 1\npaths: &p []\nother: *p\n",
+		"custom tag":          "version: 1\npaths: !custom []\n",
 	}
 	for name, data := range cases {
 		t.Run(name, func(t *testing.T) {

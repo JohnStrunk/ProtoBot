@@ -3,6 +3,7 @@ package jobsite
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -113,6 +114,81 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 		t.Fatalf("integration test file = %q", got)
 	}
 
+	// Accepted create of a new role-allowlisted file
+	newFilePath := "tests/canonical/new_test.go"
+	acceptedCreate, err := applyRolePatch(t, result, RoleWorkerA, []Operation{{
+		Path:    newFilePath,
+		Action:  ActionCreate,
+		Mode:    ModeFile,
+		Content: []byte("package canonical\n"),
+	}})
+	if err != nil {
+		t.Fatalf("accepted create rejected: %v", err)
+	}
+	if acceptedCreate.Commit == "" {
+		t.Fatal("accepted create did not create a commit")
+	}
+	assertWorkingTree(t, result.Integration.Path, true, newFilePath)
+
+	// Accepted create of an empty file
+	emptyFilePath := "tests/canonical/empty_test.go"
+	acceptedEmptyCreate, err := applyRolePatch(t, result, RoleWorkerA, []Operation{{
+		Path:    emptyFilePath,
+		Action:  ActionCreate,
+		Mode:    ModeFile,
+		Content: []byte{},
+	}})
+	if err != nil {
+		t.Fatalf("accepted empty create rejected: %v", err)
+	}
+	if acceptedEmptyCreate.Commit == "" {
+		t.Fatal("accepted empty create did not create a commit")
+	}
+	assertWorkingTree(t, result.Integration.Path, true, emptyFilePath)
+
+	// Accepted update of an empty file
+	acceptedEmptyUpdate, err := applyRolePatch(t, result, RoleWorkerA, []Operation{{
+		Path:    emptyFilePath,
+		Action:  ActionUpdate,
+		Mode:    ModeFile,
+		Content: nil,
+	}})
+	if err != nil {
+		t.Fatalf("accepted empty update rejected: %v", err)
+	}
+	if acceptedEmptyUpdate.Commit == "" {
+		t.Fatal("accepted empty update did not create a commit")
+	}
+
+	// Accepted create with mode 100755
+	execFilePath := "tests/canonical/exec_test.sh"
+	acceptedExec, err := applyRolePatch(t, result, RoleWorkerA, []Operation{{
+		Path:    execFilePath,
+		Action:  ActionCreate,
+		Mode:    ModeExec,
+		Content: []byte("#!/bin/sh\nexit 0\n"),
+	}})
+	if err != nil {
+		t.Fatalf("accepted mode 100755 rejected: %v", err)
+	}
+	if acceptedExec.Commit == "" {
+		t.Fatal("accepted mode 100755 did not create a commit")
+	}
+	assertWorkingTree(t, result.Integration.Path, true, execFilePath)
+
+	// Accepted delete
+	acceptedDelete, err := applyRolePatch(t, result, RoleWorkerA, []Operation{{
+		Path:   newFilePath,
+		Action: ActionDelete,
+	}})
+	if err != nil {
+		t.Fatalf("accepted delete rejected: %v", err)
+	}
+	if acceptedDelete.Commit == "" {
+		t.Fatal("accepted delete did not create a commit")
+	}
+	assertWorkingTree(t, result.Integration.Path, false, newFilePath)
+
 	cases := []struct {
 		name string
 		role string
@@ -124,8 +200,11 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 		{name: "unclassified", role: RoleWorkerA, ops: []Operation{{Path: unclassifiedPath, Action: ActionUpdate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "shared", role: RoleWorkerB, ops: []Operation{{Path: sharedDocPath, Action: ActionUpdate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "traversal", role: RoleWorkerA, ops: []Operation{{Path: "../escape", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "nested .git create", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/.git/config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "nested .git update", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/sub/.git/hooks/pre-commit", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "case-colliding create", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/APP_TEST.GO", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "mixed", role: RoleWorkerA, ops: []Operation{
-			{Path: "tests/canonical/new_test.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("ok\n")},
+			{Path: "tests/canonical/valid_new_test.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("ok\n")},
 			{Path: currentImplPath, Action: ActionUpdate, Mode: ModeFile, Content: []byte("no\n")},
 		}, code: CodePatchRejected},
 	}
@@ -216,6 +295,49 @@ func TestExportDigestMismatchFailsClosed(t *testing.T) {
 	})
 	if errorCode(err) != CodePolicyDigest {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestExportUnsafeRejectsNestedGitBlob(t *testing.T) {
+	sourceRoot := t.TempDir()
+	source, err := BuildSourceFixture(sourceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, err := openGit(sourceRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer repo.Close()
+	blobs, err := repo.listBlobs(source.SourceCommit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oid, err := repo.writeBlob([]byte("unsafe\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobs = append(blobs, blobEntry{Path: "src/.git/config", Mode: ModeFile, OID: oid})
+	sort.Slice(blobs, func(i, j int) bool { return blobs[i].Path < blobs[j].Path })
+	tree, err := repo.writeTree(blobs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	commit, err := repo.commitTreeWithParent(tree, source.SourceCommit, "source with nested .git")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	out := t.TempDir()
+	_, err = Export(ExportRequest{
+		SourceRoot:   sourceRoot,
+		SourceCommit: commit,
+		Policy:       source.Policy,
+		OutputDir:    out,
+		WorkItem:     fixtureWorkItem,
+	})
+	if errorCode(err) != CodeExportUnsafe {
+		t.Fatalf("err = %v, want %s", err, CodeExportUnsafe)
 	}
 }
 
@@ -351,6 +473,9 @@ func assertNoCredential(t *testing.T, repoPath string) {
 	}
 	if strings.Contains(cfg, "credential.helper") {
 		t.Fatalf("config leaked credential helper:\n%s", cfg)
+	}
+	if strings.Contains(cfg, "protocol.file.allow") {
+		t.Fatalf("config leaked protocol.file.allow grant:\n%s", cfg)
 	}
 }
 

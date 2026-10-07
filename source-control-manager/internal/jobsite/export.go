@@ -162,7 +162,7 @@ func Export(req ExportRequest) (*ExportResult, error) {
 
 func validateSourceTree(blobs []blobEntry, policy Policy) error {
 	for _, blob := range blobs {
-		if _, err := canonicalPath(blob.Path); err != nil {
+		if _, err := canonicalPath(blob.Path); err != nil || hasGitComponent(blob.Path) {
 			return fail(CodeExportUnsafe, "Source tree contains an unsafe path.")
 		}
 		if !policy.VisibleTo(RoleWorkerA, blob.Path) && !policy.VisibleTo(RoleWorkerB, blob.Path) {

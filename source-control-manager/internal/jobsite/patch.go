@@ -10,12 +10,17 @@ import (
 	"strings"
 )
 
+// PatchBundle actions.
 const (
 	ActionCreate = "create"
 	ActionUpdate = "update"
 	ActionDelete = "delete"
-	ModeFile     = "100644"
-	ModeExec     = "100755"
+)
+
+// PatchBundle file modes.
+const (
+	ModeFile = "100644"
+	ModeExec = "100755"
 )
 
 // Operation is one path-restricted PatchBundle v1 change.
@@ -75,7 +80,10 @@ func NewPatchBundle(role, workItem string, cycle int, policyDigest, sourceCommit
 
 // ApplyPatch validates a PatchBundle v1 and, if every operation is allowed,
 // applies it to Integration without importing Worker objects. Mixed allowed
-// and forbidden bundles are rejected atomically.
+// and forbidden bundles are rejected atomically. When a bundle is rejected,
+// ApplyPatch writes the rejection audit record and returns a non-nil *PatchResult
+// carrying Decision alongside the rejection error. Infrastructure errors (such
+// as Git open failures) return a nil result and non-nil error.
 func ApplyPatch(integration Repository, policy Policy, bundle PatchBundle) (*PatchResult, error) {
 	auditDir := filepath.Join(filepath.Dir(integration.Path), auditDirName)
 	reject := func(code, reason string) (*PatchResult, error) {
@@ -146,7 +154,7 @@ func normalizeOperations(ops []Operation) ([]Operation, error) {
 	}
 	out := append([]Operation(nil), ops...)
 	for i := range out {
-		if out[i].Action != ActionDelete && len(out[i].Content) > 0 && out[i].ContentDigest == "" {
+		if out[i].Action != ActionDelete && out[i].ContentDigest == "" {
 			out[i].ContentDigest = digestBytes(out[i].Content)
 		}
 	}
@@ -160,7 +168,7 @@ func verifyOperationContents(ops []Operation) error {
 			continue
 		}
 		if digestBytes(op.Content) != op.ContentDigest {
-			return fmt.Errorf("patch bundle content digest does not match operation %s", op.Path)
+			return fmt.Errorf("Patch bundle content digest does not match operation %s.", op.Path)
 		}
 	}
 	return nil
@@ -177,10 +185,7 @@ func validateOperations(policy Policy, bundle PatchBundle, present map[string]bl
 			return "PatchBundle path is listed more than once."
 		}
 		seen[op.Path] = true
-		if _, err := canonicalPath(op.Path); err != nil {
-			return "PatchBundle path is unsafe."
-		}
-		if strings.HasPrefix(op.Path, ".git/") || op.Path == ".git" {
+		if _, err := canonicalPath(op.Path); err != nil || hasGitComponent(op.Path) {
 			return "PatchBundle path is unsafe."
 		}
 		if existing, ok := folded[strings.ToLower(op.Path)]; ok && existing != op.Path && op.Action != ActionDelete {

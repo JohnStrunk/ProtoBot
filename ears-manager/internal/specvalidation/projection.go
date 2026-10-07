@@ -212,13 +212,19 @@ func AddSharedClassifications(data []byte, paths []string) ([]byte, bool, error)
 		if isDirectory {
 			key += "/"
 		}
-		if _, exists := current.Classes[key]; exists || seen[canonical] {
+		if _, exists := current.Classes[key]; exists || seen[key] {
 			continue
 		}
-		if class, covered := projectionClass(current.Classes, canonical); covered && class == ProjectionClassShared {
-			continue
+		if isDirectory {
+			if class, covered := projectionDirectoryClass(current.Classes, canonical); covered && class == ProjectionClassShared {
+				continue
+			}
+		} else {
+			if class, covered := projectionClass(current.Classes, canonical); covered && class == ProjectionClassShared {
+				continue
+			}
 		}
-		seen[canonical] = true
+		seen[key] = true
 		written := canonical
 		if isDirectory {
 			written += "/"
@@ -329,6 +335,23 @@ func projectionClass(classes map[string]string, path string) (string, bool) {
 	return "", false
 }
 
+// projectionDirectoryClass resolves the class that covers a directory and its
+// descendants: a directory entry for the path itself (with trailing slash), or
+// the nearest ancestor directory entry. A file entry for the directory path
+// does not cover descendants.
+func projectionDirectoryClass(classes map[string]string, path string) (string, bool) {
+	path = strings.TrimSuffix(path, "/")
+	if class, ok := classes[path+"/"]; ok {
+		return class, true
+	}
+	for current := filepath.ToSlash(filepath.Dir(path)); current != "." && current != "/" && current != ""; current = filepath.ToSlash(filepath.Dir(current)) {
+		if class, ok := classes[current+"/"]; ok {
+			return class, true
+		}
+	}
+	return "", false
+}
+
 // validateProjection checks that every registered specification path and
 // every configured store directory is classified shared. It runs only when the snapshot carries a projection,
 // which every snapshot loaded from a project root does.
@@ -363,7 +386,7 @@ func validateProjection(result *Result, snapshot Snapshot, artifacts []records.A
 			// validateStorePaths reports an invalid store path.
 			continue
 		}
-		class, classified := projectionClass(snapshot.Projection.Classes, canonical)
+		class, classified := projectionDirectoryClass(snapshot.Projection.Classes, canonical)
 		if classified && class == ProjectionClassShared {
 			continue
 		}

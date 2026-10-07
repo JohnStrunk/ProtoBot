@@ -95,7 +95,6 @@ func (g *gitRepo) configureIsolation() error {
 	commands := [][]string{
 		{"config", "core.logAllRefUpdates", "false"},
 		{"config", "core.autocrlf", "false"},
-		{"config", "protocol.file.allow", "always"},
 		{"config", "commit.gpgsign", "false"},
 		{"config", "tag.gpgsign", "false"},
 		{"config", "user.name", fixtureAuthor},
@@ -313,7 +312,7 @@ func (g *gitRepo) storeTree(node *treeNode) (string, error) {
 }
 
 func (g *gitRepo) fetchCommit(sourcePath, commit, ref string) error {
-	res, err := g.run("fetch", "--no-tags", "--update-head-ok", "--", sourcePath, commit+":"+ref)
+	res, err := g.run("-c", "protocol.file.allow=always", "fetch", "--no-tags", "--update-head-ok", "--", sourcePath, commit+":"+ref)
 	return g.check(res, err, "fetch")
 }
 

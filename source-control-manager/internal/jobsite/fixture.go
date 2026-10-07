@@ -207,7 +207,7 @@ func blobAt(repo *gitRepo, commit, projectPath string) (string, error) {
 	}
 	entry, ok := entries[projectPath]
 	if !ok {
-		return "", fail(CodeExportSource, "fixture blob is missing")
+		return "", fail(CodeExportSource, "Fixture blob is missing.")
 	}
 	return entry.Object, nil
 }

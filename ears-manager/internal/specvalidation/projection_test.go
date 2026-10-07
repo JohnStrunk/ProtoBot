@@ -223,3 +223,31 @@ func TestValidateProjectionRequiresSharedArtifactAndStorePaths(t *testing.T) {
 		t.Fatalf("in-memory snapshot without a projection was checked: %#v", skipped.Diagnostics)
 	}
 }
+
+func TestValidateProjectionRejectsFileEntryForStoreDirectory(t *testing.T) {
+	artifacts := []records.ArtifactEntry{
+		{ID: "req-1", Kind: records.ArtifactInterfaceProse, Path: "data/requirements/req-0001.yaml"},
+	}
+	stores := records.StorePaths{Requirements: "data/requirements", Interfaces: "data/interfaces", ChangeSets: "data/change-sets"}
+	projection := ParseProjection([]byte("version: 1\npaths:\n  - path: data/requirements\n    class: shared\n  - path: data/interfaces/\n    class: shared\n  - path: data/change-sets/\n    class: shared\n"))
+	result := Result{}
+	validateProjection(&result, Snapshot{Projection: &projection}, artifacts, stores)
+	if len(result.Diagnostics) != 2 {
+		t.Fatalf("diagnostics count = %d, want 2: %#v", len(result.Diagnostics), result.Diagnostics)
+	}
+	var sawStore, sawChild bool
+	for _, diagnostic := range result.Diagnostics {
+		if diagnostic.Code != "projection.unclassified" {
+			t.Errorf("diagnostic code = %s, want projection.unclassified", diagnostic.Code)
+		}
+		if diagnostic.Path == "data/requirements/" {
+			sawStore = true
+		}
+		if diagnostic.Path == "data/requirements/req-0001.yaml" {
+			sawChild = true
+		}
+	}
+	if !sawStore || !sawChild {
+		t.Fatalf("sawStore=%v sawChild=%v, diagnostics = %#v", sawStore, sawChild, result.Diagnostics)
+	}
+}

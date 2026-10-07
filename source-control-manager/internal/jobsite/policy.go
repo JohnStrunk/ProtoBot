@@ -1,11 +1,14 @@
 package jobsite
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"path"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -53,8 +56,12 @@ func ParsePolicy(data []byte) (Policy, error) {
 	if len(bytesWithoutComments(data)) == 0 {
 		return Policy{}, fail(CodePolicyInvalid, "Projection policy must declare version: 1.")
 	}
+	document, err := safeDecodePolicyDocument(data)
+	if err != nil {
+		return Policy{}, fail(CodePolicyInvalid, "Projection policy is not a valid YAML document.")
+	}
 	var doc map[string]any
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	if err := document.Decode(&doc); err != nil {
 		return Policy{}, fail(CodePolicyInvalid, "Projection policy is not a valid YAML document.")
 	}
 	if doc == nil {
@@ -175,6 +182,15 @@ func (p Policy) WritableBy(role, projectPath string) bool {
 	}
 }
 
+func hasGitComponent(projectPath string) bool {
+	for _, part := range strings.Split(projectPath, "/") {
+		if strings.EqualFold(part, ".git") {
+			return true
+		}
+	}
+	return false
+}
+
 func canonicalPath(projectPath string) (string, error) {
 	if projectPath == "" {
 		return "", fmt.Errorf("path must not be empty")
@@ -218,4 +234,75 @@ func asInt(value any) (int, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func safeDecodePolicyDocument(data []byte) (*yaml.Node, error) {
+	if !utf8.Valid(data) {
+		return nil, fmt.Errorf("YAML input is not valid UTF-8")
+	}
+	if bytes.HasPrefix(data, []byte{0xef, 0xbb, 0xbf}) {
+		return nil, fmt.Errorf("YAML input must not contain a UTF-8 BOM")
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	var document yaml.Node
+	if err := decoder.Decode(&document); err != nil {
+		return nil, fmt.Errorf("parse YAML: %w", err)
+	}
+	if document.Kind != yaml.DocumentNode || len(document.Content) != 1 {
+		return nil, fmt.Errorf("YAML document is empty")
+	}
+	if err := inspectPolicyNode(document.Content[0], "$"); err != nil {
+		return nil, err
+	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("YAML input contains more than one document")
+		}
+		return nil, fmt.Errorf("read YAML document boundary: %w", err)
+	}
+	return &document, nil
+}
+
+func inspectPolicyNode(node *yaml.Node, location string) error {
+	if node.Kind == yaml.AliasNode {
+		return fmt.Errorf("unsafe YAML alias at %s", location)
+	}
+	if node.Tag == "!!null" {
+		return fmt.Errorf("YAML null values are not allowed at %s", location)
+	}
+	if node.Style&yaml.TaggedStyle != 0 {
+		return fmt.Errorf("unsafe YAML tag at %s", location)
+	}
+	if strings.HasPrefix(node.Tag, "!") && !strings.HasPrefix(node.Tag, "!!") {
+		return fmt.Errorf("unsafe YAML tag %q at %s", node.Tag, location)
+	}
+
+	switch node.Kind {
+	case yaml.MappingNode:
+		keys := make(map[string]struct{}, len(node.Content)/2)
+		for i := 0; i < len(node.Content); i += 2 {
+			key := node.Content[i]
+			if key.Kind != yaml.ScalarNode || key.Tag != "!!str" {
+				return fmt.Errorf("YAML mapping key at %s must be a string", location)
+			}
+			if key.Value == "<<" {
+				return fmt.Errorf("YAML merge key is not allowed at %s", location)
+			}
+			if _, exists := keys[key.Value]; exists {
+				return fmt.Errorf("duplicate YAML key %q at %s", key.Value, location)
+			}
+			keys[key.Value] = struct{}{}
+			if err := inspectPolicyNode(node.Content[i+1], location+"."+key.Value); err != nil {
+				return err
+			}
+		}
+	case yaml.SequenceNode:
+		for i, child := range node.Content {
+			if err := inspectPolicyNode(child, fmt.Sprintf("%s[%d]", location, i)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
