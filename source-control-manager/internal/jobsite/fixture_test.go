@@ -232,9 +232,19 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 		{name: "case-colliding create", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/APP_TEST.GO", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "worker-b prefix collision with existing file", role: RoleWorkerB, ops: []Operation{{Path: "src", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "worker-a descendant collision with existing file", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/app_test.go/nested.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "worker-a case-variant directory prefix of existing file", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/APP_TEST.GO/nested.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "worker-b case-variant file colliding with existing directory prefix", role: RoleWorkerB, ops: []Operation{{Path: "src/GENERATED", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "bundle prefix collision between operations", role: RoleWorkerA, ops: []Operation{
 			{Path: "tests/canonical/newdir", Action: ActionCreate, Mode: ModeFile, Content: []byte("a\n")},
 			{Path: "tests/canonical/newdir/child.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("b\n")},
+		}, code: CodePatchRejected},
+		{name: "bundle case-variant prefix collision between operations", role: RoleWorkerA, ops: []Operation{
+			{Path: "tests/canonical/NEWDIR", Action: ActionCreate, Mode: ModeFile, Content: []byte("a\n")},
+			{Path: "tests/canonical/newdir/child.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("b\n")},
+		}, code: CodePatchRejected},
+		{name: "bundle case-variant prefix collision between operations reverse", role: RoleWorkerA, ops: []Operation{
+			{Path: "tests/canonical/newdir", Action: ActionCreate, Mode: ModeFile, Content: []byte("a\n")},
+			{Path: "tests/canonical/NEWDIR/child.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("b\n")},
 		}, code: CodePatchRejected},
 		{name: "nested .git with trailing dot", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/.git./config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "nested .git with trailing space", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/.git /config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
@@ -410,6 +420,9 @@ func TestTreeNodeInsertRejectsFileDirectoryCollisions(t *testing.T) {
 	if err := node.insert("src", ModeFile, "oid2"); err == nil {
 		t.Fatal("expected error inserting file over directory")
 	}
+	if err := node.insert("SRC", ModeFile, "oid2"); err == nil {
+		t.Fatal("expected error inserting case-variant file over directory")
+	}
 
 	node2 := newTreeNode()
 	if err := node2.insert("src", ModeFile, "oid1"); err != nil {
@@ -417,6 +430,9 @@ func TestTreeNodeInsertRejectsFileDirectoryCollisions(t *testing.T) {
 	}
 	if err := node2.insert("src/app.go", ModeFile, "oid2"); err == nil {
 		t.Fatal("expected error inserting directory over file")
+	}
+	if err := node2.insert("SRC/app.go", ModeFile, "oid2"); err == nil {
+		t.Fatal("expected error inserting case-variant directory over file")
 	}
 }
 

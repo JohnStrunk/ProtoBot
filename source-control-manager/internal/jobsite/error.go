@@ -7,15 +7,15 @@ import (
 
 // Stable failure codes for export and patch decisions.
 const (
-	CodePolicyInvalid     = "policy.invalid"
-	CodePolicyUnsupported = "policy.unsupported"
-	CodePolicyDigest      = "policy.digest_mismatch"
-	CodeExportExists      = "export.exists"
-	CodeExportSource      = "export.source"
-	CodeExportUnsafe      = "export.unsafe"
-	CodePatchRejected     = "patch.rejected"
-	CodePatchStale        = "patch.stale_base"
-	CodePatchTampered     = "patch.tampered"
+	CodePolicyInvalid       = "policy.invalid"
+	CodePolicyUnsupported   = "policy.unsupported"
+	CodePolicyDigest        = "policy.digest_mismatch"
+	CodeExportExists        = "export.exists"
+	CodeExportSource        = "export.source"
+	CodeExportUnsafe        = "export.unsafe"
+	CodePatchRejected       = "patch.rejected"
+	CodePatchStale          = "patch.stale_base"
+	CodePatchTampered       = "patch.tampered"
 	CodePatchRollbackFailed = "patch.rollback_failed"
 )
 

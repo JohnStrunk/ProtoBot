@@ -77,15 +77,21 @@ func writeAuditExcl(dir string, name string, record AuditRecord) error {
 		return err
 	}
 	data = append(data, '\n')
-	f, err := os.OpenFile(filepath.Join(dir, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	path := filepath.Join(dir, name)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
 	if _, err := f.Write(data); err != nil {
 		_ = f.Close()
+		_ = os.Remove(path)
 		return err
 	}
-	return f.Close()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return err
+	}
+	return nil
 }
 
 const maxAuditSuffix = 1000

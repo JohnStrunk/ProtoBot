@@ -115,6 +115,11 @@ func TestWriteAuditExcl(t *testing.T) {
 	if !os.IsExist(err) {
 		t.Fatalf("expected os.IsExist error, got %v", err)
 	}
+
+	// Verify original file was not unlinked on ErrExist
+	if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+		t.Fatalf("original file was removed after ErrExist: %v", err)
+	}
 }
 
 func TestIsCASMismatch(t *testing.T) {

@@ -244,7 +244,9 @@ func verifyOperationContents(ops []Operation) string {
 }
 
 func isPrefixOrDescendant(a, b string) bool {
-	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
+	af := strings.ToLower(a)
+	bf := strings.ToLower(b)
+	return strings.HasPrefix(af, bf+"/") || strings.HasPrefix(bf, af+"/")
 }
 
 func validateOperations(policy Policy, bundle PatchBundle, present map[string]blobEntry) string {

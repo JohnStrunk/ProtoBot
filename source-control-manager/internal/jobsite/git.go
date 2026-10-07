@@ -294,14 +294,18 @@ func newTreeNode() *treeNode {
 func (n *treeNode) insert(projectPath, mode, oid string) error {
 	parts := strings.Split(projectPath, "/")
 	if len(parts) == 1 {
-		if _, ok := n.dirs[parts[0]]; ok {
-			return fmt.Errorf("path component %q is already a directory", parts[0])
+		for dirName := range n.dirs {
+			if strings.EqualFold(dirName, parts[0]) {
+				return fmt.Errorf("path component %q is already a directory", parts[0])
+			}
 		}
 		n.files[parts[0]] = blobEntry{Path: parts[0], Mode: mode, OID: oid}
 		return nil
 	}
-	if _, ok := n.files[parts[0]]; ok {
-		return fmt.Errorf("path component %q is already a file", parts[0])
+	for fileName := range n.files {
+		if strings.EqualFold(fileName, parts[0]) {
+			return fmt.Errorf("path component %q is already a file", parts[0])
+		}
 	}
 	child, ok := n.dirs[parts[0]]
 	if !ok {
