@@ -234,6 +234,11 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 		{name: "worker-a descendant collision with existing file", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/app_test.go/nested.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "worker-a case-variant directory prefix of existing file", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/APP_TEST.GO/nested.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "worker-b case-variant file colliding with existing directory prefix", role: RoleWorkerB, ops: []Operation{{Path: "src/GENERATED", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "worker-b case-variant directory sibling of existing directory", role: RoleWorkerB, ops: []Operation{{Path: "src/Generated/evil.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "bundle case-variant directory sibling between operations", role: RoleWorkerA, ops: []Operation{
+			{Path: "tests/canonical/Foo/a.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("a\n")},
+			{Path: "tests/canonical/foo/b.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("b\n")},
+		}, code: CodePatchRejected},
 		{name: "bundle prefix collision between operations", role: RoleWorkerA, ops: []Operation{
 			{Path: "tests/canonical/newdir", Action: ActionCreate, Mode: ModeFile, Content: []byte("a\n")},
 			{Path: "tests/canonical/newdir/child.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("b\n")},
@@ -433,6 +438,22 @@ func TestTreeNodeInsertRejectsFileDirectoryCollisions(t *testing.T) {
 	}
 	if err := node2.insert("SRC/app.go", ModeFile, "oid2"); err == nil {
 		t.Fatal("expected error inserting case-variant directory over file")
+	}
+
+	node3 := newTreeNode()
+	if err := node3.insert("src/generated/README.md", ModeFile, "oid1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := node3.insert("src/Generated/evil.go", ModeFile, "oid2"); err == nil {
+		t.Fatal("expected error inserting case-variant directory sibling")
+	}
+
+	node4 := newTreeNode()
+	if err := node4.insert("tests/canonical/Foo/a.go", ModeFile, "oid1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := node4.insert("tests/canonical/foo/b.go", ModeFile, "oid2"); err == nil {
+		t.Fatal("expected error inserting case-variant directory sibling in bundle")
 	}
 }
 

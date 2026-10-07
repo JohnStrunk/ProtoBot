@@ -243,10 +243,102 @@ func verifyOperationContents(ops []Operation) string {
 	return ""
 }
 
-func isPrefixOrDescendant(a, b string) bool {
-	af := strings.ToLower(a)
-	bf := strings.ToLower(b)
-	return strings.HasPrefix(af, bf+"/") || strings.HasPrefix(bf, af+"/")
+type valTreeNode struct {
+	files   map[string]*valTreeFile
+	dirs    map[string]*valTreeNode
+	fromOps []string
+}
+
+type valTreeFile struct {
+	name   string
+	fromOp string
+}
+
+func newValTreeNode() *valTreeNode {
+	return &valTreeNode{
+		files: map[string]*valTreeFile{},
+		dirs:  map[string]*valTreeNode{},
+	}
+}
+
+func (n *valTreeNode) insert(projectPath, fromOp string) string {
+	parts := strings.Split(projectPath, "/")
+	name := parts[0]
+	if len(parts) == 1 {
+		if fromOp != "" {
+			for dirName, childDir := range n.dirs {
+				if strings.EqualFold(dirName, name) {
+					if dirName == name {
+						if len(childDir.fromOps) > 0 {
+							return "PatchBundle path collides with another operation."
+						}
+						return "PatchBundle path collides with an existing path."
+					}
+					if len(childDir.fromOps) > 0 {
+						return "PatchBundle path collides by case with another operation."
+					}
+					return "PatchBundle path collides by case with an existing path."
+				}
+			}
+			for fileName, existingFile := range n.files {
+				if strings.EqualFold(fileName, name) {
+					if fileName == name {
+						if existingFile.fromOp != "" {
+							return "PatchBundle path collides with another operation."
+						}
+						return "PatchBundle path collides with an existing path."
+					}
+					if existingFile.fromOp != "" {
+						return "PatchBundle path collides by case with another operation."
+					}
+					return "PatchBundle path collides by case with an existing path."
+				}
+			}
+		}
+		n.files[name] = &valTreeFile{
+			name:   name,
+			fromOp: fromOp,
+		}
+		if fromOp != "" {
+			n.fromOps = append(n.fromOps, fromOp)
+		}
+		return ""
+	}
+
+	if fromOp != "" {
+		for fileName, existingFile := range n.files {
+			if strings.EqualFold(fileName, name) {
+				if fileName == name {
+					if existingFile.fromOp != "" {
+						return "PatchBundle path collides with another operation."
+					}
+					return "PatchBundle path collides with an existing path."
+				}
+				if existingFile.fromOp != "" {
+					return "PatchBundle path collides by case with another operation."
+				}
+				return "PatchBundle path collides by case with an existing path."
+			}
+		}
+		for dirName, childDir := range n.dirs {
+			if strings.EqualFold(dirName, name) && dirName != name {
+				if len(childDir.fromOps) > 0 {
+					return "PatchBundle path collides by case with another operation."
+				}
+				return "PatchBundle path collides by case with an existing path."
+			}
+		}
+	}
+	childDir, ok := n.dirs[name]
+	if !ok {
+		childDir = newValTreeNode()
+		n.dirs[name] = childDir
+	}
+	if fromOp != "" {
+		n.fromOps = append(n.fromOps, fromOp)
+		childDir.fromOps = append(childDir.fromOps, fromOp)
+	}
+	return childDir.insert(strings.Join(parts[1:], "/"), fromOp)
 }
 
 func validateOperations(policy Policy, bundle PatchBundle, present map[string]blobEntry) string {
@@ -254,39 +346,16 @@ func validateOperations(policy Policy, bundle PatchBundle, present map[string]bl
 		return "PatchBundle must contain at least one operation."
 	}
 	seen := map[string]bool{}
-	folded := map[string]string{}
-	for path := range present {
-		folded[strings.ToLower(path)] = path
-	}
+	opsByPath := map[string]Operation{}
 	for _, op := range bundle.Operations {
 		if _, dup := seen[op.Path]; dup {
 			return "PatchBundle path is listed more than once."
 		}
 		seen[op.Path] = true
+		opsByPath[op.Path] = op
 		if _, err := canonicalPath(op.Path); err != nil || hasGitComponent(op.Path) {
 			return "PatchBundle path is unsafe."
 		}
-		if op.Action == ActionCreate || op.Action == ActionUpdate {
-			for existingPath := range present {
-				if isPrefixOrDescendant(op.Path, existingPath) {
-					return "PatchBundle path collides with an existing path."
-				}
-			}
-			for _, other := range bundle.Operations {
-				if other.Path != op.Path && other.Action != ActionDelete {
-					if isPrefixOrDescendant(op.Path, other.Path) {
-						return "PatchBundle path collides with another operation."
-					}
-				}
-			}
-		}
-		if existing, ok := folded[strings.ToLower(op.Path)]; ok && existing != op.Path && op.Action != ActionDelete {
-			return "PatchBundle path collides by case with an existing path."
-		}
-		if previous, ok := folded[strings.ToLower(op.Path)]; ok && previous != op.Path && seen[previous] {
-			return "PatchBundle path collides by case with another operation."
-		}
-		folded[strings.ToLower(op.Path)] = op.Path
 		if !policy.WritableBy(bundle.Role, op.Path) {
 			switch policy.Classify(op.Path) {
 			case ClassShared:
@@ -321,6 +390,22 @@ func validateOperations(policy Policy, bundle PatchBundle, present map[string]bl
 			}
 		default:
 			return "PatchBundle action must be create, update, or delete."
+		}
+	}
+
+	tree := newValTreeNode()
+	for path := range present {
+		if _, ok := opsByPath[path]; ok {
+			continue
+		}
+		tree.insert(path, "")
+	}
+	for _, op := range bundle.Operations {
+		if op.Action == ActionDelete {
+			continue
+		}
+		if reason := tree.insert(op.Path, op.Path); reason != "" {
+			return reason
 		}
 	}
 	return ""

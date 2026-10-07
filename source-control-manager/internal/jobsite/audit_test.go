@@ -301,7 +301,7 @@ func TestRollbackFailureReturnsDistinctFailClosedError(t *testing.T) {
 	if err := os.WriteFile(lockFile, []byte("locked"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(lockFile)
+	defer func() { _ = os.Remove(lockFile) }()
 
 	auditDir := t.TempDir()
 	err = rollbackIntegration(repo, auditDir, "", c1)

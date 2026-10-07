@@ -299,6 +299,11 @@ func (n *treeNode) insert(projectPath, mode, oid string) error {
 				return fmt.Errorf("path component %q is already a directory", parts[0])
 			}
 		}
+		for fileName := range n.files {
+			if strings.EqualFold(fileName, parts[0]) {
+				return fmt.Errorf("path component %q case-collides with existing file %q", parts[0], fileName)
+			}
+		}
 		n.files[parts[0]] = blobEntry{Path: parts[0], Mode: mode, OID: oid}
 		return nil
 	}
@@ -309,6 +314,11 @@ func (n *treeNode) insert(projectPath, mode, oid string) error {
 	}
 	child, ok := n.dirs[parts[0]]
 	if !ok {
+		for dirName := range n.dirs {
+			if strings.EqualFold(dirName, parts[0]) {
+				return fmt.Errorf("path component %q case-collides with existing directory %q", parts[0], dirName)
+			}
+		}
 		child = newTreeNode()
 		n.dirs[parts[0]] = child
 	}
