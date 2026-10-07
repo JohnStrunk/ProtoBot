@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -65,6 +66,32 @@ func writeAudit(dir string, name string, record AuditRecord) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(filepath.Join(dir, name), data, 0o600)
+}
+
+func uniqueAuditName(dir, prefix, bundleDigest string) string {
+	clean := strings.Map(func(r rune) rune {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' {
+			return r
+		}
+		return '-'
+	}, bundleDigest)
+	clean = strings.Trim(clean, "-")
+	if clean == "" {
+		clean = "unknown"
+	}
+	base := fmt.Sprintf("patch-%s-%s", prefix, clean)
+	name := base + ".json"
+	path := filepath.Join(dir, name)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return name
+	}
+	for i := 1; ; i++ {
+		name = fmt.Sprintf("%s-%d.json", base, i)
+		path = filepath.Join(dir, name)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			return name
+		}
+	}
 }
 
 func newExportAudit(policy Policy, sourceCommit, role, workerRoot string, visible, denied []string, cycle int, workItem, decision, reason, resulting string) AuditRecord {

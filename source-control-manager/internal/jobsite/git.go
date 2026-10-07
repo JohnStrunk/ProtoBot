@@ -99,6 +99,10 @@ func (g *gitRepo) configureIsolation() error {
 		{"config", "tag.gpgsign", "false"},
 		{"config", "user.name", fixtureAuthor},
 		{"config", "user.email", fixtureEmail},
+		{"config", "protocol.file.allow", "never"},
+		{"config", "protocol.ext.allow", "never"},
+		{"config", "core.protectNTFS", "true"},
+		{"config", "core.protectHFS", "true"},
 	}
 	for _, args := range commands {
 		res, err := g.run(args...)
@@ -232,6 +236,11 @@ func (g *gitRepo) updateRef(ref, oid string) error {
 	return g.check(res, err, "update-ref")
 }
 
+func (g *gitRepo) updateRefCAS(ref, newOID, oldOID string) error {
+	res, err := g.run("update-ref", ref, newOID, oldOID)
+	return g.check(res, err, "update-ref")
+}
+
 func (g *gitRepo) commitTree(tree, message string) (string, error) {
 	return g.commitTreeWithParent(tree, "", message)
 }
@@ -271,8 +280,14 @@ func newTreeNode() *treeNode {
 func (n *treeNode) insert(projectPath, mode, oid string) error {
 	parts := strings.Split(projectPath, "/")
 	if len(parts) == 1 {
+		if _, ok := n.dirs[parts[0]]; ok {
+			return fmt.Errorf("path component %q is already a directory", parts[0])
+		}
 		n.files[parts[0]] = blobEntry{Path: parts[0], Mode: mode, OID: oid}
 		return nil
+	}
+	if _, ok := n.files[parts[0]]; ok {
+		return fmt.Errorf("path component %q is already a file", parts[0])
 	}
 	child, ok := n.dirs[parts[0]]
 	if !ok {

@@ -101,3 +101,33 @@ func TestWorkerAccessMatrix(t *testing.T) {
 		}
 	}
 }
+
+func TestHasGitComponent(t *testing.T) {
+	detected := []string{
+		".git",
+		"src/.git",
+		"src/.git/config",
+		"src/.git./config",
+		"src/.git /config",
+		"src/GIT~1/config",
+		"src/git~2/hooks",
+		"src/.\u200cgit/config",
+	}
+	for _, p := range detected {
+		if !hasGitComponent(p) {
+			t.Errorf("expected hasGitComponent(%q) to be true", p)
+		}
+	}
+
+	allowed := []string{
+		".gitignore",
+		"src/app.go",
+		"tests/digital/test.go",
+		"src/gitter/chat.go",
+	}
+	for _, p := range allowed {
+		if hasGitComponent(p) {
+			t.Errorf("expected hasGitComponent(%q) to be false", p)
+		}
+	}
+}

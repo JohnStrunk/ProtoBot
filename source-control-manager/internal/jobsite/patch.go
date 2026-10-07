@@ -47,7 +47,7 @@ type PatchBundle struct {
 }
 
 // PatchResult is the outcome of validating and, when accepted, applying a
-// bundle in a temporary Integration worktree.
+// bundle to Integration.
 type PatchResult struct {
 	Decision AuditRecord
 	Commit   string
@@ -83,12 +83,18 @@ func NewPatchBundle(role, workItem string, cycle int, policyDigest, sourceCommit
 // and forbidden bundles are rejected atomically. When a bundle is rejected,
 // ApplyPatch writes the rejection audit record and returns a non-nil *PatchResult
 // carrying Decision alongside the rejection error. Infrastructure errors (such
-// as Git open failures) return a nil result and non-nil error.
+// as Git open failures or apply failures) return a nil result and non-nil error.
 func ApplyPatch(integration Repository, policy Policy, bundle PatchBundle) (*PatchResult, error) {
 	auditDir := filepath.Join(filepath.Dir(integration.Path), auditDirName)
 	reject := func(code, reason string) (*PatchResult, error) {
 		record := newPatchAudit(policy, bundle.SourceCommit, bundle.Role, bundle.WorkerRoot, bundle.BundleDigest, bundle.IntegrationBase, bundle.Cycle, bundle.WorkItem, DecisionReject, reason, "")
-		_ = writeAudit(auditDir, "patch-rejected.json", record)
+		uniqueName := uniqueAuditName(auditDir, "rejected", bundle.BundleDigest)
+		if err := writeAudit(auditDir, uniqueName, record); err != nil {
+			return nil, err
+		}
+		if err := writeAudit(auditDir, "patch-rejected.json", record); err != nil {
+			return nil, err
+		}
 		return &PatchResult{Decision: record}, fail(code, reason)
 	}
 
@@ -108,8 +114,8 @@ func ApplyPatch(integration Repository, policy Policy, bundle PatchBundle) (*Pat
 	if computed != bundle.BundleDigest {
 		return reject(CodePatchTampered, "PatchBundle digest does not match the canonical payload.")
 	}
-	if err := verifyOperationContents(bundle.Operations); err != nil {
-		return reject(CodePatchTampered, err.Error())
+	if reason := verifyOperationContents(bundle.Operations); reason != "" {
+		return reject(CodePatchTampered, reason)
 	}
 
 	repo, err := openGit(integration.Path)
@@ -137,12 +143,37 @@ func ApplyPatch(integration Repository, policy Policy, bundle PatchBundle) (*Pat
 		return reject(CodePatchRejected, reason)
 	}
 
-	commit, err := applyInWorktree(repo, head, bundle)
+	commit, err := buildCommit(repo, head, bundle)
 	if err != nil {
-		return reject(CodePatchRejected, err.Error())
+		return nil, err
 	}
+
+	if err := repo.updateRefCAS("refs/heads/"+branchMain, commit, head); err != nil {
+		return nil, err
+	}
+
+	rollback := func() {
+		_ = repo.updateRef("refs/heads/"+branchMain, head)
+		_ = repo.checkout(branchMain)
+	}
+
+	if err := repo.checkout(branchMain); err != nil {
+		rollback()
+		return nil, err
+	}
+	if err := repo.scrubMeta(); err != nil {
+		rollback()
+		return nil, err
+	}
+
 	record := newPatchAudit(policy, bundle.SourceCommit, bundle.Role, bundle.WorkerRoot, bundle.BundleDigest, bundle.IntegrationBase, bundle.Cycle, bundle.WorkItem, DecisionAccept, "", commit)
+	uniqueName := uniqueAuditName(auditDir, "accepted", bundle.BundleDigest)
+	if err := writeAudit(auditDir, uniqueName, record); err != nil {
+		rollback()
+		return nil, err
+	}
 	if err := writeAudit(auditDir, "patch-accepted.json", record); err != nil {
+		rollback()
 		return nil, err
 	}
 	return &PatchResult{Decision: record, Commit: commit}, nil
@@ -162,16 +193,20 @@ func normalizeOperations(ops []Operation) ([]Operation, error) {
 	return out, nil
 }
 
-func verifyOperationContents(ops []Operation) error {
+func verifyOperationContents(ops []Operation) string {
 	for _, op := range ops {
 		if op.Action == ActionDelete {
 			continue
 		}
 		if digestBytes(op.Content) != op.ContentDigest {
-			return fmt.Errorf("Patch bundle content digest does not match operation %s.", op.Path)
+			return fmt.Sprintf("Patch bundle content digest does not match operation %s.", op.Path)
 		}
 	}
-	return nil
+	return ""
+}
+
+func isPrefixOrDescendant(a, b string) bool {
+	return strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
 func validateOperations(policy Policy, bundle PatchBundle, present map[string]blobEntry) string {
@@ -187,6 +222,20 @@ func validateOperations(policy Policy, bundle PatchBundle, present map[string]bl
 		seen[op.Path] = true
 		if _, err := canonicalPath(op.Path); err != nil || hasGitComponent(op.Path) {
 			return "PatchBundle path is unsafe."
+		}
+		if op.Action == ActionCreate || op.Action == ActionUpdate {
+			for existingPath := range present {
+				if isPrefixOrDescendant(op.Path, existingPath) {
+					return "PatchBundle path collides with an existing path."
+				}
+			}
+			for _, other := range bundle.Operations {
+				if other.Path != op.Path && other.Action != ActionDelete {
+					if isPrefixOrDescendant(op.Path, other.Path) {
+						return "PatchBundle path collides with another operation."
+					}
+				}
+			}
 		}
 		if existing, ok := folded[strings.ToLower(op.Path)]; ok && existing != op.Path && op.Action != ActionDelete {
 			return "PatchBundle path collides by case with an existing path."
@@ -234,7 +283,7 @@ func validateOperations(policy Policy, bundle PatchBundle, present map[string]bl
 	return ""
 }
 
-func applyInWorktree(repo *gitRepo, head string, bundle PatchBundle) (string, error) {
+func buildCommit(repo *gitRepo, head string, bundle PatchBundle) (string, error) {
 	current, err := repo.listBlobs(head)
 	if err != nil {
 		return "", err
@@ -266,20 +315,7 @@ func applyInWorktree(repo *gitRepo, head string, bundle PatchBundle) (string, er
 	}
 	message := fmt.Sprintf("Apply %s patch bundle\n\nProjection-Role: %s\nWorker-Root: %s\nPatch-Digest: %s\nCycle: %d\nWork-Item: %s\nPolicy-Digest: %s\nSource-Commit: %s\n",
 		bundle.Role, bundle.Role, bundle.WorkerRoot, bundle.BundleDigest, bundle.Cycle, bundle.WorkItem, bundle.PolicyDigest, bundle.SourceCommit)
-	commit, err := repo.commitTreeWithParent(tree, head, message)
-	if err != nil {
-		return "", err
-	}
-	if err := repo.updateRef("refs/heads/"+branchMain, commit); err != nil {
-		return "", err
-	}
-	if err := repo.checkout(branchMain); err != nil {
-		return "", err
-	}
-	if err := repo.scrubMeta(); err != nil {
-		return "", err
-	}
-	return commit, nil
+	return repo.commitTreeWithParent(tree, head, message)
 }
 
 type canonicalBundle struct {

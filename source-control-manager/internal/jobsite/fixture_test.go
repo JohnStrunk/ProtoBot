@@ -1,6 +1,7 @@
 package jobsite
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -70,6 +71,18 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 	assertSyntheticRoot(t, result.WorkerA.Path, result.WorkerA.RootCommit)
 	assertSyntheticRoot(t, result.WorkerB.Path, result.WorkerB.RootCommit)
 
+	for _, workerPath := range []string{result.WorkerA.Path, result.WorkerB.Path} {
+		wRepo, err := openGit(workerPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, _ := wRepo.run("fetch", result.Integration.Path)
+		if res.OK() {
+			t.Fatalf("worker repo at %s unexpectedly succeeded fetching integration repo", workerPath)
+		}
+		wRepo.Close()
+	}
+
 	if result.Integration.RootCommit != source.SourceCommit {
 		t.Fatalf("integration root %s, want source %s", result.Integration.RootCommit, source.SourceCommit)
 	}
@@ -112,6 +125,20 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 	}
 	if string(got) != "updated test\n" {
 		t.Fatalf("integration test file = %q", got)
+	}
+
+	auditDir := filepath.Join(out, auditDirName)
+	acceptedAuditPath := filepath.Join(auditDir, "patch-accepted.json")
+	acceptedData, err := os.ReadFile(acceptedAuditPath)
+	if err != nil {
+		t.Fatalf("failed to read patch-accepted.json: %v", err)
+	}
+	var acceptedAudit AuditRecord
+	if err := json.Unmarshal(acceptedData, &acceptedAudit); err != nil {
+		t.Fatalf("failed to unmarshal patch-accepted.json: %v", err)
+	}
+	if acceptedAudit.EventType != EventPatch || acceptedAudit.Decision != DecisionAccept || acceptedAudit.ResultingCommit != accepted.Commit {
+		t.Fatalf("accepted audit record mismatch: %#v", acceptedAudit)
 	}
 
 	// Accepted create of a new role-allowlisted file
@@ -203,6 +230,16 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 		{name: "nested .git create", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/.git/config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "nested .git update", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/sub/.git/hooks/pre-commit", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "case-colliding create", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/APP_TEST.GO", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "worker-b prefix collision with existing file", role: RoleWorkerB, ops: []Operation{{Path: "src", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "worker-a descendant collision with existing file", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/app_test.go/nested.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "bundle prefix collision between operations", role: RoleWorkerA, ops: []Operation{
+			{Path: "tests/canonical/newdir", Action: ActionCreate, Mode: ModeFile, Content: []byte("a\n")},
+			{Path: "tests/canonical/newdir/child.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("b\n")},
+		}, code: CodePatchRejected},
+		{name: "nested .git with trailing dot", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/.git./config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "nested .git with trailing space", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/.git /config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "nested 8.3 gitdir", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/GIT~1/config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
+		{name: "nested hfs dotgit", role: RoleWorkerA, ops: []Operation{{Path: "tests/canonical/.\u200cgit/config", Action: ActionCreate, Mode: ModeFile, Content: []byte("no\n")}}, code: CodePatchRejected},
 		{name: "mixed", role: RoleWorkerA, ops: []Operation{
 			{Path: "tests/canonical/valid_new_test.go", Action: ActionCreate, Mode: ModeFile, Content: []byte("ok\n")},
 			{Path: currentImplPath, Action: ActionUpdate, Mode: ModeFile, Content: []byte("no\n")},
@@ -214,9 +251,23 @@ func TestWorkerProjectionExportAndNegativeIsolation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := applyRolePatch(t, result, tc.role, tc.ops)
+			res, err := applyRolePatch(t, result, tc.role, tc.ops)
 			if errorCode(err) != tc.code {
 				t.Fatalf("err = %v, want %s", err, tc.code)
+			}
+			if res == nil || res.Decision.Decision != DecisionReject || res.Decision.RejectionReason == "" {
+				t.Fatalf("expected reject decision on PatchResult, got: %#v", res)
+			}
+			rejData, err := os.ReadFile(filepath.Join(out, auditDirName, "patch-rejected.json"))
+			if err != nil {
+				t.Fatalf("failed to read patch-rejected.json: %v", err)
+			}
+			var rejAudit AuditRecord
+			if err := json.Unmarshal(rejData, &rejAudit); err != nil {
+				t.Fatalf("failed to unmarshal patch-rejected.json: %v", err)
+			}
+			if rejAudit.EventType != EventPatch || rejAudit.Decision != DecisionReject || rejAudit.RejectionReason == "" {
+				t.Fatalf("patch-rejected.json content mismatch: %#v", rejAudit)
 			}
 			head, err := integrationHead(result.Integration.Path)
 			if err != nil {
@@ -299,45 +350,73 @@ func TestExportDigestMismatchFailsClosed(t *testing.T) {
 }
 
 func TestExportUnsafeRejectsNestedGitBlob(t *testing.T) {
-	sourceRoot := t.TempDir()
-	source, err := BuildSourceFixture(sourceRoot)
-	if err != nil {
+	for _, gitdir := range []string{
+		"src/.git/config",
+		"src/.git./config",
+		"src/.git /config",
+		"src/GIT~1/config",
+		"src/.\u200cgit/config",
+	} {
+		t.Run(gitdir, func(t *testing.T) {
+			sourceRoot := t.TempDir()
+			source, err := BuildSourceFixture(sourceRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			repo, err := openGit(sourceRoot)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer repo.Close()
+			blobs, err := repo.listBlobs(source.SourceCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			oid, err := repo.writeBlob([]byte("unsafe\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			blobs = append(blobs, blobEntry{Path: gitdir, Mode: ModeFile, OID: oid})
+			sort.Slice(blobs, func(i, j int) bool { return blobs[i].Path < blobs[j].Path })
+			tree, err := repo.writeTree(blobs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			commit, err := repo.commitTreeWithParent(tree, source.SourceCommit, "source with nested gitdir")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			out := t.TempDir()
+			_, err = Export(ExportRequest{
+				SourceRoot:   sourceRoot,
+				SourceCommit: commit,
+				Policy:       source.Policy,
+				OutputDir:    out,
+				WorkItem:     fixtureWorkItem,
+			})
+			if errorCode(err) != CodeExportUnsafe {
+				t.Fatalf("path %s err = %v, want %s", gitdir, err, CodeExportUnsafe)
+			}
+		})
+	}
+}
+
+func TestTreeNodeInsertRejectsFileDirectoryCollisions(t *testing.T) {
+	node := newTreeNode()
+	if err := node.insert("src/app.go", ModeFile, "oid1"); err != nil {
 		t.Fatal(err)
 	}
-	repo, err := openGit(sourceRoot)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer repo.Close()
-	blobs, err := repo.listBlobs(source.SourceCommit)
-	if err != nil {
-		t.Fatal(err)
-	}
-	oid, err := repo.writeBlob([]byte("unsafe\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	blobs = append(blobs, blobEntry{Path: "src/.git/config", Mode: ModeFile, OID: oid})
-	sort.Slice(blobs, func(i, j int) bool { return blobs[i].Path < blobs[j].Path })
-	tree, err := repo.writeTree(blobs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	commit, err := repo.commitTreeWithParent(tree, source.SourceCommit, "source with nested .git")
-	if err != nil {
-		t.Fatal(err)
+	if err := node.insert("src", ModeFile, "oid2"); err == nil {
+		t.Fatal("expected error inserting file over directory")
 	}
 
-	out := t.TempDir()
-	_, err = Export(ExportRequest{
-		SourceRoot:   sourceRoot,
-		SourceCommit: commit,
-		Policy:       source.Policy,
-		OutputDir:    out,
-		WorkItem:     fixtureWorkItem,
-	})
-	if errorCode(err) != CodeExportUnsafe {
-		t.Fatalf("err = %v, want %s", err, CodeExportUnsafe)
+	node2 := newTreeNode()
+	if err := node2.insert("src", ModeFile, "oid1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := node2.insert("src/app.go", ModeFile, "oid2"); err == nil {
+		t.Fatal("expected error inserting directory over file")
 	}
 }
 
@@ -474,8 +553,14 @@ func assertNoCredential(t *testing.T, repoPath string) {
 	if strings.Contains(cfg, "credential.helper") {
 		t.Fatalf("config leaked credential helper:\n%s", cfg)
 	}
-	if strings.Contains(cfg, "protocol.file.allow") {
-		t.Fatalf("config leaked protocol.file.allow grant:\n%s", cfg)
+	if strings.Contains(cfg, "protocol.file.allow=always") {
+		t.Fatalf("config leaked protocol.file.allow=always grant:\n%s", cfg)
+	}
+	if !strings.Contains(cfg, "protocol.file.allow=never") {
+		t.Fatalf("config missing protocol.file.allow=never:\n%s", cfg)
+	}
+	if !strings.Contains(cfg, "protocol.ext.allow=never") {
+		t.Fatalf("config missing protocol.ext.allow=never:\n%s", cfg)
 	}
 }
 

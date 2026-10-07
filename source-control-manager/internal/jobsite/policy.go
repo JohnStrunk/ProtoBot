@@ -8,6 +8,7 @@ import (
 	"io"
 	"path"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -184,11 +185,43 @@ func (p Policy) WritableBy(role, projectPath string) bool {
 
 func hasGitComponent(projectPath string) bool {
 	for _, part := range strings.Split(projectPath, "/") {
-		if strings.EqualFold(part, ".git") {
+		if isGitdirComponent(part) {
 			return true
 		}
 	}
 	return false
+}
+
+func isGitdirComponent(part string) bool {
+	trimmed := strings.TrimRight(part, ". ")
+	if strings.EqualFold(trimmed, ".git") {
+		return true
+	}
+	if len(trimmed) >= 5 && strings.EqualFold(trimmed[:4], "git~") {
+		return true
+	}
+	var b strings.Builder
+	for _, r := range trimmed {
+		if unicode.Is(unicode.Cf, r) || isIgnorableHFS(r) {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	cleaned := b.String()
+	if strings.EqualFold(cleaned, ".git") {
+		return true
+	}
+	if len(cleaned) >= 5 && strings.EqualFold(cleaned[:4], "git~") {
+		return true
+	}
+	return false
+}
+
+func isIgnorableHFS(r rune) bool {
+	return (r >= 0x200c && r <= 0x200f) ||
+		(r >= 0x202a && r <= 0x202e) ||
+		(r >= 0x206a && r <= 0x206f) ||
+		r == 0xfeff
 }
 
 func canonicalPath(projectPath string) (string, error) {
