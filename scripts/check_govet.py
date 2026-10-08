@@ -12,6 +12,7 @@ from vet diagnostics.
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -72,10 +73,10 @@ def _is_dependency_error(output: str) -> bool:
     )
 
 
-def _build_vet_command(module: Path, repo_root: Path) -> list[str]:
+def _build_vet_command(module: Path, repo_root: Path | None = None) -> list[str]:
     """Construct the ``go vet`` command for *module*."""
     cmd = ["go", "vet"]
-    if (module / "vendor").is_dir() or (repo_root / "vendor").is_dir():
+    if (module / "vendor").is_dir():
         cmd.append("-mod=vendor")
     cmd.append("./...")
     return cmd
@@ -99,12 +100,15 @@ def check(files: list[str], repo_root: Path = REPO_ROOT) -> int:
     failed = False
     for module in sorted(modules):
         cmd = _build_vet_command(module, repo_root)
+        env = os.environ.copy()
+        env["GOWORK"] = "off"
         try:
             result = subprocess.run(
                 cmd,
                 capture_output=True,
                 text=True,
                 cwd=str(module),
+                env=env,
                 check=False,
             )
         except FileNotFoundError:

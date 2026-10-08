@@ -444,21 +444,21 @@ echo "── Go ─────────────────────�
 
 assert_lint \
     "go-fmt-valid" \
-    "wms/linttest_valid.go" \
+    "tests/lint/fixtures/linttest_valid.go" \
     $'package linttest\n\nfunc Hello() {\n}\n' \
     0 \
     "gofmt"
 
 assert_lint \
     "go-fmt-unformatted" \
-    "wms/linttest_unformatted.go" \
+    "tests/lint/fixtures/linttest_unformatted.go" \
     $'package linttest\n\nfunc Hello() {\n\tvar x int=1\n\t_ = x\n}\n' \
     nonzero \
     "gofmt"
 
 assert_lint \
     "go-vet-printf" \
-    "wms/linttest_vet.go" \
+    "tests/lint/fixtures/linttest_vet.go" \
     $'package linttest\n\nimport "fmt"\n\nfunc Hello() {\n\tfmt.Printf("%d", "not an int")\n}\n' \
     nonzero \
     "go-vet" \
@@ -481,17 +481,11 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# ears-manager fixture (module with third-party dependencies):
+# ears-manager check (module with third-party dependencies):
 # verify go-vet either succeeds (with populated cache/network) or
 # fails closed with the dependency resolution diagnostic banner.
-ears_fixture="${REPO_ROOT}/ears-manager/linttest_fixture.go"
-mkdir -p "$(dirname "${ears_fixture}")"
-printf 'package main\n\nfunc main() {}\n' > "${ears_fixture}"
-CREATED_FILES+=("${ears_fixture}")
-
 lint_ears_rc=0
-lint_ears_output="$(python3 "${LINT}" --files "ears-manager/linttest_fixture.go" 2>&1)" || lint_ears_rc=$?
-rm -f "${ears_fixture}"
+lint_ears_output="$(python3 "${LINT}" --files "ears-manager/cmd/ears-manager/main.go" 2>&1)" || lint_ears_rc=$?
 
 # shellcheck disable=SC2001  # regex substitution requires sed
 lint_ears_clean="$(echo "${lint_ears_output}" | sed 's/\x1b\[[0-9;]*m//g')"
