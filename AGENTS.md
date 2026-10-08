@@ -24,7 +24,7 @@ Agents must follow these rules:
 1. **Do not create or modify workflow files.** Agents must not
    create or modify any file under `.github/workflows/`.
 
-2. **New modules and CI integration.** When implementing an issue
+2. **Defer CI integration for new modules.** When implementing an issue
    that introduces a new Go module, package, or tool, implement the
    code, local test suites, and module-local configs (`go.mod`,
    `.golangci.yml`), but do not create or modify
