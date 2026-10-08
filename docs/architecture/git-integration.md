@@ -428,8 +428,8 @@ ref ([`repo_state`](source-control-manager.md#repo_state)).
 `ears-manager` reads the local ref and never fetches
 ([`change-set create`](ears-manager-cli.md#change-set-create)), so
 the Drafting Table runs `repo_state` first. A branch cut from a
-stale ref anyway fails `publish` with `DEFAULT_MOVED` until it is
-refreshed.
+stale ref anyway fails `check` and `publish` with `DEFAULT_MOVED`
+until it is refreshed.
 
 The initial Sketch is a change set like any other. Its Vision and
 Architecture artifacts are written through
@@ -624,13 +624,14 @@ report is a view of the Finding Ledger.
 
 - CI runs `ears-manager check` on every branch push and as the merge gate.
   A bare `check` resolves and validates every proposed change-set manifest in
-  the branch, including its impact assessment; interactive callers may pass
-  `--change-set CS-<NNNNN>` to narrow the check. Before `check`, CI
-  fetches `repository.default_branch` from a remote whose configured
-  URL equals `repository.canonical_remote`, or creates the local
-  default branch, so that `check` can tell approved from proposed
-  change sets
-  ([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets)).
+  the branch, including its impact assessment and default-branch freshness;
+  interactive callers may pass `--change-set CS-<NNNNN>` to narrow the check.
+  Before `check`, CI fetches `repository.default_branch` from a remote whose
+  configured URL equals `repository.canonical_remote`, or creates the local
+  default branch, so that `check` can tell approved from proposed change sets
+  ([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets)) and
+  can compare each proposed `base_commit` with that fetched head
+  ([`check`](ears-manager-cli.md#check)).
 - Path ownership in CI rejects a change that edits files outside
   the owning component's paths.
 - Branch protection on the default branch requires the pull
@@ -967,7 +968,7 @@ detects with a stable code
 | Registered artifact or structured-store digest mismatch | Pre-stage comparison | Names the safe configuration field and mismatch class | Discard the direct edit, or re-apply it through `ears-manager` |
 | Registered path or store directory not classified `shared` in the projection manifest | `ears-manager check`, and every `ears-manager` write that validates the full project, including `change-set create` | Names the path, the required class `shared`, and the current class when an entry covers the path | Through a reviewed policy edit of `projection.yaml`, restore the missing `shared` entry, or change the covering entry to `shared`. The Source Control Manager keeps that edit out of any change-set commit, so the person commits it apart and merges it through its own review; `ears-manager` commands then succeed. `ears-manager` does not restore or change another path's entry, because that entry would read as a policy edit mixed into the change set |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
-| Default branch has moved since `base_commit` | `merge-base` check before push or merge | Names the recorded base and the current head | Refresh: merge the default branch in, then `change-set update` |
+| Default branch has moved since `base_commit` | `ears-manager check` on the proposed manifests, and the Source Control Manager's `publish` `merge-base` check before push | Names the recorded base and the current default-branch head as `DEFAULT_MOVED` or `BASE_COMMIT_STALE` | Refresh: merge the default branch into the change-set branch, run `change-set update --change-set CS-ID --base-commit <target-head>`, rerun `impact`, record a reviewed impact assessment, then run `check`, commit, and push |
 | Push rejected, non-fast-forward | Push exit status | Names the branch and the remote head | The remote change-set branch has commits that this checkout lacks. The user reviews and integrates them, then pushes again; never force, and never merge them unreviewed |
 | Push rejected by branch protection | Push exit status | Names the protected branch | Push the change-set branch instead and open a pull request. A push to the default branch is a bug in the caller, not a state to retry |
 | Merge refused by branch protection | Host API response | Names the protected branch, the failing requirement, and the declared `review_mode` | Satisfy the requirement, such as a green check or a review. If `review_mode` says `single-player` and the host still demands a reviewer, the declaration and the host disagree and the project configuration must be corrected |

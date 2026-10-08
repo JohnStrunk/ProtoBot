@@ -427,7 +427,9 @@ It is used by these callers:
   and [open question Q19][q19].
 - **CI** — `ears-manager check` runs on every branch push to
   validate that spec files are well-formed, all EARS statements
-  match required templates, and referential integrity holds.
+  match required templates, referential integrity holds, and each
+  proposed change set's `base_commit` is the fetched default-branch
+  head.
 - **Job Site Materializer** — reads the approved manifest and requirement
   records at the immutable specification commit recorded in a build
   work-item contract.
@@ -449,8 +451,9 @@ It is used by these callers:
 - **Git refs (read):** The local default branch and the remote-tracking
   default branch of each canonical remote, read to tell approved from
   proposed change sets
-  ([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets));
-  `ears-manager` never fetches.
+  ([approval rule](ears-manager-cli.md#approved-and-proposed-change-sets))
+  and to check that each proposed `base_commit` equals that default-branch
+  head ([`check`](ears-manager-cli.md#check)); `ears-manager` never fetches.
 - **Git refs (write):** `change-set create` cuts and checks out the
   change-set branch at the local default-branch head, and after a failed
   write checks the original branch out again and deletes the branch it cut
@@ -475,7 +478,7 @@ scope](ears-manager-cli.md#em-04-first-release-scope).
 | Subcommand | Purpose |
 | --- | --- |
 | `ears-manager project init` | Initialize `.protobot/project.yaml`, seed version-1 schema keys, store paths, store integrity digests, and opaque artifact entries, and write a version-1 `.protobot/projection.yaml` that classifies the registered specification paths and the configured store directories as `shared`. It creates no store directory and no artifact content. |
-| `ears-manager check` | Validate all spec files: project configuration and store integrity, projection classification (`projection.invalid`, `projection.unclassified`), EARS formatting, required fields, applicability metadata, change-set integrity, and referential integrity. Exit non-zero on failure. Suitable for CI gates. |
+| `ears-manager check` | Validate all spec files: project configuration and store integrity, projection classification (`projection.invalid`, `projection.unclassified`), EARS formatting, required fields, applicability metadata, change-set integrity, referential integrity, and proposed `base_commit` freshness against the default-branch head (`BASE_NOT_ON_DEFAULT`, `DEFAULT_MOVED`, `BASE_COMMIT_STALE`). Exit non-zero on failure. Suitable for CI gates. |
 | `ears-manager requirement add` | Add a new EARS requirement with interface or project-wide applicability selectors and optional narrower scopes. Validates the EARS statement and metadata before writing. |
 | `ears-manager requirement list/show` | Read requirements at the working tree or an immutable `--at` revision. |
 | `ears-manager requirement update/retire` | Modify requirements through a proposed change set. |
@@ -1086,8 +1089,9 @@ flowchart TD
 - **Sketch updates are regular work items.** Updating the Vision or
   Architecture follows the same branch → review → merge lifecycle
   as any other change. No special case needed.
-- **CI can validate branches.** Spec format, well-formedness, and
-  consistency checks run on branch pushes, just like code linting.
+- **CI can validate branches.** Spec format, well-formedness,
+  proposed `base_commit` freshness, and consistency checks run on
+  branch pushes, just like code linting.
 - **Concurrent work items don't conflict until merge.** Each work
   item has its own branch. Conflicts surface at merge time, which
   is when they need to be resolved anyway.
@@ -1878,7 +1882,7 @@ sequenceDiagram
    PR. This is the human approval gate — standard branch
    protection rules, CODEOWNERS, and required reviews all apply.
    CI runs `ears-manager check` as a merge gate to validate spec
-   well-formedness.
+   well-formedness and proposed `base_commit` freshness.
 3. **The change set lands on main.** A registration hook calls the Job
    Site materializer with the change-set ID, resulting merge commit, stable
    materialization key, and the distinct deterministic registration

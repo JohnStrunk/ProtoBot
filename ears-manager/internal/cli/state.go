@@ -144,6 +144,9 @@ func checkState() (projectState, *commandFailure) {
 	if failure != nil {
 		return projectState{root: root}, failure
 	}
+	if failure := checkProposedBaseFreshness(root, snapshot, proposed, head); failure != nil {
+		return projectState{root: root}, failure
+	}
 	return projectState{root: root, snapshot: snapshot, observed: observeSnapshot(root, snapshot), head: head, diagnostics: result.Diagnostics}, nil
 }
 
@@ -364,7 +367,17 @@ func validateScopedCheck(root string, snapshot specvalidation.Snapshot, targetIn
 		seen[diagnostic] = true
 		unique = append(unique, diagnostic)
 	}
-	return failureFromDiagnostics(unique)
+	if failure := failureFromDiagnostics(unique); failure != nil {
+		return failure
+	}
+	if !proposed[targetID] {
+		return nil
+	}
+	head, failure := currentCommit(root)
+	if failure != nil {
+		return failure
+	}
+	return checkProposedBaseFreshness(root, snapshot, proposed, head)
 }
 
 func isImpactDiagnostic(diagnostic specvalidation.Diagnostic) bool {
@@ -1065,6 +1078,155 @@ func proposedChangeSetIDs(root string, snapshot specvalidation.Snapshot) (map[st
 		}
 	}
 	return proposed, nil
+}
+
+// Source Control Manager publish conditions that check also reports for
+// each proposed change set. Approved manifests are exempt.
+const (
+	codeBaseNotOnDefault = "BASE_NOT_ON_DEFAULT"
+	codeDefaultMoved     = "DEFAULT_MOVED"
+	codeBaseCommitStale  = "BASE_COMMIT_STALE"
+)
+
+// checkProposedBaseFreshness applies the Source Control Manager's publish
+// freshness rules to every proposed change-set manifest. base_commit must
+// be a full commit ID reachable from the default-branch head, that head
+// must be reachable from HEAD, and the normalized base_commit must equal
+// the default-branch head.
+func checkProposedBaseFreshness(root string, snapshot specvalidation.Snapshot, proposed map[string]bool, head string) *commandFailure {
+	if len(proposed) == 0 {
+		return nil
+	}
+	targetHead, failure := defaultBranchHead(root, snapshot.Config.Repository)
+	if failure != nil {
+		return failure
+	}
+	diagnostics := make([]specvalidation.Diagnostic, 0, len(proposed))
+	for _, document := range snapshot.ChangeSets {
+		if !proposed[document.Value.ID] {
+			continue
+		}
+		diagnostic, failure := proposedBaseFreshnessDiagnostic(root, document, head, targetHead)
+		if failure != nil {
+			return failure
+		}
+		if diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
+	}
+	return freshnessFailure(diagnostics)
+}
+
+func proposedBaseFreshnessDiagnostic(root string, document specvalidation.Document[records.ChangeSet], head, targetHead string) (*specvalidation.Diagnostic, *commandFailure) {
+	id := document.Value.ID
+	base := strings.TrimSpace(document.Value.BaseCommit)
+	path := filepath.ToSlash(document.Path)
+	if !fullCommitID(base) || !commitExists(root, base) {
+		if fullCommitID(base) && shallowRepository(root) {
+			return nil, shallowHistoryFailure()
+		}
+		return freshnessDiagnostic(codeBaseNotOnDefault, path, id, base, targetHead), nil
+	}
+	onDefault, failure := isAncestor(root, strings.ToLower(base), targetHead)
+	if failure != nil {
+		return nil, failure
+	}
+	if !onDefault {
+		return freshnessDiagnostic(codeBaseNotOnDefault, path, id, base, targetHead), nil
+	}
+	mergedIn, failure := isAncestor(root, targetHead, head)
+	if failure != nil {
+		return nil, failure
+	}
+	if !mergedIn {
+		return freshnessDiagnostic(codeDefaultMoved, path, id, base, targetHead), nil
+	}
+	if strings.ToLower(base) != targetHead {
+		return freshnessDiagnostic(codeBaseCommitStale, path, id, base, targetHead), nil
+	}
+	return nil, nil
+}
+
+func freshnessDiagnostic(code, path, id, base, targetHead string) *specvalidation.Diagnostic {
+	return &specvalidation.Diagnostic{
+		Code:     code,
+		Severity: "error",
+		Path:     path,
+		RecordID: id,
+		Field:    "base_commit",
+		Message:  freshnessMessage(code, id, base, targetHead),
+		Hint:     freshnessHint(code, id, targetHead),
+	}
+}
+
+func freshnessMessage(code, id, base, targetHead string) string {
+	switch code {
+	case codeBaseNotOnDefault:
+		return fmt.Sprintf("Change set %s is based on %s, which is not reachable from the default-branch head %s.", id, base, targetHead)
+	case codeDefaultMoved:
+		return fmt.Sprintf("Change set %s is based on %s, but the default-branch head %s is not reachable from HEAD.", id, base, targetHead)
+	case codeBaseCommitStale:
+		return fmt.Sprintf("Change set %s is based on %s, which differs from the default-branch head %s that is already reachable from HEAD.", id, base, targetHead)
+	}
+	return fmt.Sprintf("Change set %s is based on %s, which is not the default-branch head %s.", id, base, targetHead)
+}
+
+func freshnessHint(code, id, targetHead string) string {
+	switch code {
+	case codeBaseNotOnDefault:
+		return "Record a base_commit that is on the default branch. No command repairs a base that the default branch does not contain."
+	case codeDefaultMoved:
+		return fmt.Sprintf("Refresh: merge the default branch into the change-set branch, run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
+	case codeBaseCommitStale:
+		return fmt.Sprintf("The default branch is already merged. Run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
+	}
+	return "Refresh the change set from the default branch, then rerun check."
+}
+
+func freshnessFailure(diagnostics []specvalidation.Diagnostic) *commandFailure {
+	if len(diagnostics) == 0 {
+		return nil
+	}
+	sort.SliceStable(diagnostics, func(i, j int) bool {
+		left, right := diagnostics[i], diagnostics[j]
+		for _, pair := range [][2]string{
+			{left.Path, right.Path}, {left.Code, right.Code}, {left.RecordID, right.RecordID},
+			{left.Field, right.Field}, {left.Severity, right.Severity},
+			{left.Message, right.Message}, {left.Hint, right.Hint},
+		} {
+			if pair[0] != pair[1] {
+				return pair[0] < pair[1]
+			}
+		}
+		return false
+	})
+	hasNotOnDefault := false
+	hasMoved := false
+	for _, diagnostic := range diagnostics {
+		switch diagnostic.Code {
+		case codeBaseNotOnDefault:
+			hasNotOnDefault = true
+		case codeDefaultMoved:
+			hasMoved = true
+		}
+	}
+	primary := codeBaseCommitStale
+	if hasNotOnDefault {
+		primary = codeBaseNotOnDefault
+	} else if hasMoved {
+		primary = codeDefaultMoved
+	}
+	message := diagnostics[0].Message
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == primary {
+			message = diagnostic.Message
+			break
+		}
+	}
+	if primary == codeBaseNotOnDefault {
+		return validationFailure(primary, message, diagnostics)
+	}
+	return conflictFailure(primary, message, diagnostics)
 }
 
 // commitExists reports whether commit is the full object ID of a commit in

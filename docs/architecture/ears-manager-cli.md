@@ -714,16 +714,16 @@ local default branch is behind.
 Every command that tells approved from proposed change sets uses this rule:
 `change-set list` and `change-set show` report the status (`change-set show
 --at` asks the same refs about a commit, as [`change-set
-show`](#change-set-show) describes), `check` requires
-impact completeness only for the proposed change sets, and every write to an
-existing change set refuses an approved one with `change_set.not_proposed`,
-status `5`, and `mutation: "none"`. When no ref resolves to a commit, such a
-command fails with `project.default_branch_unresolved`, status `3`, and does
-not treat every change set as proposed. A failure to read the remotes is
-`git.read_failed`, status `6`. A caller that runs such a command in a clone
-without the local default branch, such as CI, first fetches the default
-branch from a remote whose configured URL equals
-`repository.canonical_remote`.
+show`](#change-set-show) describes), `check` requires impact completeness and
+default-branch freshness only for the proposed change sets, and every write
+to an existing change set refuses an approved one with
+`change_set.not_proposed`, status `5`, and `mutation: "none"`. When no ref
+resolves to a commit, such a command fails with
+`project.default_branch_unresolved`, status `3`, and does not treat every
+change set as proposed. A failure to read the remotes is `git.read_failed`,
+status `6`. A caller that runs such a command in a clone without the local
+default branch, such as CI, first fetches the default branch from a remote
+whose configured URL equals `repository.canonical_remote`.
 
 #### Ancestry check
 
@@ -789,11 +789,15 @@ any answer that a commit is not an ancestor, is `git.read_failed`, status
 full history lets the check answer. A failure of `git merge-base` itself is
 `git.read_failed` too.
 
-`ears-manager` does not check that `base_commit` is on the default branch.
-The [Source Control Manager's `publish`](source-control-manager.md#publish)
-refuses a `base_commit` that is not reachable from the default branch of the
-canonical remote (`BASE_NOT_ON_DEFAULT`), and a `base_commit` that differs
-from the default-branch head reachable from `HEAD` (`BASE_COMMIT_STALE`).
+Writes do not check that `base_commit` is on the default branch. `check`
+does, for every proposed change set, using the same conditions as the
+[Source Control Manager's `publish`](source-control-manager.md#publish):
+`BASE_NOT_ON_DEFAULT` when `base_commit` is not a full commit ID reachable
+from the default-branch head, `DEFAULT_MOVED` when that head is not
+reachable from `HEAD`, and `BASE_COMMIT_STALE` when the head is reachable
+from `HEAD` but the normalized `base_commit` differs from it. Approved
+manifests remain exempt because their historical `base_commit` values are
+immutable. `publish` still refuses the same conditions before a push.
 
 ### `change-set create`
 
@@ -940,11 +944,17 @@ ears-manager check [--at FULL-SHA] [--change-set CS-ID]
 `check` is read-only. Without `--change-set`, it validates the complete
 project store, registry, projection classification, all records, and all
 referential, relationship, EARS, artifact-digest, structured-store-integrity,
-and change-set rules, including impact completeness for every proposed
-change set. Approved manifests' stored historical assessments remain
+and change-set rules, including impact completeness and default-branch
+freshness for every proposed change set. Freshness uses the local default
+branch when it resolves, otherwise a resolved remote-tracking ref of a
+canonical remote; CI fetches `repository.default_branch` from
+`repository.canonical_remote` into that local ref first
+([Gates and labels](git-integration.md#gates-and-labels)). Approved
+manifests' stored historical assessments and `base_commit` values remain
 preserved. Independent load failures are aggregated with semantic diagnostics
 from records that could still be read.
-`--change-set` narrows that impact check to the named proposed manifest.
+`--change-set` narrows that impact and freshness check to the named proposed
+manifest.
 "Matches" means that every current mechanical candidate has exactly one final
 recorded disposition, every recorded `mechanical` entry is still a current
 mechanical candidate, every `semantic` entry names an unchanged active
@@ -972,9 +982,12 @@ An invalid specification returns the failure envelope with one or more stable
 diagnostics and status `4`; project discovery, schema-version, and
 project-configuration failures use status `3`. An incomplete, stale, or
 mismatched proposed impact assessment returns status `5` so the caller
-refreshes and re-reviews state rather than revising record content. Approved
-manifests are checked against their stored historical assessment. `check`
-never repairs files.
+refreshes and re-reviews state rather than revising record content. A proposed
+`base_commit` that is not reachable from the default-branch head returns
+status `4` as `BASE_NOT_ON_DEFAULT`. `DEFAULT_MOVED` and `BASE_COMMIT_STALE`
+return status `5`, and the diagnostic names the recorded base and the current
+default-branch head. Approved manifests are checked against their stored
+historical assessment. `check` never repairs files.
 
 The class of a `project.` or `schema.` code, not its prefix, decides its
 status:
@@ -1022,6 +1035,9 @@ carries no diagnostics. A diagnostic arrives in `error.diagnostics`.
 | `project.invalid_digest` | Diagnostic | A recorded store digest does not match `sha256:<64 lowercase hexadecimal characters>` | `4` |
 | `project.store_digest_unreadable` | Diagnostic | A visible entry of a structured store is a symlink, a subdirectory, or not a `.yaml` file, or the store cannot be read | `4` |
 | `project.store_digest_mismatch` | Diagnostic | The visible YAML file set of a structured store does not match its recorded digest | `4` |
+| `BASE_NOT_ON_DEFAULT` | Both | A proposed manifest's `base_commit` is not a full commit ID reachable from the default-branch head | `4` |
+| `DEFAULT_MOVED` | Both | The default-branch head is not reachable from `HEAD` | `5` |
+| `BASE_COMMIT_STALE` | Both | The default-branch head is reachable from `HEAD`, but the normalized `base_commit` differs from that head | `5` |
 
 ### `change-set compare`
 
