@@ -429,6 +429,49 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ── Go formatting and vet ───────────────────────────────────
+
+echo ""
+echo "── Go ──────────────────────────────────────────────────"
+
+assert_lint \
+    "go-fmt-valid" \
+    "ears-manager/linttest_valid.go" \
+    $'package linttest\n\nfunc Hello() {\n}\n' \
+    0 \
+    "gofmt"
+
+assert_lint \
+    "go-fmt-unformatted" \
+    "ears-manager/linttest_unformatted.go" \
+    $'package linttest\n\nfunc Hello() {\n\tvar x int=1\n\t_ = x\n}\n' \
+    nonzero \
+    "gofmt"
+
+assert_lint \
+    "go-vet-printf" \
+    "ears-manager/linttest_vet.go" \
+    $'package linttest\n\nimport "fmt"\n\nfunc Hello() {\n\tfmt.Printf("%d", "not an int")\n}\n' \
+    nonzero \
+    "go-vet"
+
+# lint.py must wire the local Go hooks when a real Go file is in
+# the file set (not only the temp fixtures above).
+lint_go_rc=0
+lint_go_output="$(python3 "${LINT}" --files ears-manager/cmd/ears-manager/main.go 2>&1)" || lint_go_rc=$?
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_go_clean="$(echo "${lint_go_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+if [[ "${lint_go_rc}" -eq 0 ]] \
+    && echo "${lint_go_clean}" | grep -qE "✓ gofmt( |$)" \
+    && echo "${lint_go_clean}" | grep -qE "✓ go-vet( |$)"; then
+    echo "PASS  go-hooks-wiring: lint.py runs gofmt and go-vet"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  go-hooks-wiring: gofmt/go-vet did not pass (exit ${lint_go_rc})"
+    echo "${lint_go_output}" | tail -8 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────
 
 echo ""

@@ -72,6 +72,7 @@ _EXT_TO_TYPE: dict[str, str] = {
     ".bash": "shell",
     ".zsh": "shell",
     ".ksh": "shell",
+    ".go": "go",
 }
 
 _NAME_PREFIX_TYPES: list[tuple[str, str]] = [
@@ -496,7 +497,7 @@ _REGISTRY: dict[str, dict[str, Any]] = {
             },
         },
     },
-    # ── Local: spec hierarchy sync ─────────────────────────────
+    # ── Local: spec hierarchy sync, gofmt, go vet ──────────────
     "local": {
         "installer": "system",
         "hooks": {
@@ -505,6 +506,18 @@ _REGISTRY: dict[str, dict[str, Any]] = {
                 "fixed_args": ["scripts/check_spec_hierarchy.py"],
                 "pass_filenames": False,
                 "default_files": r"^(AGENTS\.md|\.fullsend/harness/review\.yaml)$",
+            },
+            "gofmt": {
+                "cmd": "python3",
+                "fixed_args": ["scripts/check_gofmt.py"],
+                "types": ["go"],
+                "default_files": r"\.go$",
+            },
+            "go-vet": {
+                "cmd": "python3",
+                "fixed_args": ["scripts/check_govet.py"],
+                "types": ["go"],
+                "default_files": r"\.go$",
             },
         },
     },
