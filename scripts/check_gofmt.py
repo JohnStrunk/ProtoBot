@@ -21,7 +21,7 @@ def check(files: list[str]) -> int:
         return 0
     try:
         result = subprocess.run(
-            ["gofmt", "-l", *go_files],
+            ["gofmt", "-l", "--", *go_files],
             capture_output=True,
             text=True,
             check=False,

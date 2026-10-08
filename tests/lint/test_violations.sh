@@ -481,6 +481,32 @@ else
     FAIL=$((FAIL + 1))
 fi
 
+# ears-manager fixture (module with third-party dependencies):
+# verify go-vet either succeeds (with populated cache/network) or
+# fails closed with the dependency resolution diagnostic banner.
+ears_fixture="${REPO_ROOT}/ears-manager/linttest_fixture.go"
+mkdir -p "$(dirname "${ears_fixture}")"
+printf 'package main\n\nfunc main() {}\n' > "${ears_fixture}"
+CREATED_FILES+=("${ears_fixture}")
+
+lint_ears_rc=0
+lint_ears_output="$(python3 "${LINT}" --files "ears-manager/linttest_fixture.go" 2>&1)" || lint_ears_rc=$?
+rm -f "${ears_fixture}"
+
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_ears_clean="$(echo "${lint_ears_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+if [[ "${lint_ears_rc}" -eq 0 ]] && echo "${lint_ears_clean}" | grep -qE "✓ go-vet( |$)"; then
+    echo "PASS  go-vet-ears-manager: go-vet passed with populated cache/network"
+    PASS=$((PASS + 1))
+elif [[ "${lint_ears_rc}" -ne 0 ]] && echo "${lint_ears_clean}" | grep -qF "dependency resolution failed in ears-manager"; then
+    echo "PASS  go-vet-ears-manager: go-vet failed closed with dependency resolution diagnostic"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  go-vet-ears-manager: expected go-vet success or dependency-resolution diagnostic (exit ${lint_ears_rc})"
+    echo "${lint_ears_output}" | tail -8 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
+fi
+
 # ── Summary ──────────────────────────────────────────────────
 
 echo ""
