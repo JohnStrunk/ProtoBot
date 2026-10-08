@@ -39,6 +39,7 @@ assert_lint() {
     local content="$3"    # file content
     local expect_rc="$4"  # 0 or nonzero
     local expect_str="${5:-}"  # substring to find in output
+    local expect_diag="${6:-}" # diagnostic substring to find in output
 
     local filepath="${REPO_ROOT}/${filename}"
     mkdir -p "$(dirname "${filepath}")"
@@ -68,6 +69,13 @@ assert_lint() {
 
     if [[ -n "${expect_str}" ]] && ! echo "${clean_output}" | grep -qE "(✓|✗|○|\?|!) ${expect_str}( |$)"; then
         echo "FAIL  ${label}: expected output to contain '${expect_str}'"
+        echo "  actual output (last 5 lines):"
+        echo "${output}" | tail -5 | sed 's/^/    /'
+        ok=false
+    fi
+
+    if [[ -n "${expect_diag}" ]] && ! echo "${clean_output}" | grep -qF "${expect_diag}"; then
+        echo "FAIL  ${label}: expected output to contain diagnostic '${expect_diag}'"
         echo "  actual output (last 5 lines):"
         echo "${output}" | tail -5 | sed 's/^/    /'
         ok=false
@@ -436,29 +444,30 @@ echo "── Go ─────────────────────�
 
 assert_lint \
     "go-fmt-valid" \
-    "ears-manager/linttest_valid.go" \
+    "wms/linttest_valid.go" \
     $'package linttest\n\nfunc Hello() {\n}\n' \
     0 \
     "gofmt"
 
 assert_lint \
     "go-fmt-unformatted" \
-    "ears-manager/linttest_unformatted.go" \
+    "wms/linttest_unformatted.go" \
     $'package linttest\n\nfunc Hello() {\n\tvar x int=1\n\t_ = x\n}\n' \
     nonzero \
     "gofmt"
 
 assert_lint \
     "go-vet-printf" \
-    "ears-manager/linttest_vet.go" \
+    "wms/linttest_vet.go" \
     $'package linttest\n\nimport "fmt"\n\nfunc Hello() {\n\tfmt.Printf("%d", "not an int")\n}\n' \
     nonzero \
-    "go-vet"
+    "go-vet" \
+    "wrong type"
 
 # lint.py must wire the local Go hooks when a real Go file is in
 # the file set (not only the temp fixtures above).
 lint_go_rc=0
-lint_go_output="$(python3 "${LINT}" --files ears-manager/cmd/ears-manager/main.go 2>&1)" || lint_go_rc=$?
+lint_go_output="$(python3 "${LINT}" --files wms/memory/lifecycle.go 2>&1)" || lint_go_rc=$?
 # shellcheck disable=SC2001  # regex substitution requires sed
 lint_go_clean="$(echo "${lint_go_output}" | sed 's/\x1b\[[0-9;]*m//g')"
 if [[ "${lint_go_rc}" -eq 0 ]] \

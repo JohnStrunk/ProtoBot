@@ -4,7 +4,9 @@
 Used as the ``go-vet`` local pre-commit hook (and via ``scripts/lint.py``)
 so vet findings fail in the same change. Filenames select the affected
 modules; vet itself always runs as ``go vet ./...`` in the module
-directory, matching CI.
+directory, matching CI. Uses ``-mod=vendor`` when a vendor directory is
+present, and distinguishes offline module dependency resolution errors
+from vet diagnostics.
 """
 
 from __future__ import annotations
@@ -15,6 +17,19 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+
+_DEPENDENCY_ERROR_INDICATORS = (
+    "module lookup disabled",
+    "cannot find module providing package",
+    "no required module provides package",
+    "missing go.sum entry",
+    "dial tcp",
+    "connection refused",
+    "no such host",
+    "i/o timeout",
+    "tls handshake timeout",
+    "server response:",
+)
 
 
 def find_go_module(repo_root: Path, file_path: Path) -> Path | None:
@@ -47,6 +62,25 @@ def _display_module(module: Path, repo_root: Path) -> str:
         return str(module)
 
 
+def _is_dependency_error(output: str) -> bool:
+    """Return True if *output* indicates dependency resolution / cache miss failure."""
+    lower = output.lower()
+    if any(indicator in lower for indicator in _DEPENDENCY_ERROR_INDICATORS):
+        return True
+    return "go: downloading" in output and any(
+        kw in lower for kw in ("error", "timeout", "failed")
+    )
+
+
+def _build_vet_command(module: Path, repo_root: Path) -> list[str]:
+    """Construct the ``go vet`` command for *module*."""
+    cmd = ["go", "vet"]
+    if (module / "vendor").is_dir() or (repo_root / "vendor").is_dir():
+        cmd.append("-mod=vendor")
+    cmd.append("./...")
+    return cmd
+
+
 def check(files: list[str], repo_root: Path = REPO_ROOT) -> int:
     """Vet each unique Go module that contains a given ``.go`` file."""
     modules: set[Path] = set()
@@ -64,9 +98,10 @@ def check(files: list[str], repo_root: Path = REPO_ROOT) -> int:
 
     failed = False
     for module in sorted(modules):
+        cmd = _build_vet_command(module, repo_root)
         try:
             result = subprocess.run(
-                ["go", "vet", "./..."],
+                cmd,
                 capture_output=True,
                 text=True,
                 cwd=str(module),
@@ -77,8 +112,18 @@ def check(files: list[str], repo_root: Path = REPO_ROOT) -> int:
             return 1
         if result.returncode != 0:
             display = _display_module(module, repo_root)
-            print(f"go vet failed in {display}:")
             output = (result.stdout + result.stderr).strip()
+            if _is_dependency_error(output):
+                print(
+                    f"go vet dependency resolution failed in {display} "
+                    "(module download/cache miss):"
+                )
+                print(
+                    "  Module dependencies could not be resolved offline. "
+                    "Ensure GOMODCACHE is populated or vendor/ is present."
+                )
+            else:
+                print(f"go vet failed in {display}:")
             if output:
                 print(output)
             failed = True
