@@ -588,11 +588,13 @@ projections](components.md#worker-repository-projections-decided). Other
 top-level keys are reviewed project policy.
 
 A trailing `/` on a `path` names a directory, and a directory entry
-classifies every path below it. A path and the same path with a trailing
-`/` are one entry, so listing both is `projection.invalid`. A path takes the
-class of its most specific entry: its own entry, else the entry of its
-nearest ancestor directory. A file entry therefore overrides the entry of the
-directory that holds it.
+classifies every path below it. A file entry applies only to that file;
+only a trailing-slash directory entry applies to descendants. Listing
+both a path and the same path with a trailing `/` is
+`projection.invalid`. A path takes the class of its most specific
+entry: its own file entry, else the entry of its nearest ancestor
+directory. A file entry therefore overrides the entry of the directory
+that holds it.
 
 `project init` writes a `shared` entry for each registered specification
 path and a directory entry for each configured store directory: requirement,
