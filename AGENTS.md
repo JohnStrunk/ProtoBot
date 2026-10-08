@@ -14,6 +14,26 @@
   that directory so Claude Code finds the same skills; do not add skills
   under `.claude/` directly.
 
+## Workflow files and CI boundaries
+
+Autonomous agent GitHub App tokens lack `workflows: write`
+permissions. Commits that create or modify any file under
+`.github/workflows/` are rejected by GitHub at push time.
+Agents must follow these rules:
+
+1. **Do not create or modify workflow files.** Agents must not
+   create or modify any file under `.github/workflows/`.
+
+2. **Defer CI integration for new modules.** When implementing an issue
+   that introduces a new Go module, package, or tool, implement the
+   code, local test suites, and module-local configs (`go.mod`,
+   `.golangci.yml`), but do not create or modify
+   [`.github/workflows/ci-workflow.yaml`][ci-workflow]. Creating
+   or modifying [`.github/workflows/ci-workflow.yaml`][ci-workflow]
+   is reserved for manual human pull requests.
+
+[ci-workflow]: .github/workflows/ci-workflow.yaml
+
 ## Rules for creating or modifying sibling entries
 
 A governed scope defines a domain of applicability, while a list
