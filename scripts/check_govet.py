@@ -73,7 +73,7 @@ def _is_dependency_error(output: str) -> bool:
     )
 
 
-def _build_vet_command(module: Path, repo_root: Path | None = None) -> list[str]:
+def _build_vet_command(module: Path) -> list[str]:
     """Construct the ``go vet`` command for *module*."""
     cmd = ["go", "vet"]
     if (module / "vendor").is_dir():
@@ -99,7 +99,7 @@ def check(files: list[str], repo_root: Path = REPO_ROOT) -> int:
 
     failed = False
     for module in sorted(modules):
-        cmd = _build_vet_command(module, repo_root)
+        cmd = _build_vet_command(module)
         env = os.environ.copy()
         env["GOWORK"] = "off"
         try:
