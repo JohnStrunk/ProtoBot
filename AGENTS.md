@@ -8,6 +8,8 @@
   `--files FILE [FILE ...]` (check specific files),
   `--check-parity` (verify registry covers all configured hooks).
   Tools must be pre-installed when running without network access.
+  Go changes must pass `gofmt` and `go vet` across affected Go modules
+  before committing.
 - The upstream repository is `redhat-et/protobot`. Ensure that pull requests
   are made against this repository.
 - Agent skills live in `.agents/skills/`. `.claude/skills` is a symlink to

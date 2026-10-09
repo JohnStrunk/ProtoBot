@@ -39,6 +39,7 @@ assert_lint() {
     local content="$3"    # file content
     local expect_rc="$4"  # 0 or nonzero
     local expect_str="${5:-}"  # substring to find in output
+    local expect_diag="${6:-}" # diagnostic substring to find in output
 
     local filepath="${REPO_ROOT}/${filename}"
     mkdir -p "$(dirname "${filepath}")"
@@ -68,6 +69,13 @@ assert_lint() {
 
     if [[ -n "${expect_str}" ]] && ! echo "${clean_output}" | grep -qE "(✓|✗|○|\?|!) ${expect_str}( |$)"; then
         echo "FAIL  ${label}: expected output to contain '${expect_str}'"
+        echo "  actual output (last 5 lines):"
+        echo "${output}" | tail -5 | sed 's/^/    /'
+        ok=false
+    fi
+
+    if [[ -n "${expect_diag}" ]] && ! echo "${clean_output}" | grep -qF "${expect_diag}"; then
+        echo "FAIL  ${label}: expected output to contain diagnostic '${expect_diag}'"
         echo "  actual output (last 5 lines):"
         echo "${output}" | tail -5 | sed 's/^/    /'
         ok=false
@@ -426,6 +434,70 @@ if [[ "${lint_hier_rc}" -eq 0 ]] && echo "${lint_hier_clean}" | grep -qE "✓ sp
 else
     echo "FAIL  hierarchy-lint-wiring: spec-hierarchy-sync did not pass (exit ${lint_hier_rc})"
     echo "${lint_hier_output}" | tail -8 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
+fi
+
+# ── Go formatting and vet ───────────────────────────────────
+
+echo ""
+echo "── Go ──────────────────────────────────────────────────"
+
+assert_lint \
+    "go-fmt-valid" \
+    "tests/lint/fixtures/linttest_valid.go" \
+    $'package linttest\n\nfunc Hello() {\n}\n' \
+    0 \
+    "gofmt"
+
+assert_lint \
+    "go-fmt-unformatted" \
+    "tests/lint/fixtures/linttest_unformatted.go" \
+    $'package linttest\n\nfunc Hello() {\n\tvar x int=1\n\t_ = x\n}\n' \
+    nonzero \
+    "gofmt"
+
+assert_lint \
+    "go-vet-printf" \
+    "tests/lint/fixtures/linttest_vet.go" \
+    $'package linttest\n\nimport "fmt"\n\nfunc Hello() {\n\tfmt.Printf("%d", "not an int")\n}\n' \
+    nonzero \
+    "go-vet" \
+    "wrong type"
+
+# lint.py must wire the local Go hooks when a real Go file is in
+# the file set (not only the temp fixtures above).
+lint_go_rc=0
+lint_go_output="$(python3 "${LINT}" --files wms/memory/lifecycle.go 2>&1)" || lint_go_rc=$?
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_go_clean="$(echo "${lint_go_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+if [[ "${lint_go_rc}" -eq 0 ]] \
+    && echo "${lint_go_clean}" | grep -qE "✓ gofmt( |$)" \
+    && echo "${lint_go_clean}" | grep -qE "✓ go-vet( |$)"; then
+    echo "PASS  go-hooks-wiring: lint.py runs gofmt and go-vet"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  go-hooks-wiring: gofmt/go-vet did not pass (exit ${lint_go_rc})"
+    echo "${lint_go_output}" | tail -8 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
+fi
+
+# ears-manager check (module with third-party dependencies):
+# verify go-vet either succeeds (with populated cache/network) or
+# fails closed with the dependency resolution diagnostic banner.
+lint_ears_rc=0
+lint_ears_output="$(python3 "${LINT}" --files "ears-manager/cmd/ears-manager/main.go" 2>&1)" || lint_ears_rc=$?
+
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_ears_clean="$(echo "${lint_ears_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+if [[ "${lint_ears_rc}" -eq 0 ]] && echo "${lint_ears_clean}" | grep -qE "✓ go-vet( |$)"; then
+    echo "PASS  go-vet-ears-manager: go-vet passed with populated cache/network"
+    PASS=$((PASS + 1))
+elif [[ "${lint_ears_rc}" -ne 0 ]] && echo "${lint_ears_clean}" | grep -qF "dependency resolution failed in ears-manager"; then
+    echo "PASS  go-vet-ears-manager: go-vet failed closed with dependency resolution diagnostic"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  go-vet-ears-manager: expected go-vet success or dependency-resolution diagnostic (exit ${lint_ears_rc})"
+    echo "${lint_ears_output}" | tail -8 | sed 's/^/    /'
     FAIL=$((FAIL + 1))
 fi
 
