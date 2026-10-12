@@ -40,7 +40,7 @@ func TestRequestCreateMapsWithoutGitHubLeak(t *testing.T) {
 	}
 	assertNoGitHubLeak(t, result.Resource)
 
-	number, ok := wms.RequestIssueNumber(request.ID)
+	number, ok := wms.requestIssueNumber(request.ID)
 	if !ok {
 		t.Fatal("expected github issue for request")
 	}
@@ -103,7 +103,7 @@ func TestClaimStaleContractVersionRejected(t *testing.T) {
 	if !materialized.OK {
 		t.Fatalf("materialize = %#v", materialized)
 	}
-	item, ok := wms.LoadWorkItemForTest("wi-claim")
+	item, ok := wms.loadWorkItemForTest("wi-claim")
 	if !ok {
 		t.Fatal("missing work item")
 	}
@@ -129,7 +129,7 @@ func TestClaimStaleContractVersionRejected(t *testing.T) {
 	if beforeBody != afterBody {
 		t.Fatal("stale claim mutated github issue body")
 	}
-	unchanged, _ := wms.LoadWorkItemForTest(item.ID)
+	unchanged, _ := wms.loadWorkItemForTest(item.ID)
 	if unchanged.State != item.State || unchanged.ContractVersion != item.ContractVersion {
 		t.Fatalf("item mutated: %#v", unchanged)
 	}
@@ -279,7 +279,7 @@ func TestMaterializeLostCreateResponseRebindsWithoutSecondIssue(t *testing.T) {
 		t.Fatal("expected ListIssues reconcile after lost create response")
 	}
 
-	number, ok := wms.WorkItemIssueNumber("wi-lost")
+	number, ok := wms.workItemIssueNumber("wi-lost")
 	if !ok {
 		t.Fatal("expected rebound work-item index")
 	}
@@ -670,7 +670,7 @@ func TestRefineRequestTransientLoadReturnsWMSUnavailable(t *testing.T) {
 		t.Fatalf("create = %#v", created)
 	}
 	request := created.Resource.(adapter.RequestRecord)
-	number, ok := wms.RequestIssueNumber(request.ID)
+	number, ok := wms.requestIssueNumber(request.ID)
 	if !ok {
 		t.Fatal("missing request issue number")
 	}
@@ -724,7 +724,7 @@ func TestUpdatePriorityTransientRequestLoadReturnsWMSUnavailable(t *testing.T) {
 		t.Fatalf("create = %#v", created)
 	}
 	request := created.Resource.(adapter.RequestRecord)
-	number, ok := wms.RequestIssueNumber(request.ID)
+	number, ok := wms.requestIssueNumber(request.ID)
 	if !ok {
 		t.Fatal("missing request issue number")
 	}
@@ -789,7 +789,7 @@ func TestUpdatePriorityTransientWorkItemLoadReturnsWMSUnavailable(t *testing.T) 
 	}
 	linkedRequest := link.Resource.(adapter.RequestRecord)
 
-	workItemNumber, ok := wms.WorkItemIssueNumber(candidate.ID)
+	workItemNumber, ok := wms.workItemIssueNumber(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item issue number")
 	}
@@ -821,7 +821,7 @@ func TestLinkChangeSetTransientRequestLoadReturnsWMSUnavailable(t *testing.T) {
 	client := &toggledFailClient{inner: fake}
 	wms := newTestAdapterWithClient(t, client)
 
-	if err := wms.SeedChangeSet(adapter.ChangeSet{ID: "cs-transient", Revision: "r1", BusinessPriority: "normal"}); err != nil {
+	if err := wms.SeedChangeSet(adapter.ChangeSet{ID: "cs-transient", Revision: "proposed", BusinessPriority: "normal"}); err != nil {
 		t.Fatalf("seed change set: %v", err)
 	}
 
@@ -838,7 +838,7 @@ func TestLinkChangeSetTransientRequestLoadReturnsWMSUnavailable(t *testing.T) {
 		t.Fatalf("create = %#v", created)
 	}
 	request := created.Resource.(adapter.RequestRecord)
-	number, ok := wms.RequestIssueNumber(request.ID)
+	number, ok := wms.requestIssueNumber(request.ID)
 	if !ok {
 		t.Fatal("missing request issue number")
 	}
@@ -883,7 +883,7 @@ func TestLinkWorkItemTransientRequestLoadReturnsWMSUnavailable(t *testing.T) {
 		t.Fatalf("create = %#v", created)
 	}
 	request := created.Resource.(adapter.RequestRecord)
-	number, ok := wms.RequestIssueNumber(request.ID)
+	number, ok := wms.requestIssueNumber(request.ID)
 	if !ok {
 		t.Fatal("missing request issue number")
 	}
@@ -938,7 +938,7 @@ func TestLinkWorkItemTransientWorkItemLoadReturnsWMSUnavailable(t *testing.T) {
 	if result := wms.Execute(materializeCall(candidate, "mat-link-load-transient", "mat-link-load-transient-key")); !result.OK {
 		t.Fatalf("materialize = %#v", result)
 	}
-	workItemNumber, ok := wms.WorkItemIssueNumber(candidate.ID)
+	workItemNumber, ok := wms.workItemIssueNumber(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item issue number")
 	}
@@ -974,11 +974,11 @@ func TestClaimTransientWorkItemLoadReturnsWMSUnavailable(t *testing.T) {
 	if result := wms.Execute(materializeCall(candidate, "mat-claim-transient", "mat-claim-transient-key")); !result.OK {
 		t.Fatalf("materialize = %#v", result)
 	}
-	item, ok := wms.LoadWorkItemForTest(candidate.ID)
+	item, ok := wms.loadWorkItemForTest(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item")
 	}
-	number, ok := wms.WorkItemIssueNumber(candidate.ID)
+	number, ok := wms.workItemIssueNumber(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item issue number")
 	}
@@ -1023,7 +1023,7 @@ func TestRequestQueryTransientLoadReturnsWMSUnavailable(t *testing.T) {
 		t.Fatalf("create = %#v", created)
 	}
 	request := created.Resource.(adapter.RequestRecord)
-	number, ok := wms.RequestIssueNumber(request.ID)
+	number, ok := wms.requestIssueNumber(request.ID)
 	if !ok {
 		t.Fatal("missing request issue number")
 	}
@@ -1048,7 +1048,7 @@ func TestWorkItemQueryTransientLoadReturnsWMSUnavailable(t *testing.T) {
 	if result := wms.Execute(materializeCall(candidate, "mat-query-transient", "mat-query-transient-key")); !result.OK {
 		t.Fatalf("materialize = %#v", result)
 	}
-	number, ok := wms.WorkItemIssueNumber(candidate.ID)
+	number, ok := wms.workItemIssueNumber(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item issue number")
 	}
@@ -1074,7 +1074,7 @@ func TestBlockedWorkQueryTransientLoadReturnsWMSUnavailable(t *testing.T) {
 	if result := wms.Execute(materializeCall(candidate, "mat-blocked-transient", "mat-blocked-transient-key")); !result.OK {
 		t.Fatalf("materialize = %#v", result)
 	}
-	number, ok := wms.WorkItemIssueNumber(candidate.ID)
+	number, ok := wms.workItemIssueNumber(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item issue number")
 	}
@@ -1264,7 +1264,7 @@ func assertNoGitHubLeak(t *testing.T, resource any) {
 
 func mustIssueBody(t *testing.T, fake *FakeClient, wms *Adapter, workItemID string) string {
 	t.Helper()
-	number, ok := wms.WorkItemIssueNumber(workItemID)
+	number, ok := wms.workItemIssueNumber(workItemID)
 	if !ok {
 		t.Fatal("missing issue number")
 	}

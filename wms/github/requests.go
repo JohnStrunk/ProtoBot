@@ -375,6 +375,34 @@ func (a *Adapter) refineRequestLocked(call adapter.CallRequest, authorization va
 	return result
 }
 
+// updatePriorityLocked writes the linked change-set/work-item priority
+// before the request's own revision and audit event. This is not a single
+// atomic mutation: the request and its linked change set or work item are
+// separate GitHub issues, and GitHub has no cross-issue transaction
+// primitive (the in-process Coordinator only serializes writes to issues it
+// is given; it cannot span two of them). The write order is deliberate —
+// the linked side is updated first because it is the lower-priority,
+// secondary record: if the second write (the request) fails, the request's
+// recorded priority and audit trail have not advanced, so a caller never
+// sees an "applied" result inconsistent with what the request itself shows.
+// The alternative order would risk the opposite: a request that already
+// reports the new priority while the linked side silently never received
+// it.
+//
+// A same-key retry self-heals in the common case: updateWorkItemIssue
+// always writes the same values deterministically from the current
+// request/payload, so repeating it is a no-op even if the first attempt's
+// linked-side write already applied. The residual gap is narrow and
+// bounded: if the caller abandons the retry, or a concurrent mutation
+// changes the request's revision before the retry lands (surfacing
+// STALE_REQUEST_REVISION instead of a clean reconcile), the linked side can
+// stay ahead of the request's recorded priority until the next successful
+// update-priority call. This never manifests as a false "applied" result —
+// a failed second write always returns UNKNOWN_MUTATION or
+// WMS_UNAVAILABLE — and closing it fully would require a saga/compensation
+// design across two independent GitHub resources, which is out of the
+// first-slice (#68) scope of single-resource CAS or a documented
+// coordinator boundary.
 func (a *Adapter) updatePriorityLocked(call adapter.CallRequest, authorization validation.AuthorizationContext) adapter.Result {
 	request, doc, number, err := a.loadRequest(call.RequestID)
 	if err != nil {
@@ -463,8 +491,10 @@ func (a *Adapter) linkChangeSetLocked(call adapter.CallRequest, authorization va
 	if !exists {
 		return rejectedResult(call.Operation, validationNotFound("change-set"))
 	}
-	if payload.TargetRevision != "" && payload.TargetRevision != changeSet.Revision {
-		return rejectedResult(call.Operation, invalidRequest("target_revision", "does not match the change-set revision"))
+	if payload.ChangeSetID == "" || request.ChangeSetID == payload.ChangeSetID ||
+		(payload.TargetRevision != "" && changeSet.Revision != payload.TargetRevision) ||
+		(changeSet.Revision != "proposed" && changeSet.Revision != "approved") {
+		return rejectedResult(call.Operation, invalidRequest("change_set_id/target_revision", "the link is duplicate or the target revision is not mutable"))
 	}
 	request.ChangeSetID = changeSet.ID
 	if changeSet.BusinessPriority != "" {
@@ -496,6 +526,13 @@ func (a *Adapter) linkChangeSetLocked(call adapter.CallRequest, authorization va
 	return result
 }
 
+// linkWorkItemLocked writes the linked work item's priority before the
+// request's own link and revision, for the same reason and with the same
+// residual gap documented on updatePriorityLocked above: the request and the
+// work item are separate GitHub issues with no cross-issue transaction, the
+// linked side is updated first so a failure never leaves the request
+// reporting a link the linked side never received, and a same-key retry
+// self-heals because the work-item write is idempotent at the value level.
 func (a *Adapter) linkWorkItemLocked(call adapter.CallRequest, authorization validation.AuthorizationContext) adapter.Result {
 	request, doc, number, err := a.loadRequest(call.RequestID)
 	if err != nil {
@@ -511,6 +548,9 @@ func (a *Adapter) linkWorkItemLocked(call adapter.CallRequest, authorization val
 	item, issueNumber, err := a.loadWorkItem(payload.BuildWorkItemID)
 	if err != nil {
 		return rejectedResult(call.Operation, backendLoadRejection("work-item", err))
+	}
+	if payload.BuildWorkItemID == "" || request.BuildWorkItemID == payload.BuildWorkItemID {
+		return rejectedResult(call.Operation, invalidRequest("build_work_item_id", "the work-item link is empty or duplicate"))
 	}
 	request.BuildWorkItemID = item.ID
 	if request.BusinessPriority != "" {

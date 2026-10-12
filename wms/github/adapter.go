@@ -1,3 +1,21 @@
+// Package github is the first backend translator over GitHub Issues for the
+// backend-neutral WMS contract (issue #68). Lifecycle rules stay in
+// wms/validation; this package only maps ProtoBot requests and work items to
+// labeled GitHub issue bodies and back.
+//
+// Trust model: a GitHub issue write is the WMS-store write. Stored documents
+// carry no signature or MAC, and Client.UpdateIssue has no etag or
+// precondition (see client.go), so this package cannot detect or reject an
+// issue edited outside the adapter — anyone with write access to the
+// repository's issues already has write access to the WMS store. The
+// Coordinator (see coordinator.go) only serializes Adapter instances that
+// share it; it provides compare-and-swap among cooperating adapters, not
+// protection against a concurrent out-of-band edit. Authenticating stored
+// documents or pairing writes with a durable compare-and-swap token is
+// explicitly out of this first slice's scope (issue #68 asks for
+// single-resource CAS or a documented coordinator boundary, not tamper
+// detection); see lifecycle.go's claim comment for the narrower,
+// claim-specific consequence of this trust model.
 package github
 
 import (
@@ -190,9 +208,25 @@ func (a *Adapter) rememberIdempotencyLocked(key, fingerprint string, result adap
 	}
 }
 
-func (a *Adapter) nextFenceTokenLocked() string {
-	a.idx.nextFenceSeq++
-	return fmt.Sprintf("fence-%d", a.idx.nextFenceSeq)
+// peekFenceTokenLocked returns the fencing token the next authoritative
+// mutation would receive, without consuming it. It does not mutate
+// nextFenceSeq, so repeated calls between a successful advanceFenceTokenLocked
+// return the same candidate (matching wms/memory/memory.go, which computes
+// nextFencingToken+1 as the candidate and only advances the stored counter
+// after Evaluate confirms a token was actually issued).
+func (a *Adapter) peekFenceTokenLocked() string {
+	return fmt.Sprintf("fence-%d", a.idx.nextFenceSeq+1)
+}
+
+// advanceFenceTokenLocked consumes the previously peeked candidate when
+// issued is true (the decision actually used it, decision.FencingTokenIssued
+// != ""). A rejected, omitted, or read-only evaluation does not advance the
+// sequence, so the next authoritative mutation gets the same candidate
+// peekFenceTokenLocked already offered it, not a skipped number.
+func (a *Adapter) advanceFenceTokenLocked(issued bool) {
+	if issued {
+		a.idx.nextFenceSeq++
+	}
 }
 
 func (a *Adapter) nextRequestIDLocked() string {

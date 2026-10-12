@@ -54,7 +54,7 @@ func TestClaimAfterRestartServesDurableWorkItem(t *testing.T) {
 	if result := first.Execute(materializeCall(candidate, "mat-restart-claim", "mat-restart-claim-key")); !result.OK {
 		t.Fatalf("materialize = %#v", result)
 	}
-	item, ok := first.LoadWorkItemForTest(candidate.ID)
+	item, ok := first.loadWorkItemForTest(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item")
 	}
@@ -91,7 +91,7 @@ func TestClaimLostResponseReconcilesToAppliedClaim(t *testing.T) {
 	if result := wms.Execute(materializeCall(candidate, "mat-claim-lost", "mat-claim-lost-key")); !result.OK {
 		t.Fatalf("materialize = %#v", result)
 	}
-	item, ok := wms.LoadWorkItemForTest(candidate.ID)
+	item, ok := wms.loadWorkItemForTest(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item")
 	}
@@ -140,7 +140,7 @@ func TestClaimPreservesRequestAndChangeSetLinks(t *testing.T) {
 	fake := NewFakeClient()
 	wms := newTestAdapter(t, fake)
 	request := createGithubTestRequest(t, wms, "Link Preservation Request", "claim must not blank links")
-	changeSet := adapter.ChangeSet{ID: "CS-Preserve", Revision: "rev-1", BusinessPriority: "high"}
+	changeSet := adapter.ChangeSet{ID: "CS-Preserve", Revision: "proposed", BusinessPriority: "high"}
 	if err := wms.SeedChangeSet(changeSet); err != nil {
 		t.Fatal(err)
 	}
@@ -158,7 +158,7 @@ func TestClaimPreservesRequestAndChangeSetLinks(t *testing.T) {
 		RequestID:               request.ID,
 		ExpectedRequestRevision: &request.Revision,
 		IdempotencyKey:          "link-preserve-cs-1",
-		Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-Preserve", "target_revision": "rev-1"}),
+		Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-Preserve", "target_revision": "proposed"}),
 	})
 	if !linkChangeSet.OK {
 		t.Fatalf("link change set = %#v", linkChangeSet)
@@ -180,7 +180,7 @@ func TestClaimPreservesRequestAndChangeSetLinks(t *testing.T) {
 		t.Fatalf("link work item = %#v", link)
 	}
 
-	item, ok := wms.LoadWorkItemForTest(candidate.ID)
+	item, ok := wms.loadWorkItemForTest(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item")
 	}
@@ -197,7 +197,7 @@ func TestClaimPreservesRequestAndChangeSetLinks(t *testing.T) {
 		t.Fatalf("claim after link = %#v", claim)
 	}
 
-	number, ok := wms.WorkItemIssueNumber(candidate.ID)
+	number, ok := wms.workItemIssueNumber(candidate.ID)
 	if !ok {
 		t.Fatal("missing work item issue number")
 	}
@@ -404,7 +404,7 @@ func TestOmittedMaterializationReservesKeyDurable(t *testing.T) {
 	if fake.IssueCount() != 1 {
 		t.Fatalf("issues after conflict = %d, want 1 (no executable issue under the reserved key)", fake.IssueCount())
 	}
-	if _, exists := wms.LoadWorkItemForTest(candidate.ID); exists {
+	if _, exists := wms.loadWorkItemForTest(candidate.ID); exists {
 		t.Fatal("omitted materialization created an executable work item")
 	}
 }
@@ -655,6 +655,51 @@ func TestMaterializeTransientDependencyLoadReturnsWMSUnavailable(t *testing.T) {
 	}
 }
 
+// TestFencingTokenSequenceOnlyAdvancesWhenIssued covers the fencing-token
+// counter matching wms/memory/memory.go: only claim (job-site role,
+// transitioning to building) issues a fencing token in this slice, so
+// materializing several work items first must not burn sequence numbers.
+// Previously nextFenceTokenLocked incremented unconditionally before
+// Evaluate ran, so every lifecycle call (materialize included) consumed a
+// number regardless of whether the eventual decision used it.
+func TestFencingTokenSequenceOnlyAdvancesWhenIssued(t *testing.T) {
+	fake := NewFakeClient()
+	wms := newTestAdapter(t, fake)
+
+	omitted := testWorkItem("wi-fence-omitted", validation.StateInitial, 0)
+	omitted.ImplementationRequired = false
+	if result := wms.Execute(materializeCall(omitted, "fence-omitted-1", "fence-omitted-key")); !result.OK {
+		t.Fatalf("omitted materialize = %#v", result)
+	}
+
+	candidate := testWorkItem("wi-fence-claim", validation.StateInitial, 0)
+	materialized := wms.Execute(materializeCall(candidate, "fence-materialize-1", "fence-claim-key"))
+	if !materialized.OK {
+		t.Fatalf("materialize = %#v", materialized)
+	}
+
+	item, ok := wms.loadWorkItemForTest(candidate.ID)
+	if !ok {
+		t.Fatal("missing work item")
+	}
+	version := item.ContractVersion
+	claim := wms.Execute(adapter.CallRequest{
+		Operation:               string(validation.OperationClaim),
+		ActorContextRef:         "job-site",
+		WorkItemID:              item.ID,
+		ExpectedState:           item.State,
+		ExpectedContractVersion: &version,
+		IdempotencyKey:          "fence-claim-1",
+	})
+	if !claim.OK || claim.Decision == nil {
+		t.Fatalf("claim = %#v", claim)
+	}
+	if claim.Decision.FencingTokenIssued != "fence-1" {
+		t.Fatalf("fencing token = %q, want fence-1 (the earlier omitted materialize and this materialize must not have advanced the sequence)", claim.Decision.FencingTokenIssued)
+	}
+}
+
+// TestMaterializeScanFailureDoesNotCreateDuplicate covers
 // loadMaterializationEntryLocked treating every non-transient scan error as
 // "no binding": a permanent ListIssues failure is inconclusive, and
 // proceeding to CreateIssue could orphan a second work-item issue under the

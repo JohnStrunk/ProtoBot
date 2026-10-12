@@ -17,8 +17,18 @@ func (a *Adapter) executeLifecycleLocked(call adapter.CallRequest, authorization
 		Authority:        validation.AuthorityAuthoritative,
 		EvaluationTime:   a.now(),
 		LeaseDuration:    a.leaseDuration,
-		NextFencingToken: a.nextFenceTokenLocked(),
+		NextFencingToken: a.peekFenceTokenLocked(),
 		Approvals:        a.approvalSnapshotLocked(),
+	}
+	// evaluate wraps validation.Evaluate so every call site that shares this
+	// evaluation's peeked fencing-token candidate advances the sequence only
+	// when the decision actually issued it (matches wms/memory/memory.go: a
+	// rejected, omitted, or non-issuing decision must not burn a sequence
+	// number the next authoritative mutation could have used).
+	evaluate := func(req validation.Request, current *validation.WorkItem) validation.Decision {
+		decision := validation.Evaluate(req, current, evaluation)
+		a.advanceFenceTokenLocked(decision.FencingTokenIssued != "")
+		return decision
 	}
 
 	var current *validation.WorkItem
@@ -55,13 +65,13 @@ func (a *Adapter) executeLifecycleLocked(call adapter.CallRequest, authorization
 				if result, handled := a.replayLifecycleRequest(call, request, fingerprint); handled {
 					return result
 				}
-				result := resultFromDecision(call.Operation, validation.Evaluate(request, nil, evaluation))
+				result := resultFromDecision(call.Operation, evaluate(request, nil))
 				if shouldRememberIdempotency(result) {
 					a.rememberIdempotencyLocked(request.IdempotencyKey, fingerprint, result)
 				}
 				return result
 			}
-			return resultFromDecision(call.Operation, validation.Evaluate(request, nil, evaluation))
+			return resultFromDecision(call.Operation, evaluate(request, nil))
 		}
 		copy := cloneWorkItem(item)
 		current = &copy
@@ -76,7 +86,7 @@ func (a *Adapter) executeLifecycleLocked(call adapter.CallRequest, authorization
 		request.References,
 		evaluation.EvaluationTime,
 	) != nil {
-		return resultFromDecision(call.Operation, validation.Evaluate(request, current, evaluation))
+		return resultFromDecision(call.Operation, evaluate(request, current))
 	}
 	if call.PolicyVersion != "" && call.PolicyVersion != authorization.PolicyVersion {
 		decision := validation.RejectionDecision(request, validation.AuthorityAuthoritative,
@@ -308,6 +318,7 @@ func (a *Adapter) applyLifecycleRequest(
 	evaluation validation.EvaluationContext,
 ) adapter.Result {
 	decision := validation.Evaluate(request, current, evaluation)
+	a.advanceFenceTokenLocked(decision.FencingTokenIssued != "")
 	result := resultFromDecision(operation, decision)
 	switch decision.Outcome {
 	case validation.OutcomeAllowed:
@@ -553,8 +564,8 @@ func (a *Adapter) startLease(item *validation.WorkItem, owner, token string, now
 	}
 }
 
-// WorkItemIssueNumber returns the GitHub issue number for tests.
-func (a *Adapter) WorkItemIssueNumber(id string) (int, bool) {
+// workItemIssueNumber returns the GitHub issue number for tests.
+func (a *Adapter) workItemIssueNumber(id string) (int, bool) {
 	var number int
 	var ok bool
 	a.coord.WithLock(func() {
@@ -563,8 +574,8 @@ func (a *Adapter) WorkItemIssueNumber(id string) (int, bool) {
 	return number, ok
 }
 
-// RequestIssueNumber returns the GitHub issue number for tests.
-func (a *Adapter) RequestIssueNumber(id string) (int, bool) {
+// requestIssueNumber returns the GitHub issue number for tests.
+func (a *Adapter) requestIssueNumber(id string) (int, bool) {
 	var number int
 	var ok bool
 	a.coord.WithLock(func() {
@@ -573,8 +584,8 @@ func (a *Adapter) RequestIssueNumber(id string) (int, bool) {
 	return number, ok
 }
 
-// LoadWorkItemForTest returns the durable work item for assertions.
-func (a *Adapter) LoadWorkItemForTest(id string) (validation.WorkItem, bool) {
+// loadWorkItemForTest returns the durable work item for assertions.
+func (a *Adapter) loadWorkItemForTest(id string) (validation.WorkItem, bool) {
 	var item validation.WorkItem
 	var ok bool
 	a.coord.WithLock(func() {

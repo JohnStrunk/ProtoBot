@@ -159,6 +159,122 @@ func TestRefineRequestRejectsInvalidRelationships(t *testing.T) {
 	}
 }
 
+// TestLinkChangeSetRejectsDuplicateAndNonMutableRevision mirrors the memory
+// adapter's link contract (wms/memory/requests.go:377-381) and
+// docs/architecture/drafting-table-wms.md:175 ("Optional link to a proposed
+// or approved change set."). Previously linkChangeSetLocked only checked
+// change-set existence and an optional target_revision match, so relinking
+// an already-linked change set, or linking one whose revision is neither
+// "proposed" nor "approved", applied and bumped request_revision.
+func TestLinkChangeSetRejectsDuplicateAndNonMutableRevision(t *testing.T) {
+	fake := NewFakeClient()
+	wms := newTestAdapter(t, fake)
+
+	t.Run("duplicate", func(t *testing.T) {
+		request := createGithubTestRequest(t, wms, "Link Duplicate Request", "second link under the same change set is rejected")
+		changeSet := adapter.ChangeSet{ID: "CS-link-duplicate", Revision: "proposed"}
+		if err := wms.SeedChangeSet(changeSet); err != nil {
+			t.Fatal(err)
+		}
+		revision := request.Revision
+		first := wms.Execute(adapter.CallRequest{
+			Operation:               string(validation.OperationRequestLinkChangeSet),
+			ActorContextRef:         "drafting-table",
+			RequestID:               request.ID,
+			ExpectedRequestRevision: &revision,
+			IdempotencyKey:          "link-dup-1",
+			Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-link-duplicate"}),
+		})
+		if !first.OK {
+			t.Fatalf("first link = %#v, want applied", first)
+		}
+		linked := first.Resource.(adapter.RequestRecord)
+		second := wms.Execute(adapter.CallRequest{
+			Operation:               string(validation.OperationRequestLinkChangeSet),
+			ActorContextRef:         "drafting-table",
+			RequestID:               request.ID,
+			ExpectedRequestRevision: &linked.Revision,
+			IdempotencyKey:          "link-dup-2",
+			Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-link-duplicate"}),
+		})
+		if second.OK || second.Error == nil || second.Error.Code != adapter.CodeInvalidRequest {
+			t.Fatalf("duplicate link = %#v, want INVALID_REQUEST", second)
+		}
+		unchanged, _, _, err := wms.loadRequest(request.ID)
+		if err != nil || unchanged.Revision != linked.Revision {
+			t.Fatalf("request mutated by rejected duplicate link: %#v, err=%v", unchanged, err)
+		}
+	})
+
+	t.Run("non-mutable-revision", func(t *testing.T) {
+		request := createGithubTestRequest(t, wms, "Link Non-Mutable Request", "a merged change set cannot be linked")
+		changeSet := adapter.ChangeSet{ID: "CS-link-merged", Revision: "merged"}
+		if err := wms.SeedChangeSet(changeSet); err != nil {
+			t.Fatal(err)
+		}
+		revision := request.Revision
+		result := wms.Execute(adapter.CallRequest{
+			Operation:               string(validation.OperationRequestLinkChangeSet),
+			ActorContextRef:         "drafting-table",
+			RequestID:               request.ID,
+			ExpectedRequestRevision: &revision,
+			IdempotencyKey:          "link-non-mutable",
+			Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-link-merged"}),
+		})
+		if result.OK || result.Error == nil || result.Error.Code != adapter.CodeInvalidRequest {
+			t.Fatalf("link to a merged change set = %#v, want INVALID_REQUEST", result)
+		}
+		unchanged, _, _, err := wms.loadRequest(request.ID)
+		if err != nil || unchanged.Revision != request.Revision {
+			t.Fatalf("request mutated by rejected non-mutable link: %#v, err=%v", unchanged, err)
+		}
+	})
+}
+
+// TestLinkWorkItemRejectsEmptyAndDuplicate mirrors the memory adapter's link
+// contract (wms/memory/requests.go:424-425). Previously linkWorkItemLocked
+// only checked that the work item exists, so an empty build_work_item_id (a
+// no-op loadWorkItem("") miss aside) or relinking the same work item a
+// second time applied and bumped request_revision.
+func TestLinkWorkItemRejectsEmptyAndDuplicate(t *testing.T) {
+	fake := NewFakeClient()
+	wms := newTestAdapter(t, fake)
+	request := createGithubTestRequest(t, wms, "Link Work Item Duplicate Request", "second link under the same work item is rejected")
+	candidate := testWorkItem("wi-link-duplicate", validation.StateInitial, 0)
+	if result := wms.Execute(materializeCall(candidate, "mat-link-duplicate", "mat-link-duplicate-key")); !result.OK {
+		t.Fatalf("materialize = %#v", result)
+	}
+
+	revision := request.Revision
+	first := wms.Execute(adapter.CallRequest{
+		Operation:               string(validation.OperationRequestLinkBuildWorkItem),
+		ActorContextRef:         "drafting-table",
+		RequestID:               request.ID,
+		ExpectedRequestRevision: &revision,
+		IdempotencyKey:          "link-wi-dup-1",
+		Payload:                 jsonPayload(t, map[string]any{"build_work_item_id": candidate.ID}),
+	})
+	if !first.OK {
+		t.Fatalf("first link = %#v, want applied", first)
+	}
+	linked := first.Resource.(adapter.RequestRecord)
+	second := wms.Execute(adapter.CallRequest{
+		Operation:               string(validation.OperationRequestLinkBuildWorkItem),
+		ActorContextRef:         "drafting-table",
+		RequestID:               request.ID,
+		ExpectedRequestRevision: &linked.Revision,
+		IdempotencyKey:          "link-wi-dup-2",
+		Payload:                 jsonPayload(t, map[string]any{"build_work_item_id": candidate.ID}),
+	})
+	if second.OK || second.Error == nil || second.Error.Code != adapter.CodeInvalidRequest {
+		t.Fatalf("duplicate work-item link = %#v, want INVALID_REQUEST", second)
+	}
+	unchanged, _, _, err := wms.loadRequest(request.ID)
+	if err != nil || unchanged.Revision != linked.Revision {
+		t.Fatalf("request mutated by rejected duplicate work-item link: %#v, err=%v", unchanged, err)
+	}
+}
+
 // TestRefineRequestDurableApprovalConsumptionBlocksReuseAfterRestart covers
 // the fix for the GitHub adapter consuming approvals only in its in-process
 // index. Previously, after a restart the in-process "consumed" marker was
@@ -582,7 +698,7 @@ func TestRequestOperationsAfterRestartServeDurableRecords(t *testing.T) {
 	// A mutating operation must not freeze a spurious NOT_FOUND under its
 	// idempotency key on a restarted adapter.
 	revision := request.Revision
-	changeSet := adapter.ChangeSet{ID: "CS-Restart", Revision: "rev-1"}
+	changeSet := adapter.ChangeSet{ID: "CS-Restart", Revision: "proposed"}
 	if err := second.SeedChangeSet(changeSet); err != nil {
 		t.Fatal(err)
 	}
@@ -592,7 +708,7 @@ func TestRequestOperationsAfterRestartServeDurableRecords(t *testing.T) {
 		RequestID:               request.ID,
 		ExpectedRequestRevision: &revision,
 		IdempotencyKey:          "link-restart-1",
-		Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-Restart", "target_revision": "rev-1"}),
+		Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-Restart", "target_revision": "proposed"}),
 	})
 	if !link.OK {
 		t.Fatalf("request link after restart = %#v, want applied", link)
