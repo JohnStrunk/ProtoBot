@@ -52,6 +52,24 @@ type storedDocument struct {
 	LastClaim *lastMutationRecord `json:"last_claim,omitempty"`
 }
 
+// lastMutationRecord durably binds one applied non-create mutation (request
+// mutation or claim) to the effect it produced, so a lost-response retry
+// under the same idempotency key can reconcile to the original applied
+// result instead of a spurious determinate rejection. It also carries the
+// result fields each mutation reports, so the reconciled result matches
+// what the original call would have returned.
+type lastMutationRecord struct {
+	Operation               string            `json:"operation"`
+	IdempotencyKey          string            `json:"idempotency_key"`
+	Fingerprint             string            `json:"fingerprint"`
+	FencingToken            string            `json:"fencing_token,omitempty"`
+	ApprovalStatus          string            `json:"approval_status,omitempty"`
+	Link                    map[string]string `json:"link,omitempty"`
+	LinkedChangeSetPriority string            `json:"linked_change_set_priority,omitempty"`
+	LinkedWorkItemPriority  string            `json:"linked_work_item_priority,omitempty"`
+	AuditEvent              string            `json:"audit_event,omitempty"`
+}
+
 const (
 	kindRequest  = "request"
 	kindWorkItem = "work-item"

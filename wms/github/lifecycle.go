@@ -24,7 +24,7 @@ func (a *Adapter) executeLifecycleLocked(call adapter.CallRequest, authorization
 	var current *validation.WorkItem
 	item, existsErr := a.tryLoadWorkItem(request.WorkItemID)
 	if existsErr != nil && !errors.Is(existsErr, ErrNotFound) {
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, existsErr.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	exists := existsErr == nil
 	if request.Operation == validation.OperationMaterialize {
@@ -178,7 +178,7 @@ func (a *Adapter) reconcileAppliedClaim(call adapter.CallRequest, request valida
 	}
 	issue, err := a.client.GetIssue(a.ctx, number)
 	if err != nil {
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh)), true
+		return rejectedResult(call.Operation, wmsUnavailableRejection()), true
 	}
 	doc, err := decodeBody(issue.Body)
 	if err != nil || doc.Kind != kindWorkItem || doc.LastClaim == nil {
@@ -292,7 +292,7 @@ func (a *Adapter) loadMaterializationEntryLocked(key string) (*materializationEn
 		if errors.Is(err, ErrNotFound) {
 			return nil, nil
 		}
-		return nil, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh)
+		return nil, wmsUnavailableRejection()
 	}
 	a.idx.materializationKey[key] = materializationEntryForBinding(binding)
 	entry := a.idx.materializationKey[key]
@@ -337,11 +337,11 @@ func (a *Adapter) applyLifecycleRequest(
 			if err != nil {
 				if errorsIsTransient(err) {
 					if !a.rebindMaterializationAfterUnknown(request.MaterializationKey, sourceFingerprint, &result) {
-						return unknownMutationResult(operation, "GitHub write result could not be established.")
+						return unknownMutationResult(operation)
 					}
 					break
 				}
-				return rejectedResult(operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+				return rejectedResult(operation, wmsUnavailableRejection())
 			}
 			result.WorkItemID = item.ID
 			result.WorkItemState = item.State
@@ -378,9 +378,9 @@ func (a *Adapter) applyLifecycleRequest(
 			}
 			if err := a.updateWorkItemIssue(number, updated, workItemIssueUpdateOptions{mutation: mutation}); err != nil {
 				if errorsIsTransient(err) {
-					return unknownMutationResult(operation, "GitHub write result could not be established.")
+					return unknownMutationResult(operation)
 				}
-				return rejectedResult(operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+				return rejectedResult(operation, wmsUnavailableRejection())
 			}
 			result.WorkItemID = updated.ID
 			result.WorkItemState = updated.State
@@ -401,11 +401,11 @@ func (a *Adapter) applyLifecycleRequest(
 			if err != nil {
 				if errorsIsTransient(err) {
 					if !a.rebindOmittedReservationAfterUnknown(request.MaterializationKey, fingerprint) {
-						return unknownMutationResult(operation, "GitHub write result could not be established.")
+						return unknownMutationResult(operation)
 					}
 					break
 				}
-				return rejectedResult(operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+				return rejectedResult(operation, wmsUnavailableRejection())
 			}
 			a.idx.materializationKey[request.MaterializationKey] = materializationEntry{
 				fingerprint: fingerprint,
@@ -525,7 +525,7 @@ func (a *Adapter) liveDependenciesLocked(item validation.WorkItem) ([]validation
 		case errors.Is(err, ErrNotFound):
 			// Definitive miss.
 		case err != nil:
-			return nil, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh)
+			return nil, wmsUnavailableRejection()
 		case observed.ProjectID != a.projectID:
 			// An off-project dependency is not visible in this project.
 		default:

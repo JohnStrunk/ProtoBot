@@ -76,12 +76,14 @@ source-control-manager/
   internal/jobsite/         # Worker projection isolation fixture (#78)
 wms/
   go.mod
+  adapter/                  # backend-neutral wire types and operation surfaces
   validation/               # backend-neutral lifecycle evaluator
   memory/                   # in-memory WMS conformance adapter
+  github/                   # GitHub Issues backend translator (#68)
 ```
 
 Additional WMS backends can use their native layout under the same monorepo,
-for example `wms/github/` or `wms/jira/`; other components can use a native
+for example `wms/jira/`; other components can use a native
 layout such as `drafting-table/web/`. The root `go.work` makes local Go
 component development convenient without coupling other languages to Go.
 

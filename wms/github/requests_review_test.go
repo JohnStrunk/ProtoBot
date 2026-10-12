@@ -545,3 +545,87 @@ func refineGithubCall(requestID string, revision uint64, key string, payload ref
 		Payload:                 mustJSON(payload),
 	}
 }
+
+// TestRequestOperationsAfterRestartServeDurableRecords covers the fix for
+// request reads and mutations trusting only the in-process requestIssue map.
+// Previously, after a restart, request.get/query/refine and the link
+// operations returned NOT_FOUND (or an empty query result) for durable
+// requests until some unrelated request.create happened to hydrate the
+// index. The fix hydrates the request indexes from the durable store at the
+// start of every request operation.
+func TestRequestOperationsAfterRestartServeDurableRecords(t *testing.T) {
+	fake := NewFakeClient()
+	first := newTestAdapter(t, fake)
+	request := createGithubTestRequest(t, first, "Restart Serve Request", "durable after restart")
+
+	// Fresh adapter process over the same durable store.
+	second := newTestAdapter(t, fake)
+
+	got := second.Execute(adapter.CallRequest{
+		Operation:       string(validation.OperationRequestGet),
+		ActorContextRef: "drafting-table",
+		RequestID:       request.ID,
+	})
+	if !got.OK || got.RequestID != request.ID {
+		t.Fatalf("request.get after restart = %#v, want durable request", got)
+	}
+
+	query := second.Execute(adapter.CallRequest{
+		Operation:       string(validation.OperationRequestQuery),
+		ActorContextRef: "drafting-table",
+		Payload:         jsonPayload(t, map[string]any{}),
+	})
+	if !query.OK || len(query.Requests) != 1 || query.Requests[0].ID != request.ID {
+		t.Fatalf("request.query after restart = %#v, want the durable request, not an empty set", query)
+	}
+
+	// A mutating operation must not freeze a spurious NOT_FOUND under its
+	// idempotency key on a restarted adapter.
+	revision := request.Revision
+	changeSet := adapter.ChangeSet{ID: "CS-Restart", Revision: "rev-1"}
+	if err := second.SeedChangeSet(changeSet); err != nil {
+		t.Fatal(err)
+	}
+	link := second.Execute(adapter.CallRequest{
+		Operation:               string(validation.OperationRequestLinkChangeSet),
+		ActorContextRef:         "drafting-table",
+		RequestID:               request.ID,
+		ExpectedRequestRevision: &revision,
+		IdempotencyKey:          "link-restart-1",
+		Payload:                 jsonPayload(t, map[string]any{"change_set_id": "CS-Restart", "target_revision": "rev-1"}),
+	})
+	if !link.OK {
+		t.Fatalf("request link after restart = %#v, want applied", link)
+	}
+}
+
+// TestRequestOperationsHydrationScanFailureReturnsWMSUnavailable verifies a
+// failed hydration scan is reported as WMS_UNAVAILABLE, never served as an
+// empty success or a NOT_FOUND frozen under a mutation's idempotency key.
+func TestRequestOperationsHydrationScanFailureReturnsWMSUnavailable(t *testing.T) {
+	fake := NewFakeClient()
+	first := newTestAdapter(t, fake)
+	createGithubTestRequest(t, first, "Hydration Failure Request", "scan must not look empty")
+
+	client := &scanFailOnceAfterClient{inner: fake, skip: 0}
+	second := newTestAdapterWithClient(t, client)
+
+	query := second.Execute(adapter.CallRequest{
+		Operation:       string(validation.OperationRequestQuery),
+		ActorContextRef: "drafting-table",
+		Payload:         jsonPayload(t, map[string]any{}),
+	})
+	if query.OK || query.Error == nil || query.Error.Code != adapter.CodeWMSUnavailable {
+		t.Fatalf("request query during scan failure = %#v, want WMS_UNAVAILABLE (not an empty list)", query)
+	}
+
+	// Recovery: the same adapter serves the durable set once the scan works.
+	recovered := second.Execute(adapter.CallRequest{
+		Operation:       string(validation.OperationRequestQuery),
+		ActorContextRef: "drafting-table",
+		Payload:         jsonPayload(t, map[string]any{}),
+	})
+	if !recovered.OK || len(recovered.Requests) != 1 {
+		t.Fatalf("request query after scan recovery = %#v, want the durable request", recovered)
+	}
+}

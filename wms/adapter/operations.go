@@ -86,25 +86,6 @@ var adapterOperations = []validation.Operation{
 	validation.OperationFindingCreate,
 }
 
-// gitHubSubsetOperations is the #68 first-slice surface implemented by the
-// GitHub translator: request reads/writes, materialization, status queries,
-// and claim for compare-and-swap coverage. Unexported like every sibling
-// collection so an importer cannot expand or shrink the allowed surface.
-var gitHubSubsetOperations = []validation.Operation{
-	validation.OperationRequestCreate,
-	validation.OperationRequestRefine,
-	validation.OperationRequestUpdatePriority,
-	validation.OperationRequestLinkChangeSet,
-	validation.OperationRequestLinkBuildWorkItem,
-	validation.OperationRequestGet,
-	validation.OperationRequestQuery,
-	validation.OperationWorkItemGet,
-	validation.OperationWorkItemQuery,
-	validation.OperationBlockedWorkQuery,
-	validation.OperationMaterialize,
-	validation.OperationClaim,
-}
-
 // DraftingTableOperations returns the exact request/query/preflight surface
 // granted to the Drafting Table, projected onto the wire's operation-name
 // strings.
@@ -146,11 +127,6 @@ func AdapterOperations() []string {
 // IsAdapterOperation reports whether operation is part of the declared API.
 func IsAdapterOperation(operation validation.Operation) bool {
 	return slices.Contains(adapterOperations, operation)
-}
-
-// IsGitHubSubsetOperation reports whether operation is in the #68 first slice.
-func IsGitHubSubsetOperation(operation validation.Operation) bool {
-	return slices.Contains(gitHubSubsetOperations, operation)
 }
 
 // RoleHasWMSOperation reports whether role may invoke operation at the adapter

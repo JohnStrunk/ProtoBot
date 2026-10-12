@@ -124,7 +124,7 @@ func (a *Adapter) Execute(call adapter.CallRequest) adapter.Result {
 
 func (a *Adapter) executeLocked(call adapter.CallRequest) adapter.Result {
 	operation := validation.Operation(call.Operation)
-	if !adapter.IsGitHubSubsetOperation(operation) {
+	if !isSubsetOperation(operation) {
 		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
 	}
 	authorization, ok := a.gate.Resolve(call.ActorContextRef)
@@ -198,4 +198,58 @@ func (a *Adapter) nextFenceTokenLocked() string {
 func (a *Adapter) nextRequestIDLocked() string {
 	a.idx.nextRequestSeq++
 	return fmt.Sprintf("REQ-%05d", a.idx.nextRequestSeq)
+}
+
+// idempotencyEntry caches one mutation result under its idempotency key.
+type idempotencyEntry struct {
+	fingerprint string
+	result      adapter.Result
+}
+
+// materializationEntry caches the create-or-return reservation bound to a
+// materialization_key: either a materialized work item or an omitted
+// reservation (VR-039).
+type materializationEntry struct {
+	fingerprint string
+	result      adapter.Result
+	issueNumber int
+}
+
+// indexes is the Adapter's in-process state: the durable-issue caches, the
+// idempotency and materialization-key reservations, and the seeded Gate
+// state. Everything here is rebuildable from the durable GitHub issues
+// (hydration) except idempotency and pendingRequestCreate, which are
+// process-local only: a restart relies on the durable bindings
+// (last-mutation, last-claim, create-idempotency records) to reconcile the
+// retries that would otherwise have replayed from these maps.
+type indexes struct {
+	requestIssue         map[string]int // request id -> issue number
+	workItemIssue        map[string]int // work item id -> issue number
+	materializationKey   map[string]materializationEntry
+	idempotency          map[string]idempotencyEntry
+	semanticRequests     map[string]string
+	pendingRequestCreate map[string]string // idempotency key -> request id after UNKNOWN_MUTATION
+	changeSets           map[string]adapter.ChangeSet
+	approvals            map[string]validation.ApprovalRecord
+	nextRequestSeq       uint64
+	nextFenceSeq         uint64
+	// requestsHydrated and workItemsHydrated record that the durable
+	// LabelRequest/LabelWorkItem scans have completed once for this
+	// process, so reads fall back to a rescan only before the first
+	// successful hydration.
+	requestsHydrated  bool
+	workItemsHydrated bool
+}
+
+func newIndexes() *indexes {
+	return &indexes{
+		requestIssue:         make(map[string]int),
+		workItemIssue:        make(map[string]int),
+		materializationKey:   make(map[string]materializationEntry),
+		idempotency:          make(map[string]idempotencyEntry),
+		semanticRequests:     make(map[string]string),
+		pendingRequestCreate: make(map[string]string),
+		changeSets:           make(map[string]adapter.ChangeSet),
+		approvals:            make(map[string]validation.ApprovalRecord),
+	}
 }

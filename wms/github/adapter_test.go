@@ -551,7 +551,7 @@ func TestShouldRememberIdempotency(t *testing.T) {
 		},
 		{
 			name:   "unknown-mutation",
-			result: unknownMutationResult(string(validation.OperationRequestCreate), "ambiguous"),
+			result: unknownMutationResult(string(validation.OperationRequestCreate)),
 			want:   false,
 		},
 		{

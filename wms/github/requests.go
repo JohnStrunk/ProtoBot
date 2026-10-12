@@ -56,24 +56,6 @@ type requestQueryPayload struct {
 	Relationship     string `json:"relationship,omitempty"`
 }
 
-// lastMutationRecord durably binds one applied non-create request mutation
-// to the revision it produced, so a lost-response retry under the same
-// idempotency key can reconcile to the original applied result instead of a
-// spurious STALE_REQUEST_REVISION. It also carries the result fields each
-// mutation reports, so the reconciled result matches what the original call
-// would have returned.
-type lastMutationRecord struct {
-	Operation               string            `json:"operation"`
-	IdempotencyKey          string            `json:"idempotency_key"`
-	Fingerprint             string            `json:"fingerprint"`
-	FencingToken            string            `json:"fencing_token,omitempty"`
-	ApprovalStatus          string            `json:"approval_status,omitempty"`
-	Link                    map[string]string `json:"link,omitempty"`
-	LinkedChangeSetPriority string            `json:"linked_change_set_priority,omitempty"`
-	LinkedWorkItemPriority  string            `json:"linked_work_item_priority,omitempty"`
-	AuditEvent              string            `json:"audit_event,omitempty"`
-}
-
 // requestIssueUpdateOptions carries the durable bookkeeping an
 // updateRequestIssue call must persist in the same write as the request
 // revision it applies.
@@ -101,7 +83,7 @@ func (a *Adapter) executeRequestLocked(call adapter.CallRequest, authorization v
 	case validation.OperationRequestCreate, validation.OperationWorkItemGet, validation.OperationWorkItemQuery, validation.OperationBlockedWorkQuery:
 	default:
 		if err := a.ensureRequestsHydratedLocked(); err != nil {
-			return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			return rejectedResult(call.Operation, wmsUnavailableRejection())
 		}
 	}
 	fingerprint := requestFingerprint(call, authorization)
@@ -180,7 +162,7 @@ func (a *Adapter) createRequestLocked(call adapter.CallRequest, authorization va
 	semanticKey := requestSemanticKey(payload)
 	docs, err := a.hydrateRequestsLocked()
 	if err != nil {
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	if result, handled := a.replayDurableRequestCreate(call, authorization, docs); handled {
 		return result
@@ -219,7 +201,7 @@ func (a *Adapter) reconcilePendingRequestCreate(call adapter.CallRequest, semant
 	if errors.Is(err, ErrNotFound) {
 		return adapter.Result{}, false
 	}
-	return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh)), true
+	return rejectedResult(call.Operation, wmsUnavailableRejection()), true
 }
 
 func (a *Adapter) persistNewRequestLocked(
@@ -245,7 +227,7 @@ func (a *Adapter) persistNewRequestLocked(
 	issue, err := a.persistRequestIssue(request, call.IdempotencyKey, requestFingerprint(call, authorization))
 	if err != nil {
 		if !errorsIsTransient(err) {
-			return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			return rejectedResult(call.Operation, wmsUnavailableRejection())
 		}
 		a.idx.pendingRequestCreate[call.IdempotencyKey] = request.ID
 		if existing, number, findErr := a.findRequestByID(request.ID); findErr == nil {
@@ -253,7 +235,7 @@ func (a *Adapter) persistNewRequestLocked(
 			a.bindRequestLocked(existing, number, semanticKey)
 			return requestCreateAppliedResult(call.Operation, existing)
 		}
-		return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+		return unknownMutationResult(call.Operation)
 	}
 	delete(a.idx.pendingRequestCreate, call.IdempotencyKey)
 	a.bindRequestLocked(request, issue.Number, semanticKey)
@@ -371,9 +353,9 @@ func (a *Adapter) refineRequestLocked(call adapter.CallRequest, authorization va
 	}
 	if err := a.updateRequestIssue(number, refined, requestIssueUpdateOptions{mutation: mutation, consumedApprovalID: approvalID}); err != nil {
 		if errorsIsTransient(err) {
-			return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+			return unknownMutationResult(call.Operation)
 		}
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	if priorSemanticKey != nextSemanticKey {
 		delete(a.idx.semanticRequests, priorSemanticKey)
@@ -430,9 +412,9 @@ func (a *Adapter) updatePriorityLocked(call adapter.CallRequest, authorization v
 			priority:    payload.BusinessPriority,
 		}); err != nil {
 			if errorsIsTransient(err) {
-				return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+				return unknownMutationResult(call.Operation)
 			}
-			return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			return rejectedResult(call.Operation, wmsUnavailableRejection())
 		}
 		workItemPriority = payload.BusinessPriority
 	}
@@ -448,9 +430,9 @@ func (a *Adapter) updatePriorityLocked(call adapter.CallRequest, authorization v
 	}
 	if err := a.updateRequestIssue(number, request, requestIssueUpdateOptions{mutation: mutation}); err != nil {
 		if errorsIsTransient(err) {
-			return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+			return unknownMutationResult(call.Operation)
 		}
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	result := newResult(call.Operation)
 	result.Outcome = adapter.OutcomeApplied
@@ -498,9 +480,9 @@ func (a *Adapter) linkChangeSetLocked(call adapter.CallRequest, authorization va
 	}
 	if err := a.updateRequestIssue(number, request, requestIssueUpdateOptions{mutation: mutation}); err != nil {
 		if errorsIsTransient(err) {
-			return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+			return unknownMutationResult(call.Operation)
 		}
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	result := newResult(call.Operation)
 	result.Outcome = adapter.OutcomeApplied
@@ -539,18 +521,18 @@ func (a *Adapter) linkWorkItemLocked(call adapter.CallRequest, authorization val
 			priority:    request.BusinessPriority,
 		}); err != nil {
 			if errorsIsTransient(err) {
-				return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+				return unknownMutationResult(call.Operation)
 			}
-			return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			return rejectedResult(call.Operation, wmsUnavailableRejection())
 		}
 	} else if err := a.updateWorkItemIssue(issueNumber, item, workItemIssueUpdateOptions{
 		requestID:   request.ID,
 		changeSetID: request.ChangeSetID,
 	}); err != nil {
 		if errorsIsTransient(err) {
-			return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+			return unknownMutationResult(call.Operation)
 		}
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	request.Revision++
 	mutation := &lastMutationRecord{
@@ -562,9 +544,9 @@ func (a *Adapter) linkWorkItemLocked(call adapter.CallRequest, authorization val
 	}
 	if err := a.updateRequestIssue(number, request, requestIssueUpdateOptions{mutation: mutation}); err != nil {
 		if errorsIsTransient(err) {
-			return unknownMutationResult(call.Operation, "GitHub write result could not be established.")
+			return unknownMutationResult(call.Operation)
 		}
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	result := newResult(call.Operation)
 	result.Outcome = adapter.OutcomeApplied
@@ -596,7 +578,7 @@ func (a *Adapter) queryRequestsLocked(call adapter.CallRequest) adapter.Result {
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
 	if err := a.ensureRequestsHydratedLocked(); err != nil {
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	requests := make([]adapter.RequestRecord, 0)
 	for id := range a.idx.requestIssue {
@@ -605,7 +587,7 @@ func (a *Adapter) queryRequestsLocked(call adapter.CallRequest) adapter.Result {
 			if errors.Is(err, ErrNotFound) {
 				continue
 			}
-			return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			return rejectedResult(call.Operation, wmsUnavailableRejection())
 		}
 		if query.RefinementState != "" && request.RefinementState != query.RefinementState {
 			continue

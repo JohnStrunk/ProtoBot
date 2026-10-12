@@ -2150,9 +2150,10 @@ confirmation.
   authorization, transitions, rejection semantics, and acceptance matrix
 - [Drafting Table WMS Integration Contract](drafting-table-wms.md) —
   Backend-neutral request, query, linking, and blocked-resolution operations
-- [WMS Implementations](../../wms/README.md) — Backend-neutral Go evaluator
-  and the in-memory fake adapter used by the conformance and fixture
-  tests
+- [WMS Implementations](../../wms/README.md) — Backend-neutral wire types
+  and operation surfaces, the Go lifecycle evaluator, the in-memory fake
+  adapter used by the conformance and fixture tests, and the first backend
+  translator over GitHub Issues
 - [Git and Project-Repository Integration](git-integration.md) —
   Project identification, branches, commits, PR preparation, and
   approved specification state

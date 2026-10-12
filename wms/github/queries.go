@@ -36,7 +36,7 @@ func (a *Adapter) queryWorkItemsLocked(call adapter.CallRequest) adapter.Result 
 		return rejectedResult(call.Operation, invalidRequest("payload", err.Error()))
 	}
 	if err := a.ensureWorkItemsHydratedLocked(); err != nil {
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	items := make([]adapter.WorkItemProjection, 0)
 	for id := range a.idx.workItemIssue {
@@ -45,7 +45,7 @@ func (a *Adapter) queryWorkItemsLocked(call adapter.CallRequest) adapter.Result 
 			if errors.Is(err, ErrNotFound) {
 				continue
 			}
-			return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			return rejectedResult(call.Operation, wmsUnavailableRejection())
 		}
 		if query.State != "" && item.State != query.State {
 			continue
@@ -70,7 +70,7 @@ func (a *Adapter) queryWorkItemsLocked(call adapter.CallRequest) adapter.Result 
 
 func (a *Adapter) queryBlockedWorkLocked(call adapter.CallRequest) adapter.Result {
 	if err := a.ensureWorkItemsHydratedLocked(); err != nil {
-		return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+		return rejectedResult(call.Operation, wmsUnavailableRejection())
 	}
 	items := make([]adapter.WorkItemProjection, 0)
 	for id := range a.idx.workItemIssue {
@@ -79,7 +79,7 @@ func (a *Adapter) queryBlockedWorkLocked(call adapter.CallRequest) adapter.Resul
 			if errors.Is(err, ErrNotFound) {
 				continue
 			}
-			return rejectedResult(call.Operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			return rejectedResult(call.Operation, wmsUnavailableRejection())
 		}
 		if item.State != validation.StateBlocked {
 			continue

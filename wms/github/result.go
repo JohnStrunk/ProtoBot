@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"reflect"
 
 	"github.com/redhat-et/protobot/wms/adapter"
 	"github.com/redhat-et/protobot/wms/validation"
@@ -32,7 +31,7 @@ func rejectedResult(operation string, rejection *validation.Rejection) adapter.R
 	}
 }
 
-func unknownMutationResult(operation string, message string) adapter.Result {
+func unknownMutationResult(operation string) adapter.Result {
 	return adapter.Result{
 		OK:          false,
 		Operation:   operation,
@@ -41,7 +40,7 @@ func unknownMutationResult(operation string, message string) adapter.Result {
 		Mutation:    adapter.MutationUnknown,
 		Error: &validation.Rejection{
 			Code:    adapter.CodeUnknownMutation,
-			Message: message,
+			Message: "The backend write result could not be established.",
 			Details: map[string]any{},
 			Retry:   validation.RetryReconcile,
 		},
@@ -121,7 +120,22 @@ func backendLoadRejection(targetType string, err error) *validation.Rejection {
 	if errors.Is(err, ErrNotFound) {
 		return validationNotFound(targetType)
 	}
-	return wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh)
+	return wmsUnavailableRejection()
+}
+
+// wmsUnavailableRejection builds the stable WMS_UNAVAILABLE rejection every
+// backend failure maps to. Backend identifiers — issue numbers, labels, raw
+// API text — must not reach callers through the rejection contract
+// (docs/architecture/drafting-table-wms.md: "Backend-specific errors are
+// translated into this stable contract without exposing backend labels or
+// raw credentials").
+func wmsUnavailableRejection() *validation.Rejection {
+	return wmsRejection(
+		adapter.CodeWMSUnavailable,
+		"The backend store is unavailable and cannot service the request.",
+		map[string]any{},
+		validation.RetryRefresh,
+	)
 }
 
 func decodePayload(data []byte, target any) error {
@@ -215,7 +229,7 @@ func cloneResource(resource any) any {
 	case adapter.WorkItemProjection:
 		return value
 	default:
-		return reflect.ValueOf(resource).Interface()
+		return resource
 	}
 }
 
