@@ -63,6 +63,11 @@ component owns its native module and toolchain. The current Go components are
 organized as:
 
 ```text
+drafting-table/
+  go.mod
+  cmd/drafting-table-guard/ # shared harness guard
+  guard.go, shell.go, ...   # tool policy, path checks, and shell validation
+  testdata/                 # guard security vectors
 ears-manager/
   go.mod
   cmd/ears-manager/
@@ -90,12 +95,35 @@ The install targets are:
 ```text
 go install github.com/redhat-et/protobot/ears-manager/cmd/ears-manager@latest
 go install github.com/redhat-et/protobot/source-control-manager/cmd/source-control-manager@latest
+go install github.com/redhat-et/protobot/drafting-table/cmd/drafting-table-guard@latest
+```
+
+Run the Drafting Table guard's local Go checks from its module:
+
+```sh
+cd drafting-table
+go test ./...
+go vet ./...
+```
+
+### Drafting Table OpenCode binding
+
+The OpenCode binding (`opencode.json`, `.opencode/`, the shared
+`.agents/drafting-table.yaml` manifest, and the `drafting-specifications`
+session skill) targets OpenCode 1.18.30. The `wms` MCP entry in
+`opencode.json` is a placeholder until a production WMS Adapter MCP server
+exists; the deterministic replay substitutes a recording stub. Run the
+headless replay against the pinned binary:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 OPENCODE_BIN=/path/to/opencode-1.18.30/bin/opencode \
+  python -m unittest discover -s tests/drafting-table -p 'test_*.py' -v
 ```
 
 ### First `ears-manager` release
 
 The first command slice provides `project init`, `check`, requirement
-add/list/show/update/retire, interface add/list/show, artifact get/put,
+add/list/show/update/retire, interface add/list/show, artifact get/list/put,
 proposed change-set create/list/show/update/compare, and deterministic
 `impact` analysis. `project init` adopts an existing repository by registering
 its specification artifacts and writing the `.protobot/` control namespace;

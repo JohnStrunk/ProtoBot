@@ -1122,7 +1122,7 @@ under [File-source arguments](#file-source-arguments).
 
 | Harness | Binding | Status |
 | --- | --- | --- |
-| OpenCode | [OpenCode Harness Binding](opencode.md) | Designed against OpenCode 1.18.30, with skill discovery and visibility, tool hiding, rule order, pattern matching, the plugin hook, export, and the replay provider observed against a stub model; the fixture runs in #77, so no H1 to H11 obligation is marked met; H12 is met; H13 not checked |
+| OpenCode | [OpenCode Harness Binding](opencode.md) | Fixture ran in #77 against OpenCode 1.18.30 with real governed tools and recording WMS/`gh` stubs; H1 to H12 are met, with the plugin-absent fail-open path and deferred steps recorded as gaps in the binding document; H13 not checked |
 | Claude Code | [Claude Code Harness Binding](claude-code.md) | Designed against Claude Code 2.1.273; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met |
 | Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met. The Codex sandbox stays on, so the user runs a branch-cutting `change-set create`, which writes `.git/`, and registration, which needs the network. Git and the Git host go through the `scm` server, which runs outside the sandbox |
 

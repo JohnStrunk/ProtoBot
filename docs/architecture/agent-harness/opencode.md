@@ -33,8 +33,11 @@ It adds no rule of its own. Where OpenCode forces a choice, this
 document states the choice and the obligation it serves. Every
 OpenCode behavior named here was observed on OpenCode 1.18.30 with a
 replayed model ([Observed OpenCode behaviors](#observed-opencode-behaviors)).
-The fixture has not run here yet. Issue #77 runs it, and turns each
-"designed" and "observed" status into "met" or into a recorded gap.
+The fixture ran in #77 against the pinned OpenCode 1.18.30 binary, with
+real skills, permissions, plugin, MCP clients, shell, `ears-manager`, the
+Source Control Manager, and the guard, plus recording WMS and `gh` stubs;
+each status below records what it showed, and the gaps it left open stay
+recorded ([Running the fixture on OpenCode](#running-the-fixture-on-opencode)).
 
 ---
 
@@ -124,6 +127,7 @@ description: ProtoBot Drafting Table — Sketching and Dimensioning through gove
 mode: primary
 permission:
   "*": deny
+  apply_patch: deny
   read:
     "*": allow
     "*.env": deny
@@ -376,24 +380,25 @@ entry point's name must differ from every skill name.
 
 | # | Obligation | OpenCode binding | Status |
 | --- | --- | --- | --- |
-| H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Observed (behavior 1); the fixture has not run |
-| H2 | The `ears-manager` CLI and the `wms` and `scm` tools for the role | `ears-manager *` in the bash rules; the `wms` and `scm` entries and named normalized tool rules | Designed; pattern matching observed (behavior 5), the `wms` and `scm` servers not yet. The `scm` server serves MCP revision 2026-07-28 and the legacy 2025-11-25 ([MCP protocol](../source-control-manager.md#mcp-protocol)); the fixture records which one OpenCode 1.18.30 negotiates |
-| H3 | `drafting-table` entry point | The command and the agent | Designed; `--agent` observed in the stub runs, the command file not yet |
-| H4 | Resume on every entry, continued session, and compaction | Command prompt and session skill; `--continue` and `--session` continue a session | Designed |
-| H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Designed |
-| H6 | Replayable session record | OpenCode's session record and `opencode export`; the resolved rules come from `opencode debug agent` | Observed for `opencode export` (behavior 8) |
-| H7 | Headless replay with no permission prompt | `opencode run --format json`, a replay provider, no `ask` rules | Observed for the replay provider and the `ask` rejection (behaviors 6, 9); the fixture has not run |
-| H8 | Invoke the guard on each tool call and enforce its decision | The shim | Active-hook refusal is observed (behavior 7); if the plugin is absent or no hook is registered, allowed `ears-manager` commands bypass guard-only shell restrictions, so a credential file or an expanded variable such as `$GH_TOKEN` can reach governed state (recorded gap); `"*": deny` still refuses `git` and `gh` |
-| H9 | Hide file-writing, subagent, and web tools | `"*": deny` | Observed (behavior 3) |
-| H10 | Toolkit skills only | `skill` rule with `"*": deny` first; other skills are hidden from the model's list and refused | Observed (behavior 2) |
-| H11 | No credential in binding files; no session upload | Placeholders; `share: disabled` | Designed |
+| H1 | Discover Toolkit skills from `.agents/skills/` | Native discovery | Met; the fixture listed `drafting-specifications`, `eliciting-requirements`, and `review-pr` from a nested directory |
+| H2 | The `ears-manager` CLI and the `wms` and `scm` tools for the role | `ears-manager *` in the bash rules; the `wms` and `scm` entries and named normalized tool rules | Met; the fixture ran real `ears-manager` shell operations and `wms`/`scm` MCP tools through OpenCode's MCP clients. OpenCode 1.18.30 negotiated the legacy MCP revision 2025-11-25 with both servers |
+| H3 | `drafting-table` entry point | The command and the agent | Met; the fixture entered the role headlessly with `--agent drafting-table --command drafting-table` |
+| H4 | Resume on every entry, continued session, and compaction | Command prompt and session skill; `--continue` and `--session` continue a session | Met; fresh and continued sessions repeated the resume reads before any governed write |
+| H5 | Nothing on idle or exit | The shim registers no idle or exit hook | Met; no commit, push, or registration ran without request, and the recording WMS process stopped cleanly. A dedicated SCM-process idle/exit assertion is deferred |
+| H6 | Replayable session record | OpenCode's session record and `opencode export`; the resolved rules come from `opencode debug agent` | Met; the fixture exported every session with the agent, model, harness version, tool calls, and guard refusals |
+| H7 | Headless replay with no permission prompt | `opencode run --format json`, a replay provider, no `ask` rules | Met; the whole scenario replayed twice with byte-stable summaries and no permission prompt |
+| H8 | Invoke the guard on each tool call and enforce its decision | The shim | Met on the active-hook path; guard refusals reached the model and the session record. If the plugin is absent or no hook is registered, allowed `ears-manager` commands bypass guard-only shell restrictions, so a credential file or an expanded variable such as `$GH_TOKEN` can reach governed state (recorded gap); `"*": deny` still refuses `git` and `gh` |
+| H9 | Hide file-writing, subagent, and web tools | `"*": deny` | Met; the resolved tool set offers neither `edit`, `write`, `task`, `webfetch`, nor `websearch`. OpenCode 1.18.30 does not register a native `apply_patch` tool for this agent; the guard vocabulary still covers it, and the fixture exercised the documented hook shape directly |
+| H10 | Toolkit skills only | `skill` rule with `"*": deny` first; other skills are hidden from the model's list and refused | Met; the `<available_skills>` block the model received named exactly the Toolkit skills, and both `review-pr` load routes were refused |
+| H11 | No credential in binding files; no session upload | Placeholders; `share: disabled` | Met; the resolved config shows `share` as `disabled`, and a planted token-shaped string reached no export, model request, or recording stub |
 | H12 | Publish this status | This table | Met |
 | H13 | Remote `wms` server with OAuth 2.1 | Not checked; the fixture is single-player | Open |
 
-"Designed" means the mechanism is documented and the fixture has not
-run. "Observed" means a stub run on 1.18.30 showed it, and the number
-points at [Observed OpenCode behaviors](#observed-opencode-behaviors).
-Nothing else is marked met; issue #77 runs the fixture.
+"Met" means the #77 fixture demonstrated the obligation against the pinned
+OpenCode 1.18.30 binary with real governed tools; where an obligation holds
+only on a checked path, the gap stays in the row. Deferred fixture steps are
+recorded in the golden fixture's expectation record
+([Running the fixture on OpenCode](#running-the-fixture-on-opencode)).
 
 What the OpenCode layer stops on its normal native and active-guard
 paths, by route. The plugin-unavailable exception above applies to any
@@ -498,6 +503,25 @@ clients, and shell.
   `<available_skills>` block of the system prompt names exactly the
   manifest's `toolkit_skills`.
 - No headless run prints an automatic permission rejection.
+
+**Running the #77 fixture.** The implemented driver replays the recorded
+scenario twice and compares the semantic summaries and source-input hashes:
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 OPENCODE_BIN=/path/to/opencode-1.18.30/bin/opencode \
+  python -m unittest discover -s tests/drafting-table -p 'test_*.py' -v
+```
+
+The driver builds the real `ears-manager`, `source-control-manager`, and
+`drafting-table-guard` binaries from the repository modules, provisions an
+isolated temporary Git project, and uses a loopback-only recorded model
+endpoint plus recording WMS and `gh` stubs. It never edits the checkout or
+registered specification artifacts. The inputs, expected state, and deferred
+steps are recorded in
+[`docs/architecture/fixtures/drafting-table-opencode-golden.jsonl`](../fixtures/drafting-table-opencode-golden.jsonl).
+OpenCode 1.18.30 does not register a native `apply_patch` tool in the
+resolved agent tool set; the fixture records that fact and exercises the
+documented `apply_patch` hook shape against the built guard directly.
 
 ---
 

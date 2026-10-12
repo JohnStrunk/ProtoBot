@@ -1,0 +1,460 @@
+[
+  {
+    "name": "exact clock operation",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "date -u +%Y-%m-%dT%H:%M:%SZ"},
+    "allow": true
+  },
+  {
+    "name": "read-only ears-manager check",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json check"},
+    "allow": true
+  },
+  {
+    "name": "raw Git operation",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "git push origin main"},
+    "reason": "not an allowed shell operation"
+  },
+  {
+    "name": "raw SCM executable operation",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "source-control-manager publish"},
+    "reason": "not an allowed shell operation"
+  },
+  {
+    "name": "compound command",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --version; true"},
+    "reason": "compound"
+  },
+  {
+    "name": "environment assignment wrapper",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "FOO=bar ears-manager --version"},
+    "reason": "environment assignments"
+  },
+  {
+    "name": "path-qualified executable",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "/usr/bin/ears-manager --version"},
+    "reason": "not an allowed shell operation"
+  },
+  {
+    "name": "environment wrapper with repeated options",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "env -i -i ears-manager --version"},
+    "reason": "not an allowed shell operation"
+  },
+  {
+    "name": "bare and piped interpreter",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "python - | sh"},
+    "reason": "compound"
+  },
+  {
+    "name": "shell startup flags",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash --noprofile --norc -c 'ears-manager --version'"},
+    "reason": "not an allowed shell operation"
+  },
+  {
+    "name": "xargs dynamic target",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "printf '%s\\n' docs/vision.md | xargs -I{} tee {}"},
+    "reason": "compound"
+  },
+  {
+    "name": "find interactive file writer",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "find docs -ok rm {} \\;"},
+    "reason": "not an allowed shell operation"
+  },
+  {
+    "name": "output redirection",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json check > docs/vision.md"},
+    "reason": "output redirection"
+  },
+  {
+    "name": "descriptor output redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "printf x 2> docs/vision.md"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "digit-prefixed combined redirection traversal",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "mkdir 1 && echo x >&1/../docs/vision.md"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "digit-leading combined redirection operand",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x >&1docs/vision.md"},
+    "allow": true
+  },
+  {
+    "name": "descriptor duplication is not a file target",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x 2>&1"},
+    "allow": true
+  },
+  {
+    "name": "combined output redirection to guarded path",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x >& docs/vision.md"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "stderr combined redirection to guarded path",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "printf x 2>& docs/vision.md"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "combined redirection no space",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x >&docs/vision.md"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "brace expansion redirection cannot bypass registry",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x > docs/{vision.md,notes.txt}"},
+    "reason": "output redirection target could not be inspected safely"
+  },
+  {
+    "name": "extglob redirection cannot bypass registry",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x > docs/@(vision.md)"},
+    "reason": "output redirection target could not be inspected safely"
+  },
+  {
+    "name": "process substitution redirection fails closed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x > >(echo docs/vision.md)"},
+    "reason": "output redirection target could not be inspected safely"
+  },
+  {
+    "name": "tilde-user redirection target fails closed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x > ~other/docs/vision.md"},
+    "reason": "output redirection target could not be inspected safely"
+  },
+  {
+    "name": "input redirection for content-file",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner user --content-file - < ~/.netrc"},
+    "reason": "input redirection"
+  },
+  {
+    "name": "non-stdin content-file source",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner user --content-file credential-input.txt"},
+    "reason": "--content-file and --impact-file must be -"
+  },
+  {
+    "name": "dynamic shell target",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "tee \"$TARGET\""},
+    "reason": "variable expansion"
+  },
+  {
+    "name": "here-document early terminator",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner user --content-stdin <<'EOF'\nbody\nEOF\ntrue\nEOF"},
+    "reason": "here-document ended early"
+  },
+  {
+    "name": "tab-stripped here-document is not an allowed form",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner user --content-stdin <<-'EOF'\nbody\n\tEOF"},
+    "reason": "delimiter must be quoted"
+  },
+  {
+    "name": "ordinary other-role here-document",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "cat <<EOF\nordinary text\nEOF"},
+    "allow": true
+  },
+  {
+    "name": "other role harmless redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo \"see docs/vision.md\" > notes.txt"},
+    "allow": true
+  },
+  {
+    "name": "other role guarded redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo x > docs/vision.md"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "redirection after directory change",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "cd docs && echo x > vision.md"},
+    "reason": "output redirection target"
+  },
+  {
+    "name": "environment wrapper changes working directory",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "env -C docs bash -c 'echo x > vision.md'"},
+    "reason": "output redirection target"
+  },
+  {
+    "name": "wrapped shell guarded redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash -c 'echo x > docs/vision.md'"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "Bash startup options before command string",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash --noprofile -c 'echo x > docs/vision.md'"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "Bash value-taking startup option before command string",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash --rcfile /dev/null -c 'echo x > docs/vision.md'"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "later find exec action guarded redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "find . -exec echo {} \\; -exec sh -c 'echo x > docs/vision.md' {} \\;"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "find execdir startup options guarded redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "find . -execdir echo {} \\; -execdir bash --noprofile -c 'echo x > docs/vision.md' {} \\;"},
+    "reason": "output redirection target"
+  },
+  {
+    "name": "find okdir startup options guarded redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "find . -okdir bash --noprofile -c 'echo x > docs/vision.md' {} \\;"},
+    "reason": "output redirection target"
+  },
+  {
+    "name": "dynamic eval shell form fails closed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash -c 'eval \"$COMMAND\"'"},
+    "reason": "output redirection target could not be inspected safely"
+  },
+  {
+    "name": "redirection after quoted here-document delimiter",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "cat <<'EOF' > docs/vision.md\nbody\nEOF"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "tab-stripped here-document redirection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "cat <<-'EOF' > docs/vision.md\n\tbody\n\tEOF"},
+    "reason": "output redirection targets"
+  },
+  {
+    "name": "non-current registration",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "register-approved-change-set --change-set CS-00002"},
+    "reason": "not the change set of the current branch"
+  },
+  {
+    "name": "unlisted SCM MCP tool",
+    "role": "drafting-table",
+    "tool_name": "scm_publish",
+    "tool_input": {},
+    "reason": "not listed"
+  },
+  {
+    "name": "unlisted WMS lifecycle operation",
+    "role": "drafting-table",
+    "tool_name": "wms_claim",
+    "tool_input": {},
+    "reason": "not listed"
+  },
+  {
+    "name": "listed WMS query operation",
+    "role": "drafting-table",
+    "tool_name": "wms_request_query",
+    "tool_input": {},
+    "allow": true
+  },
+  {
+    "name": "quoted requirement text remains data",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json requirement add --change-set CS-00003 --id REQ-CLI-00001 --type event-driven --text 'The CLI shall print > in help.' --verification-mode isolated-interface --provenance user-authored --created 2026-10-12T00:00:00Z"},
+    "allow": true
+  },
+  {
+    "name": "double-quoted literal here-document",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/vision.md --owner user --content-stdin <<\"EOF\"\ncontent\nEOF"},
+    "allow": true
+  },
+  {
+    "name": "adapter path cannot be registered as an artifact",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json artifact put --change-set CS-00003 --id hook --kind architecture --path .claude/hooks/drafting-table-guard.sh --owner user --content-stdin <<'EOF'\ncontent\nEOF"},
+    "reason": "binding, and instruction paths"
+  },
+  {
+    "name": "OpenCode apply_patch writer",
+    "role": "other",
+    "tool_name": "apply_patch",
+    "tool_input": {"patchText": "*** Begin Patch Patch\n*** Update File: docs/vision.md\n@@\n-old\n+new\n*** End Patch"},
+    "reason": "registered artifact"
+  },
+  {
+    "name": "governed write outside the role",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager requirement add"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "for do wrapped governed write outside the role",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash -c 'for i in x; do ears-manager --output json requirement add --change-set CS-00001; done'"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "if then wrapped governed write outside the role",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash -c 'if true; then ears-manager --output json requirement add --change-set CS-00001; fi'"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "quoted control-flow text is not a command prefix",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash -c '\"do\" ears-manager requirement add'"},
+    "allow": true
+  },
+  {
+    "name": "control-flow prefix before environment wrapper",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash -c 'for i in x; do PROTOBOT_ROLE=other env -i ears-manager --output json requirement add --change-set CS-00001; done'"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "environment-assigned governed command outside the role",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "PROTOBOT_ROLE=other ears-manager requirement add"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "path-qualified governed command wrapper",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "env -i /usr/bin/ears-manager requirement add"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "shell wrapper governed write",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bash -c 'ears-manager requirement add'"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "xargs governed write",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "xargs -I{} ears-manager requirement add"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "command after here-document header",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo <<'EOF' ; ears-manager requirement add\nbody\nEOF"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "initialization branch SCM operation without project",
+    "role": "drafting-table",
+    "tool_name": "scm_branch_init",
+    "tool_input": {},
+    "allow": true,
+    "no_project": true
+  },
+  {
+    "name": "arbitrary shell operation without project",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "true"},
+    "reason": "before project initialization",
+    "no_project": true
+  },
+  {
+    "name": "other role sed command without project",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "sed -i s/a/b/ docs/vision.md"},
+    "allow": true,
+    "no_project": true
+  },
+  {
+    "name": "initialization switch rejected after setup",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "git switch -c cs/00001-project-init main"},
+    "reason": "Project already initialized"
+  }
+]

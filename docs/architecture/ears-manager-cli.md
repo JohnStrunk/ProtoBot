@@ -253,11 +253,13 @@ including proposed-change-set impact-completeness checks. Issue #206 adds the
 immutable `--at` read to `change-set show`. EM-06 adds `project init` and the
 `shared` projection classification that `project init` and `artifact put`
 write and `check` validates. EM-07 (#114) adds the change-set branch cut to
-`change-set create`. Artifact listing, interface updates, `--at` reads on the
-other read and analysis commands, and explicit `--against` comparison
-revisions remain follow-on work. The dispatcher must not claim those remaining
-operations are available. The CLI never commits, pushes, or opens a pull
-request; the Source Control Manager does ([Write authority](#write-authority)).
+`change-set create`. Issue #77 implements `artifact list` for guarded artifact
+registry inspection, with the filters and immutable `--at` read in the grammar
+below. Interface updates, `--at` reads on other read and analysis commands, and
+explicit `--against` comparison revisions remain follow-on work. The
+dispatcher must not claim those remaining operations are available. The CLI
+never commits, pushes, or opens a pull request; the Source Control Manager does
+([Write authority](#write-authority)).
 
 `change-set create` allocates the ID, records the default-branch head as the
 base commit, cuts and checks out the change-set branch, and writes the
@@ -621,7 +623,7 @@ apart and it merges through its own review.
 | --- | --- | --- | --- |
 | `artifact put` | Change set, artifact ID/kind/path/owner, optional validator registry name, and UTF-8 content | The complete registry entry, content digest, changed paths, and change-set artifact operation | `artifact.unknown_kind`, `artifact.invalid_id`, `artifact.invalid_path`, `artifact.invalid_content`, `artifact.owner_immutable`, `artifact.validator_not_allowed`, `artifact.validator_incompatible`, `artifact.write_not_allowed`, `projection.invalid`, `projection.unclassified`, or a validator diagnostic |
 | `artifact get` | Exactly one of artifact ID or kind, where kind must match one opaque artifact entry; optional `--at` | Registry entry and UTF-8 content | `artifact.not_found`, `artifact.ambiguous`, or `artifact.read_failed` |
-| `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `project.invalid_configuration` or `artifact.read_failed` |
+| `artifact list` | Optional kind/owner filter and `--at` | Registry entries sorted by artifact ID; content is not included | `artifact.unknown_kind`, `artifact.invalid_owner`, `project.invalid_configuration`, `artifact.read_failed`, `revision.invalid`, `revision.not_found`, or `revision.read_failed` |
 
 `artifact put` is the only route for Vision, Architecture, interface prose,
 and external interface-IDL content. It updates the registry digest, records
