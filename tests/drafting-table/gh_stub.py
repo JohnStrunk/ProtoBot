@@ -24,6 +24,10 @@ def main() -> int:
         output = ""
     else:
         event = {"event": "refused", "argv": args, "stdin": body}
+        with log.open("a", encoding="utf-8") as output_file:
+            output_file.write(
+                json.dumps(event, sort_keys=True, separators=(",", ":")) + "\n"
+            )
         print("fixture gh stub refuses unsupported operation", file=sys.stderr)
         return 2
     with log.open("a", encoding="utf-8") as output_file:

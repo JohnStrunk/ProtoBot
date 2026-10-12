@@ -14,6 +14,13 @@
     "allow": true
   },
   {
+    "name": "unquoted brace expansion in option value",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json artifact put --change-set CS-00003 --id vision --kind vision --path docs/{vision.md,evil.md} --owner user --content-stdin <<'EOF'\ncontent\nEOF"},
+    "reason": "pathname expansion"
+  },
+  {
     "name": "raw Git operation",
     "role": "drafting-table",
     "tool_name": "bash",
@@ -336,6 +343,13 @@
     "allow": true
   },
   {
+    "name": "quoted braces remain literal data",
+    "role": "drafting-table",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output json requirement add --change-set CS-00003 --id REQ-CLI-00001 --type event-driven --text 'Use {a,b} notation' --verification-mode isolated-interface --provenance user-authored --created 2026-10-12T00:00:00Z"},
+    "allow": true
+  },
+  {
     "name": "double-quoted literal here-document",
     "role": "drafting-table",
     "tool_name": "bash",
@@ -361,6 +375,13 @@
     "role": "other",
     "tool_name": "bash",
     "tool_input": {"command": "ears-manager requirement add"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "governed write in human output mode",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ears-manager --output human requirement add"},
     "reason": "ears-manager writes are reserved"
   },
   {

@@ -32,7 +32,11 @@ func decideNoProjectTool(input hookInput, state projectState) decision {
 		}
 		return allow()
 	case input.ToolName == openCodeVocabulary.shellTool:
-		parsed, err := parseSimpleShell(input.ToolInputString("command"))
+		command, ok := stringField(input.ToolInput, "command")
+		if !ok {
+			return refuse("rule 6", "bash requires a command string")
+		}
+		parsed, err := parseSimpleShell(command)
 		if err != nil {
 			return shellValueError(err)
 		}
@@ -74,11 +78,6 @@ func decideNoProjectTool(input hookInput, state projectState) decision {
 		}
 		return refuse("rule 5", "the tool is not listed in the OpenCode drafting-table vocabulary")
 	}
-}
-
-func (input hookInput) ToolInputString(key string) string {
-	value, _ := input.ToolInput[key].(string)
-	return value
 }
 
 func decideDraftingShell(input hookInput, state projectState) decision {

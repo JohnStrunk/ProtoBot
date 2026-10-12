@@ -4,7 +4,8 @@
   "mcp": {
     "wms": {
       "type": "local",
-      "command": ["<WMS Adapter MCP server, named by #31>"]
+      "command": ["<WMS Adapter MCP server, named by #31>"],
+      "enabled": false
     },
     "scm": {
       "type": "local",

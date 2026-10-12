@@ -92,7 +92,8 @@ initialization command resolves the Git working-tree root before
 
 Reads are root-relative and deterministic:
 
-- `artifact get` reads registered content through the registry;
+- `artifact get` and `artifact list` read registered entries and content
+  through the registry;
 - `requirement`, `interface`, and `change-set` reads resolve IDs through the
   store; and
 - `check`, `change-set compare`, and `impact` read the complete relevant
@@ -100,9 +101,10 @@ Reads are root-relative and deterministic:
 
 In the target contract, the optional `--at <full-commit-sha>` selector provides
 read-revision semantics accepted only by read and analysis commands.
-`change-set show` implements it; the other read and analysis commands defer it
-to follow-on scope. It must name a full 40-character commit present in the
-local repository. The default is the current working tree. A read at a commit
+`change-set show` and `artifact list` implement it; the other read and
+analysis commands defer it to follow-on scope. It must name a full
+40-character commit present in the local repository. The default is the
+current working tree. A read at a commit
 still resolves the Git repository from the working tree, but it takes
 `.protobot/project.yaml`, `.protobot/projection.yaml`, the structured stores,
 and the registered artifacts from the tree of that commit. The working tree
@@ -418,8 +420,9 @@ impact --change-set CS-ID [--at FULL-SHA]
 `--id` identifies a requirement, interface, or artifact. `--change-set`
 identifies a change set in every command that operates on an existing change
 set. `--at` selects the immutable read revision; `--against` selects the
-comparison baseline. `change-set show` accepts `--at`; `--at` on the other
-commands and `--against` remain deferred to follow-on scope.
+comparison baseline. `change-set show` and `artifact list` accept `--at`;
+`--at` on the other commands and `--against` remain deferred to follow-on
+scope.
 
 ---
 

@@ -564,9 +564,9 @@ func governedWordsWrite(words []string) bool {
 	if name != "ears-manager" {
 		return false
 	}
-	args = args[1:]
-	if len(args) >= 2 && args[0] == "--output" && args[1] == "json" {
-		args = args[2:]
+	args, safe := stripOutputOptions(args[1:])
+	if !safe {
+		return true
 	}
 	if len(args) == 0 || contains(args, "--help") || contains(args, "--version") {
 		return false
@@ -583,6 +583,21 @@ func governedWordsWrite(words []string) bool {
 	default:
 		return false
 	}
+}
+
+func stripOutputOptions(args []string) ([]string, bool) {
+	result := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--output" {
+			result = append(result, args[i])
+			continue
+		}
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+			return nil, false
+		}
+		i++
+	}
+	return result, true
 }
 
 func stripShellControlPrefix(words []string) []string {

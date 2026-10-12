@@ -69,7 +69,7 @@ func parseSimpleShell(command string) (parsedShell, error) {
 			word.WriteByte(command[i])
 		case '$', '`':
 			return parsedShell{}, errors.New("variable expansion and command substitution are not allowed")
-		case '*', '?', '[':
+		case '*', '?', '[', '{', '}':
 			return parsedShell{}, errors.New("unquoted pathname expansion is not allowed")
 		case '#':
 			return parsedShell{}, errors.New("shell comments are not part of an allowed command form")
