@@ -33,7 +33,10 @@ func (a *Adapter) executeLifecycleLocked(call adapter.CallRequest, authorization
 			current = &copy
 		}
 		if request.Payload.WorkItem != nil {
-			dependencies := a.liveDependenciesLocked(*request.Payload.WorkItem)
+			dependencies, rejection := a.liveDependenciesLocked(*request.Payload.WorkItem)
+			if rejection != nil {
+				return rejectedResult(call.Operation, rejection)
+			}
 			evaluation.RefreshDependencies = &dependencies
 		}
 	} else {
@@ -93,7 +96,10 @@ func (a *Adapter) executeLifecycleLocked(call adapter.CallRequest, authorization
 		}
 	}
 	if current != nil && request.Operation == validation.OperationMaterialize {
-		dependencies := a.liveDependenciesLocked(*current)
+		dependencies, rejection := a.liveDependenciesLocked(*current)
+		if rejection != nil {
+			return rejectedResult(call.Operation, rejection)
+		}
 		evaluation.RefreshDependencies = &dependencies
 	}
 	return a.applyLifecycleRequest(call.Operation, request, current, authorization, fingerprint, evaluation)
@@ -268,25 +274,27 @@ func (a *Adapter) checkMaterializationLocked(request validation.Request) (*adapt
 }
 
 // loadMaterializationEntryLocked returns the in-process binding, or rebinds from
-// a durable GitHub scan when the process-local index has no entry. Only a
-// definitive ErrNotFound establishes that no durable binding exists; any
+// a durable GitHub scan when the process-local index has no entry. The binding
+// may be a materialized work item or an omitted reservation: both are
+// create-or-return reservations under the materialization_key (VR-039), so a
+// cached entry is a hit regardless of whether it carries a work-item ID. Only
+// a definitive ErrNotFound establishes that no durable binding exists; any
 // other scan error is inconclusive and must be reported as WMS_UNAVAILABLE,
 // or materialize could create a second issue under the same
 // materialization_key.
 func (a *Adapter) loadMaterializationEntryLocked(key string) (*materializationEntry, *validation.Rejection) {
-	if entry, ok := a.idx.materializationKey[key]; ok && entry.result.WorkItemID != "" {
+	if entry, ok := a.idx.materializationKey[key]; ok {
 		copied := entry
 		return &copied, nil
 	}
-	item, doc, number, err := a.findWorkItemByMaterializationKey(key)
+	binding, err := a.findMaterializationBinding(key)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			return nil, nil
 		}
 		return nil, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh)
 	}
-	replay := materializationReplayResult(item)
-	a.bindWorkItemLocked(item, doc, number, replay)
+	a.idx.materializationKey[key] = materializationEntryForBinding(binding)
 	entry := a.idx.materializationKey[key]
 	return &entry, nil
 }
@@ -381,11 +389,28 @@ func (a *Adapter) applyLifecycleRequest(
 		}
 	case validation.OutcomeOmitted:
 		result.Submission = "omitted"
-		if request.Payload.WorkItem != nil {
+		if request.Operation == validation.OperationMaterialize && request.Payload.WorkItem != nil {
 			source := validation.CanonicalMaterializationSource(*request.Payload.WorkItem, request.Payload.ChangeType)
+			fingerprint := validation.SourceFingerprint(source)
+			// The omitted outcome is still a create-or-return reservation
+			// under the materialization_key (VR-039): persist it durably so
+			// a later same-key materialize replays this result (or conflicts
+			// on a different source) across command keys and restarts, not
+			// only under the original idempotency key.
+			issue, err := a.persistOmittedReservation(request.MaterializationKey, fingerprint)
+			if err != nil {
+				if errorsIsTransient(err) {
+					if !a.rebindOmittedReservationAfterUnknown(request.MaterializationKey, fingerprint) {
+						return unknownMutationResult(operation, "GitHub write result could not be established.")
+					}
+					break
+				}
+				return rejectedResult(operation, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh))
+			}
 			a.idx.materializationKey[request.MaterializationKey] = materializationEntry{
-				fingerprint: validation.SourceFingerprint(source),
+				fingerprint: fingerprint,
 				result:      cloneResult(result),
+				issueNumber: issue.Number,
 			}
 		}
 	}
@@ -413,24 +438,64 @@ func (a *Adapter) persistWorkItemIssue(item validation.WorkItem, sourceFingerpri
 	})
 }
 
+// persistOmittedReservation durably records that a materialization_key is
+// bound to an omitted source (VR-039). It shares the work-item label and kind
+// so the binding scan finds both reservation forms under one label query.
+func (a *Adapter) persistOmittedReservation(key, sourceFingerprint string) (Issue, error) {
+	body, err := encodeBody("ProtoBot build omitted-materialization record.", storedDocument{
+		Kind:               kindWorkItem,
+		ProjectID:          a.projectID,
+		Omitted:            true,
+		MaterializationKey: key,
+		SourceFingerprint:  sourceFingerprint,
+	})
+	if err != nil {
+		return Issue{}, err
+	}
+	return a.client.CreateIssue(a.ctx, CreateIssueInput{
+		Title:  omittedReservationTitle(key),
+		Body:   body,
+		Labels: []string{LabelWorkItem},
+	})
+}
+
+// rebindOmittedReservationAfterUnknown scans for a durable omitted
+// reservation that may have been created despite a transient CreateIssue
+// failure. On a fingerprint match it restores the in-process binding so the
+// caller's already-computed omitted result stands; returns false when no
+// matching reservation is found, leaving the caller to report
+// UNKNOWN_MUTATION.
+func (a *Adapter) rebindOmittedReservationAfterUnknown(key, wantFingerprint string) bool {
+	binding, err := a.findMaterializationBinding(key)
+	if err != nil || binding.item != nil {
+		return false
+	}
+	stored := storedSourceFingerprint(binding.doc)
+	if wantFingerprint != "" && stored != "" && wantFingerprint != stored {
+		return false
+	}
+	a.idx.materializationKey[key] = materializationEntryForBinding(binding)
+	return true
+}
+
 // rebindMaterializationAfterUnknown scans for a durable issue that may have been
 // created despite a transient CreateIssue failure. On match with the expected
 // source fingerprint it binds indexes and fills result; returns false when no
 // matching reservation is found.
 func (a *Adapter) rebindMaterializationAfterUnknown(key, wantFingerprint string, result *adapter.Result) bool {
-	item, doc, number, err := a.findWorkItemByMaterializationKey(key)
-	if err != nil {
+	binding, err := a.findMaterializationBinding(key)
+	if err != nil || binding.item == nil {
 		return false
 	}
-	stored := storedSourceFingerprint(doc)
+	stored := storedSourceFingerprint(binding.doc)
 	if wantFingerprint != "" && stored != "" && wantFingerprint != stored {
 		return false
 	}
-	result.WorkItemID = item.ID
-	result.WorkItemState = item.State
-	result.ContractVersion = item.ContractVersion
-	result.Resource = cloneWorkItem(item)
-	a.bindWorkItemLocked(item, doc, number, *result)
+	result.WorkItemID = binding.item.ID
+	result.WorkItemState = binding.item.State
+	result.ContractVersion = binding.item.ContractVersion
+	result.Resource = cloneWorkItem(*binding.item)
+	a.bindWorkItemLocked(*binding.item, binding.doc, binding.number, *result)
 	return true
 }
 
@@ -442,16 +507,33 @@ func (a *Adapter) tryLoadWorkItem(id string) (validation.WorkItem, error) {
 	return item, err
 }
 
-func (a *Adapter) liveDependenciesLocked(item validation.WorkItem) []validation.Dependency {
+// liveDependenciesLocked observes the current state of item's dependencies.
+// A definitive miss (not found, or an item belonging to another project)
+// leaves StateInitial. Any other load failure is inconclusive and must abort
+// with WMS_UNAVAILABLE: a transient error observed as a missing dependency
+// would materialize the item as waiting and freeze that outcome under the
+// materialization key, and this slice has no refresh-dependencies operation
+// to correct it later. The target load at the top of executeLifecycleLocked
+// and backendLoadRejection already refuse to collapse inconclusive loads
+// into not-found; dependencies must not either.
+func (a *Adapter) liveDependenciesLocked(item validation.WorkItem) ([]validation.Dependency, *validation.Rejection) {
 	dependencies := make([]validation.Dependency, 0, len(item.Dependencies))
 	for _, dependency := range item.Dependencies {
 		state := validation.StateInitial
-		if observed, err := a.tryLoadWorkItem(dependency.ID); err == nil && observed.ProjectID == a.projectID {
+		observed, err := a.tryLoadWorkItem(dependency.ID)
+		switch {
+		case errors.Is(err, ErrNotFound):
+			// Definitive miss.
+		case err != nil:
+			return nil, wmsRejection(adapter.CodeWMSUnavailable, err.Error(), map[string]any{}, validation.RetryRefresh)
+		case observed.ProjectID != a.projectID:
+			// An off-project dependency is not visible in this project.
+		default:
 			state = observed.State
 		}
 		dependencies = append(dependencies, validation.Dependency{ID: dependency.ID, State: state})
 	}
-	return dependencies
+	return dependencies, nil
 }
 
 func (a *Adapter) approvalSnapshotLocked() map[string]validation.ApprovalRecord {

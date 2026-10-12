@@ -76,9 +76,14 @@ func encodeBody(titleNote string, doc storedDocument) (string, error) {
 	return b.String(), nil
 }
 
+// decodeBody extracts the storedDocument between the body markers. The end
+// marker is matched with LastIndex: user-controlled strings inside the JSON
+// payload can contain the marker literally (json.Marshal does not escape
+// HTML comments), so the first occurrence may sit inside the payload and
+// would truncate the JSON.
 func decodeBody(body string) (storedDocument, error) {
 	start := strings.Index(body, bodyBegin)
-	end := strings.Index(body, bodyEnd)
+	end := strings.LastIndex(body, bodyEnd)
 	if start < 0 || end < 0 || end <= start {
 		return storedDocument{}, fmt.Errorf("protobot wms body markers missing")
 	}
@@ -100,4 +105,12 @@ func requestTitle(request adapter.RequestRecord) string {
 
 func workItemTitle(item validation.WorkItem) string {
 	return fmt.Sprintf("[protobot work-item] %s (%s)", item.ID, item.State)
+}
+
+func omittedReservationTitle(key string) string {
+	label := key
+	if len(label) > 80 {
+		label = label[:80]
+	}
+	return fmt.Sprintf("[protobot work-item] omitted (%s)", label)
 }

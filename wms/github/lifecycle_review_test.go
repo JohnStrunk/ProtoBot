@@ -1,6 +1,7 @@
 package github
 
 import (
+	"context"
 	"testing"
 
 	"github.com/redhat-et/protobot/wms/adapter"
@@ -394,6 +395,316 @@ func TestMaterializeAfterHydrationReplaysBoundWorkItem(t *testing.T) {
 	}
 	if fake.CallCount("create") != 1 {
 		t.Fatalf("create calls = %d, want 1 (rematerialize must not create a second issue)", fake.CallCount("create"))
+	}
+}
+
+// TestOmittedMaterializationReservesKeyDurable covers VR-039: an
+// implementation_required: false materialization returns omitted, then a
+// repeat under the same materialization_key must replay the stored omitted
+// result (same source) or reject with IDEMPOTENCY_CONFLICT (different
+// source), across command keys — not only under the original idempotency
+// key. Previously the omitted outcome only wrote the in-process index and
+// was ignored even there (entries without a work-item ID were skipped), so a
+// second command key re-evaluated and a different source could create an
+// executable issue under the same key.
+func TestOmittedMaterializationReservesKeyDurable(t *testing.T) {
+	fake := NewFakeClient()
+	wms := newTestAdapter(t, fake)
+	candidate := testWorkItem("wi-omitted", validation.StateInitial, 0)
+	candidate.ImplementationRequired = false
+
+	first := wms.Execute(materializeCall(candidate, "vr039-1", "vr039-key"))
+	if !first.OK || first.Decision == nil || first.Decision.Outcome != validation.OutcomeOmitted {
+		t.Fatalf("first omitted materialize = %#v", first)
+	}
+	if first.Submission != "omitted" {
+		t.Fatalf("first submission = %q, want omitted", first.Submission)
+	}
+	if fake.IssueCount() != 1 {
+		t.Fatalf("issues after omitted materialize = %d, want 1 (the durable reservation)", fake.IssueCount())
+	}
+
+	reservation, ok := fake.GetIssueRaw(1)
+	if !ok {
+		t.Fatal("missing reservation issue")
+	}
+	doc, err := decodeBody(reservation.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !doc.Omitted || doc.WorkItem != nil || doc.MaterializationKey != "vr039-key" || doc.SourceFingerprint == "" {
+		t.Fatalf("reservation document = %#v, want an omitted binding with key and fingerprint", doc)
+	}
+
+	replay := wms.Execute(materializeCall(candidate, "vr039-2", "vr039-key"))
+	if !replay.OK || replay.Outcome != adapter.OutcomeReplayed || replay.Mutation != adapter.MutationNone {
+		t.Fatalf("same-source replay under a new command key = %#v", replay)
+	}
+	if replay.Submission != "omitted" {
+		t.Fatalf("replay submission = %q, want omitted", replay.Submission)
+	}
+	if fake.IssueCount() != 1 || fake.CallCount("create") != 1 {
+		t.Fatalf("issues=%d creates=%d, want 1 and 1 (replay must not persist again)", fake.IssueCount(), fake.CallCount("create"))
+	}
+
+	changed := candidate
+	changed.Priority = "high"
+	changed.Readiness.PolicyCompatible = false
+	conflict := wms.Execute(materializeCall(changed, "vr039-3", "vr039-key"))
+	if conflict.OK || conflict.Error == nil || conflict.Error.Code != validation.CodeIdempotencyConflict {
+		t.Fatalf("different-source materialize under the same key = %#v, want IDEMPOTENCY_CONFLICT", conflict)
+	}
+	if fake.IssueCount() != 1 {
+		t.Fatalf("issues after conflict = %d, want 1 (no executable issue under the reserved key)", fake.IssueCount())
+	}
+	if _, exists := wms.LoadWorkItemForTest(candidate.ID); exists {
+		t.Fatal("omitted materialization created an executable work item")
+	}
+}
+
+// TestOmittedMaterializationReplaysAfterRestart covers the durable-rebind
+// paths for an omitted reservation on a fresh adapter process: both the
+// hydration path (a work-item query populates the materialization-key index)
+// and the direct scan path (materialize with no prior hydration).
+func TestOmittedMaterializationReplaysAfterRestart(t *testing.T) {
+	fake := NewFakeClient()
+	first := newTestAdapter(t, fake)
+	candidate := testWorkItem("wi-omitted-restart", validation.StateInitial, 0)
+	candidate.ImplementationRequired = false
+	if result := first.Execute(materializeCall(candidate, "omat-restart-1", "omat-restart-key")); !result.OK {
+		t.Fatalf("materialize = %#v", result)
+	}
+
+	// Fresh process: a work-item query hydrates the indexes (including the
+	// omitted materialization-key binding) before any materialize.
+	second := newTestAdapter(t, fake)
+	query := second.Execute(adapter.CallRequest{
+		Operation:       string(validation.OperationWorkItemQuery),
+		ActorContextRef: "drafting-table",
+		Payload:         jsonPayload(t, map[string]any{}),
+	})
+	if !query.OK {
+		t.Fatalf("work-item query after restart = %#v", query)
+	}
+
+	replay := second.Execute(materializeCall(candidate, "omat-restart-2", "omat-restart-key"))
+	if !replay.OK || replay.Outcome != adapter.OutcomeReplayed || replay.Mutation != adapter.MutationNone || replay.Submission != "omitted" {
+		t.Fatalf("hydrated replay = %#v", replay)
+	}
+
+	// A third process skips hydration: the materialize scan itself must
+	// rebind the omitted reservation.
+	third := newTestAdapter(t, fake)
+	direct := third.Execute(materializeCall(candidate, "omat-restart-3", "omat-restart-key"))
+	if !direct.OK || direct.Outcome != adapter.OutcomeReplayed || direct.Submission != "omitted" {
+		t.Fatalf("cold-scan replay = %#v", direct)
+	}
+
+	changed := candidate
+	changed.Readiness.PolicyCompatible = false
+	conflict := third.Execute(materializeCall(changed, "omat-restart-4", "omat-restart-key"))
+	if conflict.OK || conflict.Error == nil || conflict.Error.Code != validation.CodeIdempotencyConflict {
+		t.Fatalf("cold-scan conflict = %#v, want IDEMPOTENCY_CONFLICT", conflict)
+	}
+	if fake.IssueCount() != 1 || fake.CallCount("create") != 1 {
+		t.Fatalf("issues=%d creates=%d, want 1 and 1", fake.IssueCount(), fake.CallCount("create"))
+	}
+}
+
+// TestOmittedReservationLostCreateResponseReconciles covers an ambiguous
+// (lost-response) CreateIssue while persisting an omitted reservation: the
+// retry scan must rebind the durable reservation instead of persisting a
+// second one.
+func TestOmittedReservationLostCreateResponseReconciles(t *testing.T) {
+	fake := NewFakeClient()
+	wms := newTestAdapter(t, fake)
+	candidate := testWorkItem("wi-omitted-lost", validation.StateInitial, 0)
+	candidate.ImplementationRequired = false
+	fake.InjectCreateSucceedThenTransient(1)
+
+	first := wms.Execute(materializeCall(candidate, "omat-lost-1", "omat-lost-key"))
+	if !first.OK || first.Decision == nil || first.Decision.Outcome != validation.OutcomeOmitted {
+		t.Fatalf("omitted materialize after lost response = %#v, want applied via reconcile", first)
+	}
+	if fake.IssueCount() != 1 {
+		t.Fatalf("issues after lost response = %d, want 1", fake.IssueCount())
+	}
+
+	replay := wms.Execute(materializeCall(candidate, "omat-lost-2", "omat-lost-key"))
+	if !replay.OK || replay.Outcome != adapter.OutcomeReplayed || replay.Submission != "omitted" {
+		t.Fatalf("replay after lost response = %#v", replay)
+	}
+	if fake.IssueCount() != 1 || fake.CallCount("create") != 1 {
+		t.Fatalf("issues=%d creates=%d, want 1 and 1", fake.IssueCount(), fake.CallCount("create"))
+	}
+}
+
+// TestOmittedReservationRestartAfterUnknownMutationReconciles covers a
+// process that dies between persisting an omitted reservation and
+// reconciling the ambiguous create: the reservation is durable, so a fresh
+// process must reconcile the retry instead of persisting a second one.
+func TestOmittedReservationRestartAfterUnknownMutationReconciles(t *testing.T) {
+	fake := NewFakeClient()
+	fake.InjectCreateSucceedThenTransient(1)
+	// The list budget allows exactly the scans materialize makes before the
+	// rebind attempt (target load, materialization-key check), so the
+	// reservation persists but its reconcile scan fails: the process state
+	// after an unreconciled UNKNOWN_MUTATION.
+	first := newTestAdapterWithClient(t, &listBudgetClient{inner: fake, remaining: 2})
+	candidate := testWorkItem("wi-omitted-unknown", validation.StateInitial, 0)
+	candidate.ImplementationRequired = false
+
+	unknown := first.Execute(materializeCall(candidate, "omat-unknown-1", "omat-unknown-key"))
+	if unknown.Mutation != adapter.MutationUnknown {
+		t.Fatalf("omitted materialize with unreconcilable scan = %#v, want UNKNOWN_MUTATION", unknown)
+	}
+	if fake.IssueCount() != 1 {
+		t.Fatalf("issues after unknown mutation = %d, want 1 (the reservation persisted despite the lost response)", fake.IssueCount())
+	}
+
+	second := newTestAdapter(t, fake)
+	replay := second.Execute(materializeCall(candidate, "omat-unknown-1", "omat-unknown-key"))
+	if !replay.OK || replay.Outcome != adapter.OutcomeReplayed || replay.Submission != "omitted" {
+		t.Fatalf("retry after restart = %#v, want the durable reservation replayed", replay)
+	}
+	if fake.IssueCount() != 1 || fake.CallCount("create") != 1 {
+		t.Fatalf("issues=%d creates=%d, want 1 and 1", fake.IssueCount(), fake.CallCount("create"))
+	}
+}
+
+// TestUndecodableLabeledIssueFailsClosed covers the fail-closed scan: a
+// work-item-labeled issue whose body cannot be decoded must make every scan
+// inconclusive (WMS_UNAVAILABLE), never an absence a materialize could fill
+// with a second issue under the same materialization_key. Previously the
+// scan skipped undecodable issues, contradicting the indexed GetIssue loads
+// (which fail) and the hydration contract (a failed scan is not an empty
+// result).
+func TestUndecodableLabeledIssueFailsClosed(t *testing.T) {
+	fake := NewFakeClient()
+	if _, err := fake.CreateIssue(context.Background(), CreateIssueInput{
+		Title:  "corrupt record",
+		Body:   "<!-- protobot-wms-v1 -->\n{\"kind\":",
+		Labels: []string{LabelWorkItem},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	wms := newTestAdapter(t, fake)
+	candidate := testWorkItem("wi-corrupt-scan", validation.StateInitial, 0)
+	result := wms.Execute(materializeCall(candidate, "corrupt-1", "corrupt-key"))
+	if result.OK || result.Error == nil || result.Error.Code != adapter.CodeWMSUnavailable {
+		t.Fatalf("materialize over an undecodable labeled issue = %#v, want WMS_UNAVAILABLE", result)
+	}
+	if fake.IssueCount() != 1 {
+		t.Fatalf("issues = %d, want 1 (no new issue during an inconclusive scan)", fake.IssueCount())
+	}
+
+	cold := newTestAdapter(t, fake)
+	query := cold.Execute(adapter.CallRequest{
+		Operation:       string(validation.OperationWorkItemQuery),
+		ActorContextRef: "drafting-table",
+		Payload:         jsonPayload(t, map[string]any{}),
+	})
+	if query.OK || query.Error == nil || query.Error.Code != adapter.CodeWMSUnavailable {
+		t.Fatalf("work-item query over an undecodable labeled issue = %#v, want WMS_UNAVAILABLE (not an empty set)", query)
+	}
+}
+
+// TestForeignProjectLabeledIssueIsSkippedNotFatal pins the other half of the
+// scan contract: a decodable labeled issue belonging to a different project
+// is legitimate multi-project filtering, not a scan failure, and must not
+// block this project's materializations.
+func TestForeignProjectLabeledIssueIsSkippedNotFatal(t *testing.T) {
+	fake := NewFakeClient()
+	foreign := testWorkItem("wi-foreign", validation.StateInitial, 0)
+	foreign.ProjectID = "other-project"
+	body, err := encodeBody("ProtoBot build work-item record.", storedDocument{
+		Kind:               kindWorkItem,
+		ProjectID:          "other-project",
+		WorkItem:           &foreign,
+		MaterializationKey: "mat-foreign-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fake.CreateIssue(context.Background(), CreateIssueInput{
+		Title:  workItemTitle(foreign),
+		Body:   body,
+		Labels: []string{LabelWorkItem},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	wms := newTestAdapter(t, fake)
+	candidate := testWorkItem("wi-shared-repo", validation.StateInitial, 0)
+	result := wms.Execute(materializeCall(candidate, "shared-1", "mat-shared-key"))
+	if !result.OK || result.Outcome != adapter.OutcomeApplied {
+		t.Fatalf("materialize beside a foreign-project record = %#v, want applied", result)
+	}
+}
+
+// TestMaterializeTransientDependencyLoadReturnsWMSUnavailable covers the
+// dependency observation path: a transient failure while loading a durable
+// dependency must abort materialization with WMS_UNAVAILABLE, not substitute
+// StateInitial and freeze a waiting work item under the materialization key
+// (this slice has no refresh-dependencies operation to correct it later).
+func TestMaterializeTransientDependencyLoadReturnsWMSUnavailable(t *testing.T) {
+	fake := NewFakeClient()
+	client := &toggledFailClient{inner: fake}
+	wms := newTestAdapterWithClient(t, client)
+
+	// Seed a durable completed dependency directly in the store: this slice
+	// cannot produce one through the lifecycle operations it implements.
+	dependency := testWorkItem("wi-dep-completed", validation.StateCompleted, 3)
+	body, err := encodeBody("ProtoBot build work-item record.", storedDocument{
+		Kind:               kindWorkItem,
+		ProjectID:          "fixture-project",
+		WorkItem:           &dependency,
+		MaterializationKey: "mat-dep-completed-key",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	issue, err := fake.CreateIssue(context.Background(), CreateIssueInput{
+		Title:  workItemTitle(dependency),
+		Body:   body,
+		Labels: []string{LabelWorkItem},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Hydrate so the dependency loads through GetIssue, where the transient
+	// failure is injected.
+	query := wms.Execute(adapter.CallRequest{
+		Operation:       string(validation.OperationWorkItemQuery),
+		ActorContextRef: "drafting-table",
+		Payload:         jsonPayload(t, map[string]any{}),
+	})
+	if !query.OK || len(query.Items) != 1 || query.Items[0].ID != dependency.ID {
+		t.Fatalf("dependency query = %#v", query)
+	}
+
+	candidate := testWorkItem("wi-dep-candidate", validation.StateInitial, 0)
+	candidate.Dependencies = []validation.Dependency{{ID: dependency.ID}}
+
+	client.arm(issue.Number)
+	result := wms.Execute(materializeCall(candidate, "mat-dep-transient-1", "mat-dep-transient-key"))
+	if result.OK || result.Error == nil || result.Error.Code != adapter.CodeWMSUnavailable {
+		t.Fatalf("materialize with transient dependency load = %#v, want WMS_UNAVAILABLE (not a missing dependency)", result)
+	}
+	if fake.IssueCount() != 1 {
+		t.Fatalf("issues = %d, want 1 (a mis-observed dependency must not freeze a waiting work item)", fake.IssueCount())
+	}
+
+	// Once the load succeeds the completed dependency is observed and the
+	// candidate materializes ready-for-building, not waiting.
+	retry := wms.Execute(materializeCall(candidate, "mat-dep-transient-2", "mat-dep-transient-key"))
+	if !retry.OK || retry.Outcome != adapter.OutcomeApplied {
+		t.Fatalf("materialize after dependency recovery = %#v", retry)
+	}
+	if retry.WorkItemState != validation.StateReadyForBuilding {
+		t.Fatalf("materialized state = %q, want ready-for-building (completed dependency observed)", retry.WorkItemState)
 	}
 }
 
