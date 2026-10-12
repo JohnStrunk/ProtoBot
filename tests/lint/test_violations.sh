@@ -21,8 +21,19 @@ SKIPPED=0
 # cleaned up even if the script is interrupted.
 CREATED_FILES=()
 STAGED_FILES=()
+AGENTS_FILE="${REPO_ROOT}/AGENTS.md"
+AGENTS_BACKUP=""
+
+restore_agents_md() {
+    if [[ -n "${AGENTS_BACKUP}" ]] && [[ -f "${AGENTS_BACKUP}" ]]; then
+        cp "${AGENTS_BACKUP}" "${AGENTS_FILE}"
+        rm -f "${AGENTS_BACKUP}"
+        AGENTS_BACKUP=""
+    fi
+}
 
 cleanup() {
+    restore_agents_md
     for f in "${STAGED_FILES[@]}"; do
         git -C "${REPO_ROOT}" restore --staged -- "${f}" 2>/dev/null || true
     done
@@ -303,6 +314,63 @@ elif [[ "${lint_spec_rc}" -ne 0 ]]; then
 else
     echo "PASS  spec-doc-independence: new spec does not demand review.yaml update"
     PASS=$((PASS + 1))
+fi
+
+# ── AGENTS.md context-budget ratchet ───────────────────────
+
+echo ""
+echo "── AGENTS.md context-budget ────────────────────────────"
+
+# skillsaw is already the pre-commit / lint.py hook for instruction
+# files. context-budget + .skillsaw-baseline.json (ceiling) reject
+# token growth in AGENTS.md without a special-purpose line-count
+# script. skillsaw lints the whole repository (pass_filenames: false),
+# so overflow coverage temporarily appends to the real AGENTS.md.
+lint_agents_rc=0
+lint_agents_output="$(python3 "${LINT}" --files AGENTS.md 2>&1)" || lint_agents_rc=$?
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_agents_clean="$(echo "${lint_agents_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+
+if echo "${lint_agents_clean}" | grep -qE "! skillsaw( |$)"; then
+    echo "SKIP  agents-md-budget-current: skillsaw tool not available"
+    SKIPPED=$((SKIPPED + 1))
+elif [[ "${lint_agents_rc}" -eq 0 ]] \
+    && echo "${lint_agents_clean}" | grep -qE "✓ skillsaw( |$)"; then
+    echo "PASS  agents-md-budget-current: current AGENTS.md is within the ceiling"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  agents-md-budget-current: skillsaw did not pass on AGENTS.md (exit ${lint_agents_rc})"
+    echo "${lint_agents_output}" | tail -8 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
+fi
+
+AGENTS_BACKUP="$(mktemp)"
+cp "${AGENTS_FILE}" "${AGENTS_BACKUP}"
+{
+    printf '\n'
+    for _ in $(seq 1 30); do
+        printf '%s\n' 'This line is a temporary skillsaw context-budget overflow fixture.'
+    done
+} >> "${AGENTS_FILE}"
+
+lint_bloat_rc=0
+lint_bloat_output="$(python3 "${LINT}" --files AGENTS.md 2>&1)" || lint_bloat_rc=$?
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_bloat_clean="$(echo "${lint_bloat_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+restore_agents_md
+
+if echo "${lint_bloat_clean}" | grep -qE "! skillsaw( |$)"; then
+    echo "SKIP  agents-md-budget-overflow: skillsaw tool not available"
+    SKIPPED=$((SKIPPED + 1))
+elif [[ "${lint_bloat_rc}" -ne 0 ]] \
+    && echo "${lint_bloat_clean}" | grep -qE "✗ skillsaw( |$)" \
+    && echo "${lint_bloat_clean}" | grep -qF "context-budget"; then
+    echo "PASS  agents-md-budget-overflow: token growth fails context-budget"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  agents-md-budget-overflow: expected skillsaw context-budget failure (exit ${lint_bloat_rc})"
+    echo "${lint_bloat_output}" | tail -12 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
 fi
 
 # ── Go formatting and vet ───────────────────────────────────
