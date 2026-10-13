@@ -1,0 +1,289 @@
+// Package github is the first backend translator over GitHub Issues for the
+// backend-neutral WMS contract (issue #68). Lifecycle rules stay in
+// wms/validation; this package only maps ProtoBot requests and work items to
+// labeled GitHub issue bodies and back.
+//
+// Trust model: a GitHub issue write is the WMS-store write. Stored documents
+// carry no signature or MAC, and Client.UpdateIssue has no etag or
+// precondition (see client.go), so this package cannot detect or reject an
+// issue edited outside the adapter — anyone with write access to the
+// repository's issues already has write access to the WMS store. The
+// Coordinator (see coordinator.go) only serializes Adapter instances that
+// share it; it provides compare-and-swap among cooperating adapters, not
+// protection against a concurrent out-of-band edit. Authenticating stored
+// documents or pairing writes with a durable compare-and-swap token is
+// explicitly out of this first slice's scope (issue #68 asks for
+// single-resource CAS or a documented coordinator boundary, not tamper
+// detection); see lifecycle.go's claim comment for the narrower,
+// claim-specific consequence of this trust model.
+package github
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/redhat-et/protobot/wms/adapter"
+	"github.com/redhat-et/protobot/wms/validation"
+)
+
+// Config supplies project identity, Gate, GitHub client, and lease policy.
+type Config struct {
+	ProjectID string
+	Gate      adapter.Gate
+	Client    Client
+	// Coordinator serializes claims and other authoritative mutations
+	// against the GitHub backend, which has no native conditional-update
+	// primitive of its own (see Client.UpdateIssue). There is no safe
+	// default: pass &InProcessCoordinator{} only when this Adapter is the
+	// sole active instance for ProjectID (single-player mode); a
+	// multi-player or web deployment must supply a Coordinator backed by a
+	// shared durable store instead (docs/architecture.md, "Claim
+	// coordinator"). New returns an error when Coordinator is nil rather
+	// than silently choosing one.
+	Coordinator         Coordinator
+	Now                 func() time.Time
+	LeaseDuration       time.Duration
+	MaterializerSubject string
+	Context             context.Context
+}
+
+// Adapter is the GitHub Issues backend translator for the #68 first slice.
+type Adapter struct {
+	projectID           string
+	gate                adapter.Gate
+	client              Client
+	coord               Coordinator
+	now                 func() time.Time
+	leaseDuration       time.Duration
+	materializerSubject string
+	ctx                 context.Context
+	idx                 *indexes
+}
+
+// New creates a project-scoped GitHub WMS adapter.
+func New(config Config) (*Adapter, error) {
+	if config.ProjectID == "" {
+		return nil, errors.New("project ID must not be empty")
+	}
+	if config.Gate == nil {
+		return nil, errors.New("trusted Gate must not be nil")
+	}
+	if config.Client == nil {
+		return nil, errors.New("github client must not be nil")
+	}
+	if config.Coordinator == nil {
+		return nil, errors.New("coordinator must not be nil: pass &InProcessCoordinator{} only when this is the sole active adapter instance for the project, or a shared durable coordinator for multi-player/web deployments")
+	}
+	if config.Now == nil {
+		config.Now = time.Now
+	}
+	if config.LeaseDuration <= 0 {
+		config.LeaseDuration = 15 * time.Minute
+	}
+	ctx := config.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return &Adapter{
+		projectID:           config.ProjectID,
+		gate:                config.Gate,
+		client:              config.Client,
+		coord:               config.Coordinator,
+		now:                 config.Now,
+		leaseDuration:       config.LeaseDuration,
+		materializerSubject: config.MaterializerSubject,
+		ctx:                 ctx,
+		idx:                 newIndexes(),
+	}, nil
+}
+
+// SeedChangeSet installs change-set state used by request linking tests.
+func (a *Adapter) SeedChangeSet(changeSet adapter.ChangeSet) error {
+	if changeSet.ID == "" {
+		return errors.New("seed change set must have an ID")
+	}
+	var err error
+	a.coord.WithLock(func() {
+		if _, exists := a.idx.changeSets[changeSet.ID]; exists {
+			err = errors.New("change set is already seeded")
+			return
+		}
+		a.idx.changeSets[changeSet.ID] = changeSet
+	})
+	return err
+}
+
+// SeedApproval installs Gate approval state for deterministic tests.
+func (a *Adapter) SeedApproval(approval validation.ApprovalRecord) error {
+	if approval.ID == "" {
+		return errors.New("seed approval must have an ID")
+	}
+	var err error
+	a.coord.WithLock(func() {
+		if _, exists := a.idx.approvals[approval.ID]; exists {
+			err = errors.New("approval is already seeded")
+			return
+		}
+		a.idx.approvals[approval.ID] = approval
+	})
+	return err
+}
+
+// Execute runs one backend-neutral WMS operation against GitHub Issues.
+func (a *Adapter) Execute(call adapter.CallRequest) adapter.Result {
+	var result adapter.Result
+	a.coord.WithLock(func() {
+		result = a.executeLocked(call)
+	})
+	return result
+}
+
+func (a *Adapter) executeLocked(call adapter.CallRequest) adapter.Result {
+	operation := validation.Operation(call.Operation)
+	if !isSubsetOperation(operation) {
+		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
+	}
+	authorization, ok := a.gate.Resolve(call.ActorContextRef)
+	if !ok {
+		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, ""))
+	}
+	if !adapter.RoleHasWMSOperation(authorization.Role, operation) {
+		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, authorization.PolicyVersion))
+	}
+	if rejection := validation.AuthorizeContext(
+		authorization,
+		operation,
+		a.projectID,
+		call.WorkItemID,
+		"",
+		[]string{"project:" + a.projectID},
+		a.now(),
+	); rejection != nil {
+		return rejectedResult(call.Operation, rejection)
+	}
+	if call.PolicyVersion != "" && call.PolicyVersion != authorization.PolicyVersion {
+		return rejectedResult(call.Operation, unauthorizedRejection(call.Operation, call.WorkItemID, authorization.PolicyVersion))
+	}
+
+	switch operation {
+	case validation.OperationMaterialize, validation.OperationClaim:
+		return a.executeLifecycleLocked(call, authorization)
+	default:
+		return a.executeRequestLocked(call, authorization)
+	}
+}
+
+func (a *Adapter) idempotencyScope(key string) string {
+	return a.projectID + "\x00" + key
+}
+
+func (a *Adapter) checkIdempotencyLocked(key, fingerprint string) (*adapter.Result, *validation.Rejection) {
+	entry, exists := a.idx.idempotency[a.idempotencyScope(key)]
+	if !exists {
+		return nil, nil
+	}
+	if entry.fingerprint != fingerprint {
+		return nil, wmsRejection(
+			validation.CodeIdempotencyConflict,
+			"The idempotency key was reused with a different request.",
+			map[string]any{
+				"conflict_kind":               "request-fingerprint",
+				"key_scope":                   "project",
+				"request_fingerprint_digest":  fingerprint,
+				"recorded_fingerprint_digest": entry.fingerprint,
+			},
+			validation.RetryNewKey,
+		)
+	}
+	result := markReplayed(cloneResult(entry.result))
+	return &result, nil
+}
+
+func (a *Adapter) rememberIdempotencyLocked(key, fingerprint string, result adapter.Result) {
+	a.idx.idempotency[a.idempotencyScope(key)] = idempotencyEntry{
+		fingerprint: fingerprint,
+		result:      cloneResult(result),
+	}
+}
+
+// peekFenceTokenLocked returns the fencing token the next authoritative
+// mutation would receive, without consuming it. It does not mutate
+// nextFenceSeq, so repeated calls between a successful advanceFenceTokenLocked
+// return the same candidate (matching wms/memory/memory.go, which computes
+// nextFencingToken+1 as the candidate and only advances the stored counter
+// after Evaluate confirms a token was actually issued).
+func (a *Adapter) peekFenceTokenLocked() string {
+	return fmt.Sprintf("fence-%d", a.idx.nextFenceSeq+1)
+}
+
+// advanceFenceTokenLocked consumes the previously peeked candidate when
+// issued is true (the decision actually used it, decision.FencingTokenIssued
+// != ""). A rejected, omitted, or read-only evaluation does not advance the
+// sequence, so the next authoritative mutation gets the same candidate
+// peekFenceTokenLocked already offered it, not a skipped number.
+func (a *Adapter) advanceFenceTokenLocked(issued bool) {
+	if issued {
+		a.idx.nextFenceSeq++
+	}
+}
+
+func (a *Adapter) nextRequestIDLocked() string {
+	a.idx.nextRequestSeq++
+	return fmt.Sprintf("REQ-%05d", a.idx.nextRequestSeq)
+}
+
+// idempotencyEntry caches one mutation result under its idempotency key.
+type idempotencyEntry struct {
+	fingerprint string
+	result      adapter.Result
+}
+
+// materializationEntry caches the create-or-return reservation bound to a
+// materialization_key: either a materialized work item or an omitted
+// reservation (VR-039).
+type materializationEntry struct {
+	fingerprint string
+	result      adapter.Result
+	issueNumber int
+}
+
+// indexes is the Adapter's in-process state: the durable-issue caches, the
+// idempotency and materialization-key reservations, and the seeded Gate
+// state. Everything here is rebuildable from the durable GitHub issues
+// (hydration) except idempotency and pendingRequestCreate, which are
+// process-local only: a restart relies on the durable bindings
+// (last-mutation, last-claim, create-idempotency records) to reconcile the
+// retries that would otherwise have replayed from these maps.
+type indexes struct {
+	requestIssue         map[string]int // request id -> issue number
+	workItemIssue        map[string]int // work item id -> issue number
+	materializationKey   map[string]materializationEntry
+	idempotency          map[string]idempotencyEntry
+	semanticRequests     map[string]string
+	pendingRequestCreate map[string]string // idempotency key -> request id after UNKNOWN_MUTATION
+	changeSets           map[string]adapter.ChangeSet
+	approvals            map[string]validation.ApprovalRecord
+	nextRequestSeq       uint64
+	nextFenceSeq         uint64
+	// requestsHydrated and workItemsHydrated record that the durable
+	// LabelRequest/LabelWorkItem scans have completed once for this
+	// process, so reads fall back to a rescan only before the first
+	// successful hydration.
+	requestsHydrated  bool
+	workItemsHydrated bool
+}
+
+func newIndexes() *indexes {
+	return &indexes{
+		requestIssue:         make(map[string]int),
+		workItemIssue:        make(map[string]int),
+		materializationKey:   make(map[string]materializationEntry),
+		idempotency:          make(map[string]idempotencyEntry),
+		semanticRequests:     make(map[string]string),
+		pendingRequestCreate: make(map[string]string),
+		changeSets:           make(map[string]adapter.ChangeSet),
+		approvals:            make(map[string]validation.ApprovalRecord),
+	}
+}
