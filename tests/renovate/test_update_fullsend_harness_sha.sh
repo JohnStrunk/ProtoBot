@@ -50,10 +50,21 @@ write_mock_curl() {
 set -euo pipefail
 url=""
 auth_header=""
+auth_header_file=""
+auth_file_perms=""
+raw_args=("$@")
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -H)
-            if [[ "${2:-}" == Authorization:* ]]; then
+            if [[ "${2:-}" == @* ]]; then
+                auth_header_file="${2#@}"
+                if [[ -f "${auth_header_file}" ]]; then
+                    if command -v stat >/dev/null 2>&1; then
+                        auth_file_perms="$(stat -c '%a' "${auth_header_file}" 2>/dev/null || stat -f '%Lp' "${auth_header_file}" 2>/dev/null || true)"
+                    fi
+                    auth_header="$(cat "${auth_header_file}")"
+                fi
+            elif [[ "${2:-}" == Authorization:* ]]; then
                 auth_header="$2"
             fi
             shift 2
@@ -76,6 +87,9 @@ done
 {
     printf 'url=%s\n' "${url}"
     printf 'auth=%s\n' "${auth_header}"
+    printf 'auth_file=%s\n' "${auth_header_file}"
+    printf 'auth_perms=%s\n' "${auth_file_perms}"
+    printf 'argv=%s\n' "${raw_args[*]}"
 } >> "${MOCK_CURL_LOG}"
 
 if [[ "${MOCK_CURL_FAIL:-}" == "1" ]]; then
@@ -201,6 +215,21 @@ if run_case "${label}" 0 GH_TOKEN=gh-token-value; then
         indent < "${LAST_CASE}/curl.log"
         ok=false
     fi
+    if ! grep -qx 'auth_perms=600' "${LAST_CASE}/curl.log"; then
+        echo "FAIL  ${label}: expected auth header file permissions to be 0600"
+        indent < "${LAST_CASE}/curl.log"
+        ok=false
+    fi
+    if grep -q 'argv=.*gh-token-value' "${LAST_CASE}/curl.log"; then
+        echo "FAIL  ${label}: token leaked into curl argv"
+        indent < "${LAST_CASE}/curl.log"
+        ok=false
+    fi
+    auth_file="$(sed -n 's/^auth_file=//p' "${LAST_CASE}/curl.log")"
+    if [[ -n "${auth_file}" && -e "${auth_file}" ]]; then
+        echo "FAIL  ${label}: temporary auth header file was not cleaned up"
+        ok=false
+    fi
     record "${label}" "${ok}"
 else
     record "${label}" false
@@ -214,6 +243,21 @@ if run_case "${label}" 0 GITHUB_TOKEN=github-token-value; then
     if ! grep -qx 'auth=Authorization: token github-token-value' "${LAST_CASE}/curl.log"; then
         echo "FAIL  ${label}: expected Authorization: token header from GITHUB_TOKEN"
         indent < "${LAST_CASE}/curl.log"
+        ok=false
+    fi
+    if ! grep -qx 'auth_perms=600' "${LAST_CASE}/curl.log"; then
+        echo "FAIL  ${label}: expected auth header file permissions to be 0600"
+        indent < "${LAST_CASE}/curl.log"
+        ok=false
+    fi
+    if grep -q 'argv=.*github-token-value' "${LAST_CASE}/curl.log"; then
+        echo "FAIL  ${label}: token leaked into curl argv"
+        indent < "${LAST_CASE}/curl.log"
+        ok=false
+    fi
+    auth_file="$(sed -n 's/^auth_file=//p' "${LAST_CASE}/curl.log")"
+    if [[ -n "${auth_file}" && -e "${auth_file}" ]]; then
+        echo "FAIL  ${label}: temporary auth header file was not cleaned up"
         ok=false
     fi
     record "${label}" "${ok}"
@@ -243,7 +287,7 @@ case_dir="$(mktemp -d "${TEST_ROOT}/case.XXXXXX")"
 mkdir -p "${case_dir}/bin" "${case_dir}/tools" "${case_dir}/workspace/.fullsend/harness"
 write_harness "${case_dir}/workspace/.fullsend/harness/fix.yaml"
 write_mock_gh "${case_dir}/bin/gh"
-for cmd in bash grep sed sha256sum cut printf cat; do
+for cmd in bash grep sed sha256sum cut printf cat mktemp chmod rm; do
     src="$(command -v "${cmd}")"
     ln -s "${src}" "${case_dir}/tools/${cmd}"
 done
