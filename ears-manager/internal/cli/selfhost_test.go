@@ -53,7 +53,7 @@ func TestSelfHostingFixturePassesCheck(t *testing.T) {
 }
 
 func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	baseCommit := gitOutput(t, root, "rev-parse", "refs/heads/main")
 	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
@@ -119,7 +119,7 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 }
 
 func TestSelfHostingProposedChangeSetBaseNotOnDefaultFailsCheck(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	head := gitOutput(t, root, "rev-parse", "HEAD")
 	defaultHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
@@ -408,15 +408,20 @@ func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
 
 func newSelfHostingCheckout(t *testing.T) string {
 	t.Helper()
-	return buildSelfHostingCheckout(t, selfHostingRoot(t), false)
+	return newSelfHostingCheckoutFrom(t, selfHostingRoot(t))
 }
 
 func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
 	t.Helper()
-	return buildSelfHostingCheckout(t, source, true)
+	return buildSelfHostingCheckout(t, source, selfHostingChangeSetRelPaths(t, source), true)
 }
 
-func buildSelfHostingCheckout(t *testing.T, source string, splitApproved bool) string {
+func newSelfHostingSeedProposedCheckout(t *testing.T) string {
+	t.Helper()
+	return buildSelfHostingCheckout(t, selfHostingRoot(t), []string{".protobot/change-sets/cs-00001.yaml"}, false)
+}
+
+func buildSelfHostingCheckout(t *testing.T, source string, manifests []string, splitApproved bool) string {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -431,10 +436,9 @@ func buildSelfHostingCheckout(t *testing.T, source string, splitApproved bool) s
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-m", "registered artifacts")
 
-	allManifests := selfHostingChangeSetRelPaths(t, source)
 	var approvedManifests, proposedManifests []string
 	if splitApproved {
-		for _, rel := range allManifests {
+		for _, rel := range manifests {
 			if isChangeSetApprovedInSource(source, rel) {
 				approvedManifests = append(approvedManifests, rel)
 			} else {
@@ -442,9 +446,9 @@ func buildSelfHostingCheckout(t *testing.T, source string, splitApproved bool) s
 			}
 		}
 	} else {
-		// The default fixture keeps CS-00001 and any extra change sets on the
-		// proposed PR branch so lifecycle tests can exercise CS-00001's proposal workflow.
-		proposedManifests = allManifests
+		// Keep requested change sets on the proposed PR branch so lifecycle
+		// tests can exercise their proposal workflow.
+		proposedManifests = manifests
 	}
 
 	// Write project and projection configs
