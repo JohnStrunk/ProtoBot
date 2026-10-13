@@ -2,10 +2,12 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -39,8 +41,9 @@ func TestSelfHostingFixturePassesCheck(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode check result: %v", err)
 	}
-	if got := result.Data.RecordCounts; got.Requirements != 1 || got.Interfaces != 1 || got.ChangeSets != 1 || got.Artifacts != 2 {
-		t.Fatalf("seeded record counts = %#v, want one requirement, interface, and change set plus two artifacts", got)
+	wantChangeSets := len(selfHostingChangeSetRelPaths(t, selfHostingRoot(t)))
+	if got := result.Data.RecordCounts; got.Requirements != 1 || got.Interfaces != 1 || got.ChangeSets != wantChangeSets || got.Artifacts != 2 {
+		t.Fatalf("seeded record counts = %#v, want one requirement, one interface, %d change set(s), and two artifacts", got, wantChangeSets)
 	}
 }
 
@@ -89,6 +92,11 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 	if !strings.Contains(stdout, baseCommit) || !strings.Contains(stdout, defaultHead) {
 		t.Fatalf("BASE_COMMIT_STALE did not name recorded base %s and default head %s: %s", baseCommit, defaultHead, stdout)
 	}
+
+	// Additional proposed change sets copied from the seed would also be
+	// stale after the merge. Pin them so this test can exercise CS-00001's
+	// refresh workflow in isolation.
+	pinSelfHostingChangeSetsExcept(t, root, "CS-00001")
 
 	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", "CS-00001", "--base-commit", defaultHead)
 	assertSuccess(t, code, stdout, stderr)
@@ -332,63 +340,31 @@ func TestSelfHostingSeedMatchesWorkflowTrustAnchor(t *testing.T) {
 }
 
 func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
-	proposal1 := records.ChangeSet{
-		ID:                      "CS-00002",
-		Intent:                  "Document an additional proposed change set",
-		Operations:              []records.RequirementOperation{},
-		AffectedInterfaces:      []string{},
-		AffectedScopes:          []string{},
-		ImplementationRequired:  false,
-		ImplementationRationale: "The additional change set exists only to exercise self-hosting fixtures.",
-		Created:                 "2026-10-13T16:00:00Z",
-	}
-	proposal2 := records.ChangeSet{
-		ID:                      "CS-00003",
-		Intent:                  "Document a third proposed change set",
-		Operations:              []records.RequirementOperation{},
-		AffectedInterfaces:      []string{},
-		AffectedScopes:          []string{},
-		ImplementationRequired:  false,
-		ImplementationRationale: "The third change set tests multiple concurrent proposals.",
-		Created:                 "2026-10-13T16:01:00Z",
-	}
-	root := newSelfHostingMultiProposalCheckout(t, proposal1, proposal2)
+	source, extra := selfHostingSourceWithExtraChangeSet(t)
+	root := newSelfHostingCheckoutFrom(t, source)
 	t.Chdir(root)
 
-	// Approved seed manifests remain on the fixture's default branch and
-	// preserve approved historical status.
-	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
-	assertSuccess(t, code, stdout, stderr)
-	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
-		t.Fatalf("CS-00001 status = %q, want approved", status)
+	copied := selfHostingChangeSetRelPaths(t, root)
+	if !containsString(copied, extra) {
+		t.Fatalf("newSelfHostingCheckout omitted %s from %v", extra, copied)
 	}
-
-	// Active proposals on the proposal branch are reported as proposed.
-	for _, id := range []string{"CS-00002", "CS-00003"} {
-		code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
-		assertSuccess(t, code, stdout, stderr)
-		if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
-			t.Fatalf("%s status = %q, want proposed", id, status)
-		}
+	if len(copied) < 2 {
+		t.Fatalf("copied change-set manifests = %v, want at least two proposed change sets", copied)
 	}
 
 	base := gitOutput(t, root, "rev-parse", "refs/heads/main")
-	for _, id := range []string{"CS-00002", "CS-00003"} {
-		filename, err := records.FilenameFor(records.ChangeSetStore, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		path := filepath.Join(root, ".protobot", "change-sets", filename)
+	for _, rel := range copied {
+		path := filepath.Join(root, filepath.FromSlash(rel))
 		var changeSet records.ChangeSet
 		if err := storage.ReadFile(path, &changeSet); err != nil {
 			t.Fatal(err)
 		}
 		if changeSet.BaseCommit != base || changeSet.ImpactAssessmentBaseCommit != base {
-			t.Fatalf("%s base_commit=%q impact_assessment_base_commit=%q, want both %q", id, changeSet.BaseCommit, changeSet.ImpactAssessmentBaseCommit, base)
+			t.Fatalf("%s base_commit=%q impact_assessment_base_commit=%q, want both %q", rel, changeSet.BaseCommit, changeSet.ImpactAssessmentBaseCommit, base)
 		}
 	}
 
-	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
 	assertSuccess(t, code, stdout, stderr)
 	var result struct {
 		Data struct {
@@ -400,8 +376,8 @@ func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode check result: %v", err)
 	}
-	if result.Data.RecordCounts.ChangeSets != 3 {
-		t.Fatalf("check change_sets = %d, want 3", result.Data.RecordCounts.ChangeSets)
+	if result.Data.RecordCounts.ChangeSets != len(copied) {
+		t.Fatalf("check change_sets = %d, want %d", result.Data.RecordCounts.ChangeSets, len(copied))
 	}
 
 	var copiedSeed, originSeed records.ChangeSet
@@ -420,7 +396,11 @@ func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
 
 func newSelfHostingCheckout(t *testing.T) string {
 	t.Helper()
-	source := selfHostingRoot(t)
+	return newSelfHostingCheckoutFrom(t, selfHostingRoot(t))
+}
+
+func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
+	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -434,98 +414,148 @@ func newSelfHostingCheckout(t *testing.T) string {
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-m", "registered artifacts")
 	git(t, root, "checkout", "-b", "pr/self-hosting-seed")
-	for _, rel := range []string{
-		".protobot/project.yaml",
-		".protobot/projection.yaml",
-		".protobot/change-sets/cs-00001.yaml",
-		".protobot/interfaces/protobot-cli.yaml",
-		".protobot/requirements/REQ-CLI-00001.yaml",
-	} {
-		writeTestFile(t, root, rel, readTestFile(t, source, rel))
-	}
+	copySelfHostingSeed(t, source, root)
 	pinSelfHostingSeedBase(t, root)
 	git(t, root, "add", ".protobot")
 	git(t, root, "commit", "-m", "propose self-hosting seed")
 	return root
 }
 
-func newSelfHostingMultiProposalCheckout(t *testing.T, proposals ...records.ChangeSet) string {
+func copySelfHostingSeed(t *testing.T, source, root string) {
 	t.Helper()
-	source := selfHostingRoot(t)
+	relPaths := []string{
+		".protobot/project.yaml",
+		".protobot/projection.yaml",
+		".protobot/interfaces/protobot-cli.yaml",
+		".protobot/requirements/REQ-CLI-00001.yaml",
+	}
+	relPaths = append(relPaths, selfHostingChangeSetRelPaths(t, source)...)
+	for _, rel := range relPaths {
+		writeTestFile(t, root, rel, readTestFile(t, source, rel))
+	}
+}
+
+func selfHostingChangeSetRelPaths(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, ".protobot", "change-sets"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	relPaths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasPrefix(name, ".") || filepath.Ext(name) != ".yaml" {
+			continue
+		}
+		relPaths = append(relPaths, filepath.ToSlash(filepath.Join(".protobot", "change-sets", name)))
+	}
+	if len(relPaths) == 0 {
+		t.Fatal("no change-set manifests matching .protobot/change-sets/*.yaml")
+	}
+	sort.Strings(relPaths)
+	return relPaths
+}
+
+// pinSelfHostingSeedBase rewrites every copied proposed change-set
+// base_commit and impact_assessment_base_commit to the local
+// default-branch head so check can evaluate Git freshness in the temp repo.
+func pinSelfHostingSeedBase(t *testing.T, root string) {
+	t.Helper()
+	pinSelfHostingChangeSetsExcept(t, root)
+}
+
+func pinSelfHostingChangeSetsExcept(t *testing.T, root string, skipIDs ...string) {
+	t.Helper()
+	base := gitOutput(t, root, "rev-parse", "refs/heads/main")
+	skip := make(map[string]bool, len(skipIDs))
+	for _, id := range skipIDs {
+		skip[id] = true
+	}
+	pinned := false
+	for _, rel := range selfHostingChangeSetRelPaths(t, root) {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		var changeSet records.ChangeSet
+		if err := storage.ReadFile(path, &changeSet); err != nil {
+			t.Fatal(err)
+		}
+		if skip[changeSet.ID] {
+			continue
+		}
+		if isChangeSetApprovedInTree(root, "refs/heads/main", rel) {
+			continue
+		}
+		changeSet.BaseCommit = base
+		changeSet.ImpactAssessmentBaseCommit = base
+		data, err := storage.Encode(changeSet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pinned = true
+	}
+	if pinned {
+		refreshProjectDigests(t, root)
+	}
+}
+
+func isChangeSetApprovedInTree(root, ref, relPath string) bool {
+	cmd := gitCommand("-C", root, "cat-file", "-e", ref+":"+filepath.ToSlash(relPath))
+	return cmd.Run() == nil
+}
+
+func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
+	t.Helper()
+	origin := selfHostingRoot(t)
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
+	copySelfHostingSeed(t, origin, root)
 	for _, rel := range []string{"docs/vision.md", "docs/architecture.md"} {
-		writeTestFile(t, root, rel, readTestFile(t, source, rel))
+		writeTestFile(t, root, rel, readTestFile(t, origin, rel))
 	}
-	git(t, root, "init", "-b", "main")
-	git(t, root, "config", "user.email", "test@example.invalid")
-	git(t, root, "config", "user.name", "Test User")
-	git(t, root, "add", ".")
-	git(t, root, "commit", "-m", "registered artifacts")
-
-	// Commit approved manifests and registered artifacts to the fixture's
-	// default branch. Presence on the default branch establishes approval.
-	for _, rel := range []string{
-		".protobot/project.yaml",
-		".protobot/projection.yaml",
-		".protobot/change-sets/cs-00001.yaml",
-		".protobot/interfaces/protobot-cli.yaml",
-		".protobot/requirements/REQ-CLI-00001.yaml",
-	} {
-		writeTestFile(t, root, rel, readTestFile(t, source, rel))
+	id, rel := nextSelfHostingChangeSetRel(t, root)
+	changeSet := records.ChangeSet{
+		ID:                         id,
+		BaseCommit:                 strings.Repeat("a", 40),
+		Intent:                     "Document an additional proposed change set",
+		Operations:                 []records.RequirementOperation{},
+		AffectedInterfaces:         []string{},
+		AffectedScopes:             []string{},
+		ImplementationRequired:     false,
+		ImplementationRationale:    "The additional change set exists only to exercise self-hosting fixtures.",
+		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
+		Created:                    "2026-10-13T16:00:00Z",
 	}
-	pinSelfHostingSeedBase(t, root)
-	git(t, root, "add", ".protobot")
-	git(t, root, "commit", "-m", "initialize specification and approve seed CS-00001")
-
-	if len(proposals) > 0 {
-		git(t, root, "checkout", "-b", "pr/multi-proposal")
-		base := gitOutput(t, root, "rev-parse", "refs/heads/main")
-		for _, proposal := range proposals {
-			proposal.BaseCommit = base
-			proposal.ImpactAssessmentBaseCommit = base
-			filename, err := records.FilenameFor(records.ChangeSetStore, proposal.ID)
-			if err != nil {
-				t.Fatal(err)
-			}
-			path := filepath.Join(root, ".protobot", "change-sets", filename)
-			data, err := storage.Encode(proposal)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if err := os.WriteFile(path, data, 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
-		refreshProjectDigests(t, root)
-		git(t, root, "add", ".protobot")
-		git(t, root, "commit", "-m", "propose additional change sets")
-	}
-	return root
-}
-
-// pinSelfHostingSeedBase rewrites the copied seed's base_commit to the local
-// default-branch head so check can evaluate Git freshness in the temp repo.
-func pinSelfHostingSeedBase(t *testing.T, root string) {
-	t.Helper()
-	base := gitOutput(t, root, "rev-parse", "refs/heads/main")
-	path := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
-	var changeSet records.ChangeSet
-	if err := storage.ReadFile(path, &changeSet); err != nil {
-		t.Fatal(err)
-	}
-	changeSet.BaseCommit = base
-	changeSet.ImpactAssessmentBaseCommit = base
 	data, err := storage.Encode(changeSet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatal(err)
+	writeTestFile(t, root, rel, string(data))
+	return root, rel
+}
+
+func nextSelfHostingChangeSetRel(t *testing.T, root string) (string, string) {
+	t.Helper()
+	used := make(map[string]bool)
+	for _, rel := range selfHostingChangeSetRelPaths(t, root) {
+		used[filepath.Base(rel)] = true
 	}
-	refreshProjectDigests(t, root)
+	for number := 2; number <= lastChangeSetNumber; number++ {
+		id := fmt.Sprintf("CS-%05d", number)
+		filename, err := records.FilenameFor(records.ChangeSetStore, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if used[filename] {
+			continue
+		}
+		return id, filepath.ToSlash(filepath.Join(".protobot", "change-sets", filename))
+	}
+	t.Fatal("no change-set sequence number is available")
+	return "", ""
 }
 
 func isolateSeedProject(config records.ProjectConfig) records.ProjectConfig {
