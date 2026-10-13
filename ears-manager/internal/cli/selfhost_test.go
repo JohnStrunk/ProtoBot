@@ -41,9 +41,14 @@ func TestSelfHostingFixturePassesCheck(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode check result: %v", err)
 	}
-	wantChangeSets := len(selfHostingChangeSetRelPaths(t, selfHostingRoot(t)))
-	if got := result.Data.RecordCounts; got.Requirements != 1 || got.Interfaces != 1 || got.ChangeSets != wantChangeSets || got.Artifacts != 2 {
-		t.Fatalf("seeded record counts = %#v, want one requirement, one interface, %d change set(s), and two artifacts", got, wantChangeSets)
+	source := selfHostingRoot(t)
+	csRels := selfHostingChangeSetRelPaths(t, source)
+	reqRels, ifaceRels := referencedRecordsForChangeSets(t, source, csRels)
+	wantChangeSets := len(csRels)
+	wantRequirements := len(reqRels)
+	wantInterfaces := len(ifaceRels)
+	if got := result.Data.RecordCounts; got.Requirements != wantRequirements || got.Interfaces != wantInterfaces || got.ChangeSets != wantChangeSets || got.Artifacts != 2 {
+		t.Fatalf("seeded record counts = %#v, want %d requirement(s), %d interface(s), %d change set(s), and two artifacts", got, wantRequirements, wantInterfaces, wantChangeSets)
 	}
 }
 
@@ -259,7 +264,12 @@ func TestSelfHostingSeedMatchesGovernedInitialization(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Store digests change when later proposed change sets are added to
-	// the committed seed. Governed initialization still has to reproduce
+	// the committed seed. Differing base commits also make store digests
+	// differ: the committed seed's CS-00001 records base commits in
+	// .protobot/change-sets/cs-00001.yaml while governed initialization
+	// creates a temporary-repository base. Store digests include canonical
+	// manifest contents, so they can differ even when the store contains
+	// only the seed manifest. Governed initialization still has to reproduce
 	// CS-00001 and the rest of the project configuration.
 	gotProject = isolateSeedProject(gotProject)
 	wantProject = isolateSeedProject(wantProject)
@@ -267,18 +277,11 @@ func TestSelfHostingSeedMatchesGovernedInitialization(t *testing.T) {
 		t.Fatalf("project configuration from governed init differs:\ngot: %#v\nwant: %#v", gotProject, wantProject)
 	}
 
-	var gotChangeSet, wantChangeSet records.ChangeSet
-	if err := storage.ReadFile(filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"), &gotChangeSet); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.ReadFile(filepath.Join(source, ".protobot", "change-sets", "cs-00001.yaml"), &wantChangeSet); err != nil {
-		t.Fatal(err)
-	}
-	gotChangeSet.BaseCommit, wantChangeSet.BaseCommit = "", ""
-	gotChangeSet.ImpactAssessmentBaseCommit, wantChangeSet.ImpactAssessmentBaseCommit = "", ""
-	if !reflect.DeepEqual(gotChangeSet, wantChangeSet) {
-		t.Fatalf("change-set record from governed writes differs:\ngot: %#v\nwant: %#v", gotChangeSet, wantChangeSet)
-	}
+	assertSeedChangeSetMatches(t,
+		filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"),
+		filepath.Join(source, ".protobot", "change-sets", "cs-00001.yaml"),
+		"change-set record from governed writes differs",
+	)
 	for _, rel := range []string{
 		"interfaces/protobot-cli.yaml",
 		"requirements/REQ-CLI-00001.yaml",
@@ -344,54 +347,63 @@ func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
 	root := newSelfHostingCheckoutFrom(t, source)
 	t.Chdir(root)
 
+	// Approved seed manifests remain on the fixture's default branch and
+	// preserve approved historical status.
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+		t.Fatalf("CS-00001 status = %q, want approved", status)
+	}
+
+	var extraCS records.ChangeSet
+	if err := storage.ReadFile(filepath.Join(root, filepath.FromSlash(extra)), &extraCS); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", extraCS.ID)
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+		t.Fatalf("%s status = %q, want proposed", extraCS.ID, status)
+	}
+
 	copied := selfHostingChangeSetRelPaths(t, root)
 	if !containsString(copied, extra) {
 		t.Fatalf("newSelfHostingCheckout omitted %s from %v", extra, copied)
 	}
 	if len(copied) < 2 {
-		t.Fatalf("copied change-set manifests = %v, want at least two proposed change sets", copied)
+		t.Fatalf("copied change-set manifests = %v, want at least two change sets", copied)
 	}
 
+	// Active proposals have base commits pinned to the fixture default branch head.
 	base := gitOutput(t, root, "rev-parse", "refs/heads/main")
-	for _, rel := range copied {
-		path := filepath.Join(root, filepath.FromSlash(rel))
-		var changeSet records.ChangeSet
-		if err := storage.ReadFile(path, &changeSet); err != nil {
-			t.Fatal(err)
-		}
-		if changeSet.BaseCommit != base || changeSet.ImpactAssessmentBaseCommit != base {
-			t.Fatalf("%s base_commit=%q impact_assessment_base_commit=%q, want both %q", rel, changeSet.BaseCommit, changeSet.ImpactAssessmentBaseCommit, base)
-		}
+	if extraCS.BaseCommit != base || extraCS.ImpactAssessmentBaseCommit != base {
+		t.Fatalf("%s base_commit=%q impact_assessment_base_commit=%q, want both %q", extra, extraCS.BaseCommit, extraCS.ImpactAssessmentBaseCommit, base)
 	}
 
-	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
 	assertSuccess(t, code, stdout, stderr)
 	var result struct {
 		Data struct {
 			RecordCounts struct {
-				ChangeSets int `json:"change_sets"`
+				Requirements int `json:"requirements"`
+				Interfaces   int `json:"interfaces"`
+				ChangeSets   int `json:"change_sets"`
+				Artifacts    int `json:"artifacts"`
 			} `json:"record_counts"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode check result: %v", err)
 	}
-	if result.Data.RecordCounts.ChangeSets != len(copied) {
-		t.Fatalf("check change_sets = %d, want %d", result.Data.RecordCounts.ChangeSets, len(copied))
+	reqRels, ifaceRels := referencedRecordsForChangeSets(t, source, copied)
+	if got := result.Data.RecordCounts; got.Requirements != len(reqRels) || got.Interfaces != len(ifaceRels) || got.ChangeSets != len(copied) || got.Artifacts != 2 {
+		t.Fatalf("check record counts = %#v, want %d requirement(s), %d interface(s), %d change set(s), and two artifacts", got, len(reqRels), len(ifaceRels), len(copied))
 	}
 
-	var copiedSeed, originSeed records.ChangeSet
-	if err := storage.ReadFile(filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"), &copiedSeed); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.ReadFile(filepath.Join(selfHostingRoot(t), ".protobot", "change-sets", "cs-00001.yaml"), &originSeed); err != nil {
-		t.Fatal(err)
-	}
-	copiedSeed.BaseCommit, originSeed.BaseCommit = "", ""
-	copiedSeed.ImpactAssessmentBaseCommit, originSeed.ImpactAssessmentBaseCommit = "", ""
-	if !reflect.DeepEqual(copiedSeed, originSeed) {
-		t.Fatalf("CS-00001 from a multi-change-set checkout differs from the committed seed:\ngot: %#v\nwant: %#v", copiedSeed, originSeed)
-	}
+	assertSeedChangeSetMatches(t,
+		filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"),
+		filepath.Join(selfHostingRoot(t), ".protobot", "change-sets", "cs-00001.yaml"),
+		"CS-00001 from a multi-change-set checkout differs from the committed seed",
+	)
 }
 
 func newSelfHostingCheckout(t *testing.T) string {
@@ -413,25 +425,134 @@ func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
 	git(t, root, "config", "user.name", "Test User")
 	git(t, root, "add", ".")
 	git(t, root, "commit", "-m", "registered artifacts")
+
+	allManifests := selfHostingChangeSetRelPaths(t, source)
+	var approvedManifests, proposedManifests []string
+	for _, rel := range allManifests {
+		if isChangeSetApprovedInSource(source, rel) {
+			approvedManifests = append(approvedManifests, rel)
+		} else {
+			proposedManifests = append(proposedManifests, rel)
+		}
+	}
+
+	// When source has no unapproved proposals (e.g. initial repository state with only
+	// the seed CS-00001), treat the seed as the active proposal so checkout fixtures
+	// can exercise the proposed-change-set lifecycle.
+	if len(proposedManifests) == 0 {
+		proposedManifests = approvedManifests
+		approvedManifests = nil
+	}
+
+	// Write project and projection configs
+	for _, rel := range []string{".protobot/project.yaml", ".protobot/projection.yaml"} {
+		writeTestFile(t, root, rel, readTestFile(t, source, rel))
+	}
+
+	if len(approvedManifests) > 0 {
+		appReqs, appIfaces := referencedRecordsForChangeSets(t, source, approvedManifests)
+		for _, rel := range append(append(approvedManifests, appReqs...), appIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, source, rel))
+		}
+		refreshProjectDigests(t, root)
+		git(t, root, "add", ".protobot")
+		git(t, root, "commit", "-m", "approved specification records")
+	}
+
 	git(t, root, "checkout", "-b", "pr/self-hosting-seed")
-	copySelfHostingSeed(t, source, root)
-	pinSelfHostingSeedBase(t, root)
-	git(t, root, "add", ".protobot")
-	git(t, root, "commit", "-m", "propose self-hosting seed")
+	if len(proposedManifests) > 0 {
+		propReqs, propIfaces := referencedRecordsForChangeSets(t, source, proposedManifests)
+		for _, rel := range append(append(proposedManifests, propReqs...), propIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, source, rel))
+		}
+		pinSelfHostingSeedBase(t, root)
+		git(t, root, "add", ".protobot")
+		git(t, root, "commit", "-m", "propose self-hosting change sets")
+	}
 	return root
 }
 
-func copySelfHostingSeed(t *testing.T, source, root string) {
-	t.Helper()
-	relPaths := []string{
-		".protobot/project.yaml",
-		".protobot/projection.yaml",
-		".protobot/interfaces/protobot-cli.yaml",
-		".protobot/requirements/REQ-CLI-00001.yaml",
+func isChangeSetApprovedInSource(source, relPath string) bool {
+	if isChangeSetApprovedInTree(source, "refs/heads/main", relPath) {
+		return true
 	}
-	relPaths = append(relPaths, selfHostingChangeSetRelPaths(t, source)...)
-	for _, rel := range relPaths {
-		writeTestFile(t, root, rel, readTestFile(t, source, rel))
+	if isChangeSetApprovedInTree(source, "refs/remotes/origin/main", relPath) {
+		return true
+	}
+	return false
+}
+
+func referencedRecordsForChangeSets(t *testing.T, source string, changeSetRels []string) ([]string, []string) {
+	t.Helper()
+	seenReqs := make(map[string]bool)
+	seenIfaces := make(map[string]bool)
+	reqRels := make([]string, 0)
+	ifaceRels := make([]string, 0)
+
+	for _, rel := range changeSetRels {
+		manifestPath := filepath.Join(source, filepath.FromSlash(rel))
+		var cs records.ChangeSet
+		if err := storage.ReadFile(manifestPath, &cs); err != nil {
+			t.Fatal(err)
+		}
+		for _, op := range cs.Operations {
+			if op.RequirementID != "" && !seenReqs[op.RequirementID] {
+				seenReqs[op.RequirementID] = true
+				filename, err := records.FilenameFor(records.RequirementStore, op.RequirementID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := filepath.ToSlash(filepath.Join(".protobot", "requirements", filename))
+				if _, err := os.Stat(filepath.Join(source, filepath.FromSlash(p))); err == nil {
+					reqRels = append(reqRels, p)
+				}
+			}
+		}
+		for _, op := range cs.InterfaceOperations {
+			if op.InterfaceID != "" && !seenIfaces[op.InterfaceID] {
+				seenIfaces[op.InterfaceID] = true
+				filename, err := records.FilenameFor(records.InterfaceStore, op.InterfaceID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := filepath.ToSlash(filepath.Join(".protobot", "interfaces", filename))
+				if _, err := os.Stat(filepath.Join(source, filepath.FromSlash(p))); err == nil {
+					ifaceRels = append(ifaceRels, p)
+				}
+			}
+		}
+		for _, ifaceID := range cs.AffectedInterfaces {
+			if ifaceID != "" && !seenIfaces[ifaceID] {
+				seenIfaces[ifaceID] = true
+				filename, err := records.FilenameFor(records.InterfaceStore, ifaceID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := filepath.ToSlash(filepath.Join(".protobot", "interfaces", filename))
+				if _, err := os.Stat(filepath.Join(source, filepath.FromSlash(p))); err == nil {
+					ifaceRels = append(ifaceRels, p)
+				}
+			}
+		}
+	}
+	sort.Strings(reqRels)
+	sort.Strings(ifaceRels)
+	return reqRels, ifaceRels
+}
+
+func assertSeedChangeSetMatches(t *testing.T, gotPath, wantPath, failureContext string) {
+	t.Helper()
+	var gotChangeSet, wantChangeSet records.ChangeSet
+	if err := storage.ReadFile(gotPath, &gotChangeSet); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.ReadFile(wantPath, &wantChangeSet); err != nil {
+		t.Fatal(err)
+	}
+	gotChangeSet.BaseCommit, wantChangeSet.BaseCommit = "", ""
+	gotChangeSet.ImpactAssessmentBaseCommit, wantChangeSet.ImpactAssessmentBaseCommit = "", ""
+	if !reflect.DeepEqual(gotChangeSet, wantChangeSet) {
+		t.Fatalf("%s:\ngot: %#v\nwant: %#v", failureContext, gotChangeSet, wantChangeSet)
 	}
 }
 
@@ -512,16 +633,64 @@ func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	copySelfHostingSeed(t, origin, root)
+
+	git(t, root, "init", "-b", "main")
+	git(t, root, "config", "user.email", "test@example.invalid")
+	git(t, root, "config", "user.name", "Test User")
+
 	for _, rel := range []string{"docs/vision.md", "docs/architecture.md"} {
 		writeTestFile(t, root, rel, readTestFile(t, origin, rel))
 	}
+	for _, rel := range []string{
+		".protobot/project.yaml",
+		".protobot/projection.yaml",
+		".protobot/change-sets/cs-00001.yaml",
+		".protobot/interfaces/protobot-cli.yaml",
+		".protobot/requirements/REQ-CLI-00001.yaml",
+	} {
+		writeTestFile(t, root, rel, readTestFile(t, origin, rel))
+	}
+	git(t, root, "add", ".")
+	git(t, root, "commit", "-m", "approved specification records")
+
 	id, rel := nextSelfHostingChangeSetRel(t, root)
+	reqID := "REQ-CLI-00002"
+	reqFilename, err := records.FilenameFor(records.RequirementStore, reqID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reqRel := filepath.ToSlash(filepath.Join(".protobot", "requirements", reqFilename))
+	req := records.Requirement{
+		ID:   reqID,
+		Type: "event-driven",
+		Text: "When an engineer runs the self-hosting test suite, the CLI shall support multiple proposed change sets.",
+		AppliesTo: records.Applicability{
+			Interfaces: []string{},
+			Scopes:     []string{"ears-manager"},
+		},
+		Verification: records.Verification{
+			Mode: "isolated-interface",
+		},
+		Provenance: "user-authored",
+		Created:    "2026-10-13T16:01:00Z",
+		Status:     records.StatusActive,
+	}
+	reqData, err := storage.Encode(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, reqRel, string(reqData))
+
 	changeSet := records.ChangeSet{
-		ID:                         id,
-		BaseCommit:                 strings.Repeat("a", 40),
-		Intent:                     "Document an additional proposed change set",
-		Operations:                 []records.RequirementOperation{},
+		ID:         id,
+		BaseCommit: strings.Repeat("a", 40),
+		Intent:     "Document an additional proposed change set",
+		Operations: []records.RequirementOperation{
+			{
+				Action:        "add",
+				RequirementID: reqID,
+			},
+		},
 		AffectedInterfaces:         []string{},
 		AffectedScopes:             []string{},
 		ImplementationRequired:     false,
@@ -534,6 +703,8 @@ func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
 		t.Fatal(err)
 	}
 	writeTestFile(t, root, rel, string(data))
+	refreshProjectDigests(t, root)
+
 	return root, rel
 }
 
