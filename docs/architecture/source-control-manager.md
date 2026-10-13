@@ -650,6 +650,13 @@ and the pull request. Its `data` fields are:
 | `pull_request` | `number`, `state` (`open`, `merged`, `closed`, `none`, `unavailable`, or `ambiguous`), `url`, and `merge_commit` |
 | `change_set_branches` | For each local `<prefix>` branch: `change_set_id`, `branch`, and `on_remote` |
 
+`repo_state` can return a successful result after a failed fetch, with
+`remote.reachable: false`; in that case the remote-tracking refs are from the
+last successful fetch. A `default_branch.local` value of `current` is not
+proof that the local ref matches the canonical remote. Any caller that relies
+on the canonical default head requires `remote.reachable: true`; otherwise it
+stops and retries after a successful fetch.
+
 ### `branch_init`
 
 1. Refuse with `ALREADY_INITIALIZED` when `.protobot/` exists at the
@@ -714,9 +721,11 @@ fails with `BASE_NOT_ON_DEFAULT` or `DEFAULT_MOVED`.
 A normal change-set branch is not cut by the SCM. #30 assigns that
 operation to `ears-manager change-set create`
 ([Answers](#answers-to-the-open-questions-of-125)), which cuts it from
-the local `<default>`. The role runs `repo_state` first and follows the
-local-ref result handling in [refresh step 6](#refresh) before relying
-on that ref ([`change-set create`](ears-manager-cli.md#change-set-create)).
+the local `<default>`. The role runs `repo_state` first and allows
+`change-set create` only when `remote.reachable` is true and
+`default_branch.local` is `current` or `fast-forwarded`; a fetch failure
+requires a retry, and `behind` or `diverged` requires user resolution
+([`change-set create`](ears-manager-cli.md#change-set-create)).
 
 ### `branch_resume`
 
@@ -1083,18 +1092,24 @@ match runs on the intent and again on the text as rendered.
    change-set manifest or index file, a requirement record, another
    registered artifact, or another path.
 6. Return the fetched canonical default head as `base_commit_update`.
-   Before applying it through `ears-manager`, the role calls `repo_state`,
-   which reports `default_branch.local` as `current`, `fast-forwarded`,
-   `behind`, or `diverged` ([`repo_state`](#repo_state)). Continue only
-   when it is `current` or `fast-forwarded`. When it is `behind` or
-   `diverged`, stop before `change-set update` or `check` and ask the user
-   to resolve the local default-branch state and bring it to the fetched
-   canonical head. `ears-manager check` reads a resolved local default
-   ref before a remote-tracking ref ([`check`](ears-manager-cli.md#check)),
-   so a stale local ref can report `BASE_NOT_ON_DEFAULT`. Once the local
-   branch is current, run #34's [refresh sequence][refresh-seq]:
-   `ears-manager change-set update --base-commit <default head>`, `impact`,
-   a reviewed `change-set update --impact-file -`, `check`, and `commit`.
+   Before applying it through `ears-manager`, the role calls `repo_state`.
+   Continue only when `remote.reachable` is `true`, `default_branch.local`
+   is `current` or `fast-forwarded`, and `default_branch.head` equals the
+   `base_commit_update` returned by `refresh`. A `false` reachability value
+   means the remote-tracking ref may be stale, so retry `repo_state` after a
+   successful fetch. When the local state is `behind` or `diverged`, stop
+   before `change-set update` or `check` and ask the user to resolve the
+   local default-branch state. If the fetched head differs from
+   `base_commit_update`, the canonical default branch moved between calls:
+   run `refresh` again to merge that head, then repeat `repo_state` and these
+   checks. `ears-manager check` reads a resolved local default ref before a
+   remote-tracking ref ([`check`](ears-manager-cli.md#check)), so it cannot
+   establish that the local ref is current with an unreachable remote. Once
+   the reachability, local-state, and head checks pass, run #34's
+   [refresh sequence][refresh-seq], using the verified
+   `default_branch.head` for `ears-manager change-set update --base-commit`,
+   then `impact`, a reviewed `change-set update --impact-file -`, `check`,
+   and `commit`.
 
 When nothing needs a merge, `refresh` returns `outcome: unchanged`.
 

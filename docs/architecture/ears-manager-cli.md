@@ -829,10 +829,12 @@ It reads the head of the local default branch,
 as `impact_assessment_base_commit`. It never takes the base from `HEAD`, and
 it never fetches: the Source Control Manager's
 [`repo_state`](source-control-manager.md#repo_state) fetches the canonical
-remote and may fast-forward the local default branch first. The Drafting
-Table follows the local-ref result handling in
-[refresh step 6](source-control-manager.md#refresh) before relying on that
-ref ([When the branch is created][change-set-branch-created]).
+remote and may fast-forward the local default branch first. Before relying
+on that ref, the Drafting Table requires `remote.reachable: true` and
+`default_branch.local` to be `current` or `fast-forwarded`; otherwise it
+follows the Source Control Manager's
+[local-ref recovery rule](source-control-manager.md#repo_state) and does not
+create the change set ([When the branch is created][change-set-branch-created]).
 
 There are two cases:
 
@@ -970,6 +972,10 @@ canonical remote; CI fetches `repository.default_branch` from
 manifests' stored historical assessments and `base_commit` values remain
 preserved. Independent load failures are aggregated with semantic diagnostics
 from records that could still be read.
+Because `ears-manager` never fetches, `check` can pass against a stale local
+default ref after a failed or missing fetch. Before the Drafting Table relies
+on this freshness result, SCM `repo_state` must report `remote.reachable: true`
+([`repo_state`](source-control-manager.md#repo_state)).
 After `refresh`, the Drafting Table runs SCM `repo_state` before applying the
 base update or running `check`; it follows the
 [refresh recovery rule](source-control-manager.md#refresh) because freshness

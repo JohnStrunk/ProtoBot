@@ -65,8 +65,10 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "DEFAULT_MOVED" {
 		t.Fatalf("stale proposed base = code %d stdout %s stderr %s", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "repo_state") {
-		t.Fatalf("DEFAULT_MOVED hint omitted repo_state: %s", stdout)
+	if !strings.Contains(stdout, "repo_state") || !strings.Contains(stdout, "remote.reachable") ||
+		!strings.Contains(stdout, "default_branch.head") || !strings.Contains(stdout, "base_commit_update") ||
+		!strings.Contains(stdout, "--base-commit") {
+		t.Fatalf("DEFAULT_MOVED hint omitted the verified repo_state head: %s", stdout)
 	}
 	if !hasDiagnostic(t, stdout, "DEFAULT_MOVED", "base_commit") {
 		t.Fatalf("check omitted DEFAULT_MOVED on base_commit: %s", stdout)
@@ -86,8 +88,10 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "BASE_COMMIT_STALE" {
 		t.Fatalf("merged stale base = code %d stdout %s stderr %s", code, stdout, stderr)
 	}
-	if !strings.Contains(stdout, "repo_state") {
-		t.Fatalf("BASE_COMMIT_STALE hint omitted repo_state: %s", stdout)
+	if !strings.Contains(stdout, "repo_state") || !strings.Contains(stdout, "remote.reachable") ||
+		!strings.Contains(stdout, "default_branch.head") || !strings.Contains(stdout, "base_commit_update") ||
+		!strings.Contains(stdout, "--base-commit") {
+		t.Fatalf("BASE_COMMIT_STALE hint omitted the verified repo_state head: %s", stdout)
 	}
 	if !hasDiagnostic(t, stdout, "BASE_COMMIT_STALE", "base_commit") {
 		t.Fatalf("check omitted BASE_COMMIT_STALE on base_commit: %s", stdout)

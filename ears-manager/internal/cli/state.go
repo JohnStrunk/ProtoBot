@@ -1201,7 +1201,7 @@ func freshnessDiagnostic(code, path, id, base, targetHead, remoteRelation string
 		RecordID: id,
 		Field:    "base_commit",
 		Message:  freshnessMessage(code, id, base, targetHead),
-		Hint:     freshnessHint(code, id, targetHead, remoteRelation),
+		Hint:     freshnessHint(code, id, remoteRelation),
 	}
 }
 
@@ -1217,20 +1217,20 @@ func freshnessMessage(code, id, base, targetHead string) string {
 	return fmt.Sprintf("Change set %s is based on %s, which is not the default-branch head %s.", id, base, targetHead)
 }
 
-func freshnessHint(code, id, targetHead, remoteRelation string) string {
+func freshnessHint(code, id, remoteRelation string) string {
 	switch code {
 	case codeBaseNotOnDefault:
 		if remoteRelation == "behind" {
-			return "The local default branch is behind the canonical remote-tracking default branch, which contains this base. Run the Source Control Manager's repo_state to try to fast-forward the local branch; continue only when default_branch.local is current or fast-forwarded. If it remains behind, ask the user to resolve the local default-branch state before retrying check."
+			return "The local default branch is behind the last-fetched canonical remote-tracking default branch, which contains this base. Run the Source Control Manager's repo_state and proceed only when remote.reachable is true and default_branch.local is current or fast-forwarded. If the fetch is unreachable, retry after connectivity returns; if the local state remains behind or is diverged, ask the user to reconcile it before retrying check."
 		}
 		if remoteRelation == "diverged" {
-			return "The local default branch has diverged from the canonical remote-tracking default branch, which contains this base. Run the Source Control Manager's repo_state, then ask the user to reconcile the local default-branch state before retrying check."
+			return "The local default branch has diverged from the last-fetched canonical remote-tracking default branch, which contains this base. Run the Source Control Manager's repo_state and require remote.reachable to be true; then ask the user to reconcile the local default-branch state before retrying check."
 		}
 		return "Record a base_commit that is on the default branch. No command repairs a base that the default branch does not contain."
 	case codeDefaultMoved:
-		return fmt.Sprintf("Refresh: merge the default branch into the change-set branch, then run the Source Control Manager's repo_state. Continue only when default_branch.local is current or fast-forwarded; if it is behind or diverged, ask the user to resolve the local default-branch state. Then run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
+		return fmt.Sprintf("Refresh: merge the default branch into the change-set branch, then run the Source Control Manager's repo_state. If remote.reachable is false, retry repo_state after connectivity returns. Continue only when default_branch.local is current or fast-forwarded; if it is behind or diverged, ask the user to resolve the local default-branch state. If default_branch.head differs from the base_commit_update returned by refresh, refresh again and repeat repo_state. Use the matching default_branch.head for change-set update --change-set %s --base-commit <default_branch.head>, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id)
 	case codeBaseCommitStale:
-		return fmt.Sprintf("The default branch is already merged. After refresh, run the Source Control Manager's repo_state before change-set update or check. Continue only when default_branch.local is current or fast-forwarded; if it is behind or diverged, ask the user to resolve the local default-branch state. Then run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
+		return fmt.Sprintf("The default branch is already merged. Run refresh, then the Source Control Manager's repo_state. If remote.reachable is false, retry repo_state after connectivity returns. Continue only when default_branch.local is current or fast-forwarded; if it is behind or diverged, ask the user to resolve the local default-branch state. If default_branch.head differs from the base_commit_update returned by refresh, refresh again and repeat repo_state. Use the matching default_branch.head for change-set update --change-set %s --base-commit <default_branch.head>, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id)
 	}
 	return "Refresh the change set from the default branch, then rerun check."
 }

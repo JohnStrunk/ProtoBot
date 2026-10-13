@@ -429,11 +429,13 @@ fetched canonical remote head; see step 6 of the
 freshness, `ears-manager check` reads a resolved local default ref before
 a remote-tracking ref ([`check`](ears-manager-cli.md#check)). The Drafting
 Table therefore runs `repo_state` before `change-set create` and after
-`refresh`, and follows the result handling in
-[refresh step 6](source-control-manager.md#refresh) before relying on the
-local ref. After `refresh`, it does so before applying the base update or
-running `check`. A branch cut from a stale ref anyway fails `check` and
-`publish` with `DEFAULT_MOVED` until it is refreshed.
+`refresh`. It relies on the local ref only when `remote.reachable` is
+`true` and `default_branch.local` is `current` or `fast-forwarded`. After
+`refresh`, `default_branch.head` must also equal `base_commit_update`, as
+[refresh step 6](source-control-manager.md#refresh) requires. A branch cut
+from a stale local ref can pass `check`, which reads that resolved local
+ref; `publish` fetches the canonical remote and detects a moved or absent
+base as `DEFAULT_MOVED` or `BASE_NOT_ON_DEFAULT`.
 
 The initial Sketch is a change set like any other. Its Vision and
 Architecture artifacts are written through
@@ -566,13 +568,12 @@ brought up to date:
 1. Run the Source Control Manager's `refresh` to fetch and merge
    `repository.default_branch` into the change-set branch, producing a
    merge commit.
-2. Run the Source Control Manager's `repo_state` before continuing, and
-   proceed only when `default_branch.local` is `current` or
-   `fast-forwarded`; follow [refresh step 6](source-control-manager.md#refresh)
-   otherwise.
-   The freshness check reads a resolved local default ref before a
-   remote-tracking ref ([`check`](ears-manager-cli.md#check)).
-3. Run `ears-manager change-set update --base-commit <default head>`
+2. Run the Source Control Manager's `repo_state`. Before continuing,
+   require `remote.reachable: true`, `default_branch.local` to be `current`
+   or `fast-forwarded`, and `default_branch.head` to equal the
+   `base_commit_update` returned by `refresh`. If any condition fails,
+   follow [refresh step 6](source-control-manager.md#refresh).
+3. Run `ears-manager change-set update --base-commit <verified default head>`
    to record the new `base_commit`.
 4. Re-run `ears-manager impact`, because the candidate set may
    have changed, review any new candidate, and record the
