@@ -10,12 +10,13 @@
 //
 //   - `paths` is the exact file set of the change set, its manifest included.
 //   - `check`: status 4 with `artifact.digest_mismatch` diagnostics whose
-//     `path` names the registry file `.protobot/project.yaml`, and status 5
-//     for an incomplete or stale impact assessment.
+//     `record_id` names the artifact and whose `path` is
+//     `.protobot/project.yaml`, and status 5 for an incomplete or stale
+//     impact assessment.
 //   - `.protobot/projection.yaml` entries use `path` and `class`; the SCM
 //     parses those names when identifying change-set-owned classifications.
-//   - `change-set compare` entries may include `before` and `after`. Both
-//     fields are optional; the current CLI and PR renderer need not emit them.
+//   - `change-set compare`: `before` and `after` are optional on each
+//     `changed` entry. When an entry has them, the PR body renderer shows them.
 package ears
 
 import (

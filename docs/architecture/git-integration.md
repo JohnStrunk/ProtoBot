@@ -422,17 +422,18 @@ That head is read from the local ref for
 `repository.default_branch`, after a fetch from
 `repository.canonical_remote`. The recorded `base_commit` is never
 the remote-tracking ref, so the branch and the manifest always name
-the same commit. A fetch alone moves only the remote-tracking ref,
-so the SCM's `repo_state` fetches and then fast-forwards the local
-ref ([`repo_state`](source-control-manager.md#repo_state)).
-`ears-manager` reads the local ref and never fetches
-([`change-set create`](ears-manager-cli.md#change-set-create)), so
-the Drafting Table runs `repo_state` before `change-set create` and
-after `refresh`, before the following `change-set update` and `check`.
-The latter read fast-forwards the local default branch to the fetched
-canonical remote head; it does not change `ears-manager`'s
-local-default-ref precedence. A branch cut from a stale ref anyway
-fails `check` and `publish` with `DEFAULT_MOVED` until it is refreshed.
+the same commit. A fetch alone moves only the remote-tracking ref. Each
+SCM `repo_state` read may fast-forward the local default branch to the
+fetched canonical remote head; see step 6 of the
+[refresh recovery sequence](source-control-manager.md#refresh). For
+freshness, `ears-manager check` reads a resolved local default ref before
+a remote-tracking ref ([`check`](ears-manager-cli.md#check)). The Drafting
+Table therefore runs `repo_state` before `change-set create` and after
+`refresh`, and follows the result handling in
+[refresh step 6](source-control-manager.md#refresh) before relying on the
+local ref. After `refresh`, it does so before applying the base update or
+running `check`. A branch cut from a stale ref anyway fails `check` and
+`publish` with `DEFAULT_MOVED` until it is refreshed.
 
 The initial Sketch is a change set like any other. Its Vision and
 Architecture artifacts are written through
@@ -565,10 +566,12 @@ brought up to date:
 1. Run the Source Control Manager's `refresh` to fetch and merge
    `repository.default_branch` into the change-set branch, producing a
    merge commit.
-2. Run the Source Control Manager's `repo_state`. It fetches the
-   canonical remote and fast-forwards the local default branch, so
-   `ears-manager`'s checks use the fetched canonical head while preserving
-   its local-default-ref precedence.
+2. Run the Source Control Manager's `repo_state` before continuing, and
+   proceed only when `default_branch.local` is `current` or
+   `fast-forwarded`; follow [refresh step 6](source-control-manager.md#refresh)
+   otherwise.
+   The freshness check reads a resolved local default ref before a
+   remote-tracking ref ([`check`](ears-manager-cli.md#check)).
 3. Run `ears-manager change-set update --base-commit <default head>`
    to record the new `base_commit`.
 4. Re-run `ears-manager impact`, because the candidate set may
@@ -607,10 +610,8 @@ contains:
 
 1. The intent, the change-set ID, and the `base_commit`.
 2. The changed set: every requirement operation with its requirement ID.
-   A changed entry (requirement, interface, or artifact) may include
-   `before` and `after` values when `change-set compare` supplies them; each
-   field is optional, and neither the current binary nor the PR renderer is
-   required to emit them.
+   `before` and `after` are optional on each `changed` entry. When an entry
+   has them, the PR body renderer shows them.
 3. Interface and artifact operations, when the change set has any.
 4. The impact assessment: every candidate with its disposition,
    its rationale, and whether it was found mechanically or added
@@ -982,7 +983,7 @@ detects with a stable code
 | Registered artifact or structured-store digest mismatch | Pre-stage comparison | Names the safe configuration field and mismatch class | Discard the direct edit, or re-apply it through `ears-manager` |
 | Registered path or store directory not classified `shared` in the projection manifest | `ears-manager check`, and every `ears-manager` write that validates the full project, including `change-set create` | Names the path, the required class `shared`, and the current class when an entry covers the path | Through a reviewed policy edit of `projection.yaml`, restore the missing `shared` entry, or change the covering entry to `shared`. The Source Control Manager keeps that edit out of any change-set commit, so the person commits it apart and merges it through its own review; `ears-manager` commands then succeed. `ears-manager` does not restore or change another path's entry, because that entry would read as a policy edit mixed into the change set |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
-| Default branch has moved since `base_commit` | `ears-manager check` on the proposed manifests, and the Source Control Manager's `publish` `merge-base` check before push | Names the recorded base and the current default-branch head as `DEFAULT_MOVED` or `BASE_COMMIT_STALE`; `details.next` on `BASE_COMMIT_STALE` is only the suggested update, not the full sequence | Refresh: merge the default branch into the change-set branch, then run Source Control Manager `repo_state` to fast-forward the local default branch before applying the suggested `change-set update --change-set CS-ID --base-commit <target-head>` or running `check`; rerun `impact`, record a reviewed impact assessment, then run `check`, commit, and push |
+| Default branch has moved since `base_commit` | `ears-manager check` on the proposed manifests, and the Source Control Manager's `publish` `merge-base` check before push | Names the recorded base and the current default-branch head as `DEFAULT_MOVED` or `BASE_COMMIT_STALE`; the SCM's `details.next` is only the suggested update, not the full sequence | Refresh: merge the default branch into the change-set branch, then follow Source Control Manager [refresh step 6](source-control-manager.md#refresh) before applying the suggested `change-set update --change-set CS-ID --base-commit <target-head>` or running `check`; rerun `impact`, record a reviewed impact assessment, then run `check`, commit, and push |
 | Push rejected, non-fast-forward | Push exit status | Names the branch and the remote head | The remote change-set branch has commits that this checkout lacks. The user reviews and integrates them, then pushes again; never force, and never merge them unreviewed |
 | Push rejected by branch protection | Push exit status | Names the protected branch | Push the change-set branch instead and open a pull request. A push to the default branch is a bug in the caller, not a state to retry |
 | Merge refused by branch protection | Host API response | Names the protected branch, the failing requirement, and the declared `review_mode` | Satisfy the requirement, such as a green check or a review. If `review_mode` says `single-player` and the host still demands a reviewer, the declaration and the host disagree and the project configuration must be corrected |
@@ -1031,7 +1032,7 @@ protection rule.
 | 1 | Initialize the project: cut `cs/00001-project-init`, write `project.yaml`, create `CS-00001`, commit | The branch exists and is checked out. `.protobot/project.yaml` carries identity, `canonical_remote`, `default_branch`, `review_mode`, version-1 schema keys, the three configured store paths and store digests, and two opaque artifact entries. `.protobot/projection.yaml` declares `version: 1` and carries a `shared` class for each registered specification path and each configured store directory. One commit of the control files and initial manifest, subject `spec(CS-00001): <intent>`, trailer `Change-Set: CS-00001`. The default branch is unchanged. `ears-manager check` exits zero. |
 | 2 | Merge `CS-00001`, register, then create change set `CS-00002` for the initial Sketch | The default branch head is a merge commit. Branch `cs/00002-<slug>` exists and is checked out. Its tip equals the new default-branch head, and the manifest records that head's full 40-character hash as `base_commit`. No other branch was created. |
 | 3 | Write Vision and Architecture through `ears-manager artifact put` | Both registered paths exist. Their registry digests match their content and the structured-store digests still match their record sets. `projection.yaml` is unchanged, because step 1 already classified both paths and `artifact put` classifies only a new path ([Artifacts](ears-manager-cli.md#artifacts)). `git status` lists only the two artifacts, the manifest, and `project.yaml`. |
-| 4 | Make a substantive direct edit to a registered artifact, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero for the same path. |
+| 4 | Make a substantive direct edit to a registered artifact, then request a commit | Nothing is staged and no commit is created. The diagnostic names the path and both digests. `ears-manager check` exits non-zero with `artifact.digest_mismatch` for record `vision`. |
 | 5 | Discard the direct edit, which also drops the uncommitted step-3 write of that artifact; write it again through `ears-manager artifact put`; request a commit | Exactly one commit. It contains only the two artifacts, the manifest, and `project.yaml`. Subject is `spec(CS-00002): <intent>`; the body carries the `Change-Set: CS-00002` trailer. |
 | 6 | Push the branch and prepare the pull request | `origin` has `cs/00002-<slug>` at the same commit; the default branch is unchanged. The rendered body contains the intent, the `base_commit`, every changed operation, every impact disposition with origin and rationale, `implementation_required`, and the file list. It matches the output of `change-set compare` and `impact`. |
 | 7 | Commit an unrelated change on the default branch, then `refresh`; run `repo_state`; update and check the change set | The change-set branch gains a merge commit with two parents. `repo_state` fast-forwards the local default branch to the fetched canonical remote head before `change-set update` and `check`. The manifest's `base_commit` equals that head. `git log --walk-reflogs` shows no rebase and the branch's first commit is unchanged. |

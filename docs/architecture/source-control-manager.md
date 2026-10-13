@@ -714,8 +714,9 @@ fails with `BASE_NOT_ON_DEFAULT` or `DEFAULT_MOVED`.
 A normal change-set branch is not cut by the SCM. #30 assigns that
 operation to `ears-manager change-set create`
 ([Answers](#answers-to-the-open-questions-of-125)), which cuts it from
-the local `<default>` that `repo_state` fast-forwards
-([`change-set create`](ears-manager-cli.md#change-set-create)).
+the local `<default>`. The role runs `repo_state` first and follows the
+local-ref result handling in [refresh step 6](#refresh) before relying
+on that ref ([`change-set create`](ears-manager-cli.md#change-set-create)).
 
 ### `branch_resume`
 
@@ -931,8 +932,11 @@ but #33 refused it, and the SCM keeps that refusal
    - `BASE_COMMIT_STALE` when `<remote>/<default>` is reachable from
      `HEAD` but differs from `base_commit`: the default branch was
      merged in, and `change-set update --base-commit` did not run. Its
-     message directs the caller to run `repo_state` after `refresh` and
-     before applying the suggested update or running `check`.
+     `error.details.next` is the argument vector of the suggested
+     `ears-manager change-set update` command, not the full recovery
+     sequence. The message directs the caller to run `repo_state` after
+     `refresh` and follow step 6 below before applying the update or
+     running `check`.
    `ears-manager check` reports the same three base conditions for every
    proposed change set so CI can refuse a stale `base_commit` before merge
    ([`check`](ears-manager-cli.md#check)).
@@ -994,10 +998,8 @@ change-set show`, `change-set compare`, and `impact`, in #34's order:
 1. A heading with the change-set ID, then the intent and the
    `base_commit`.
 2. The changed set: every requirement operation with its requirement ID.
-   A changed entry (requirement, interface, or artifact) may include
-   `before` and `after` values when `change-set compare` supplies them; each
-   field is optional, and neither the current binary nor the PR renderer is
-   required to emit them.
+   `before` and `after` are optional on each `changed` entry. When an entry
+   has them, the PR body renderer shows them.
 3. The interface and artifact operations, when the change set has any.
 4. The impact assessment: every candidate with its disposition, its
    rationale, and its origin, `mechanical` or `semantic`, or a note
@@ -1080,14 +1082,19 @@ match runs on the intent and again on the text as rendered.
    and classify each conflicting file as #34's failure table does: a
    change-set manifest or index file, a requirement record, another
    registered artifact, or another path.
-6. Return the new default head as `base_commit_update`. Before applying
-   it through `ears-manager`, the role calls `repo_state`. That read
-   fetches the canonical remote and fast-forwards the local default
-   branch, which `ears-manager` continues to use according to its
-   existing local-default-ref precedence. The role then runs #34's
-   [refresh sequence][refresh-seq]: `ears-manager change-set update
-   --base-commit <default head>`, `impact`, a reviewed `change-set
-   update --impact-file -`, `check`, and `commit`.
+6. Return the fetched canonical default head as `base_commit_update`.
+   Before applying it through `ears-manager`, the role calls `repo_state`,
+   which reports `default_branch.local` as `current`, `fast-forwarded`,
+   `behind`, or `diverged` ([`repo_state`](#repo_state)). Continue only
+   when it is `current` or `fast-forwarded`. When it is `behind` or
+   `diverged`, stop before `change-set update` or `check` and ask the user
+   to resolve the local default-branch state and bring it to the fetched
+   canonical head. `ears-manager check` reads a resolved local default
+   ref before a remote-tracking ref ([`check`](ears-manager-cli.md#check)),
+   so a stale local ref can report `BASE_NOT_ON_DEFAULT`. Once the local
+   branch is current, run #34's [refresh sequence][refresh-seq]:
+   `ears-manager change-set update --base-commit <default head>`, `impact`,
+   a reviewed `change-set update --impact-file -`, `check`, and `commit`.
 
 When nothing needs a merge, `refresh` returns `outcome: unchanged`.
 
@@ -1593,7 +1600,7 @@ write happened returns `mutation: unknown` and `retry: reconcile`.
 | `NOTHING_TO_PUBLISH` | `publish` | The branch has no commit that the default branch lacks | — | `never` |
 | `BASE_NOT_ON_DEFAULT` | `publish` | `base_commit` is not on the canonical default branch, or the remote has no default branch | — | `user` |
 | `DEFAULT_MOVED` | `publish` | The default branch moved since `base_commit` | Default branch has moved since `base_commit` | `refresh-branch` |
-| `BASE_COMMIT_STALE` | `publish` | The default branch was merged in, and `base_commit` was not updated; the message directs the caller to run `repo_state` after `refresh` and before the suggested update or `check` | — | `revise` |
+| `BASE_COMMIT_STALE` | `publish` | The default branch was merged in, and `base_commit` was not updated; the message directs the caller to run `repo_state` after `refresh` and follow the refresh recovery rule before the suggested update or `check` | — | `revise` |
 | `PR_MERGED` | `publish` | The pull request is merged | — | `never` |
 | `PR_CLOSED` | `publish` | The pull request is closed without a merge | — | `user` |
 | `AMBIGUOUS_PULL_REQUEST` | `publish` | More than one pull request matches the branch; `repo_state` reports it as a state instead | — | `user` |
@@ -1615,10 +1622,9 @@ protection", because the user merges; and "Merge succeeded,
 registration failed", which registration owns, with `approved_merge`
 giving the same merge commit on every retry.
 
-For `BASE_COMMIT_STALE`, `error.details.next` remains the suggested
-`ears-manager change-set update` command; it is not the complete refresh
-sequence. The caller first runs `repo_state` after `refresh` so the local
-default branch reflects the fetched canonical remote head.
+For `BASE_COMMIT_STALE`, the caller follows the `repo_state` outcome in
+[`refresh` step 6](#refresh) before applying the suggested update or
+running `check`.
 
 ---
 

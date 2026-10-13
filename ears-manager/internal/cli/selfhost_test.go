@@ -65,6 +65,9 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "DEFAULT_MOVED" {
 		t.Fatalf("stale proposed base = code %d stdout %s stderr %s", code, stdout, stderr)
 	}
+	if !strings.Contains(stdout, "repo_state") {
+		t.Fatalf("DEFAULT_MOVED hint omitted repo_state: %s", stdout)
+	}
 	if !hasDiagnostic(t, stdout, "DEFAULT_MOVED", "base_commit") {
 		t.Fatalf("check omitted DEFAULT_MOVED on base_commit: %s", stdout)
 	}
@@ -82,6 +85,9 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
 	if code != 5 || stderr != "" || jsonString(t, stdout, "error", "code") != "BASE_COMMIT_STALE" {
 		t.Fatalf("merged stale base = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "repo_state") {
+		t.Fatalf("BASE_COMMIT_STALE hint omitted repo_state: %s", stdout)
 	}
 	if !hasDiagnostic(t, stdout, "BASE_COMMIT_STALE", "base_commit") {
 		t.Fatalf("check omitted BASE_COMMIT_STALE on base_commit: %s", stdout)
@@ -135,6 +141,52 @@ func TestSelfHostingProposedChangeSetBaseNotOnDefaultFailsCheck(t *testing.T) {
 	}
 	if !strings.Contains(stdout, head) || !strings.Contains(stdout, defaultHead) {
 		t.Fatalf("diagnostic did not name recorded base %s and default head %s: %s", head, defaultHead, stdout)
+	}
+	if !strings.Contains(stdout, "No command repairs a base that the default branch does not contain") {
+		t.Fatalf("base absent from local and canonical remote defaults did not retain its reconciliation hint: %s", stdout)
+	}
+}
+
+func TestSelfHostingProposedBaseOnCanonicalRemoteSuggestsRepoState(t *testing.T) {
+	root := newSelfHostingCheckout(t)
+	t.Chdir(root)
+	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
+	localHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
+
+	git(t, root, "checkout", "main")
+	writeTestFile(t, root, "remote-only.txt", "canonical default branch advanced\n")
+	commitAll(t, root, "advance canonical default branch")
+	remoteHead := gitOutput(t, root, "rev-parse", "HEAD")
+	git(t, root, "checkout", branch)
+	git(t, root, "update-ref", "refs/heads/main", localHead)
+	git(t, root, "remote", "add", "origin", "https://github.com/redhat-et/ProtoBot.git")
+	git(t, root, "update-ref", "refs/remotes/origin/main", remoteHead)
+
+	path := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
+	var changeSet records.ChangeSet
+	if err := storage.ReadFile(path, &changeSet); err != nil {
+		t.Fatal(err)
+	}
+	changeSet.BaseCommit = remoteHead
+	changeSet.ImpactAssessmentBaseCommit = remoteHead
+	data, err := storage.Encode(changeSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refreshProjectDigests(t, root)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	if code != 4 || stderr != "" || jsonString(t, stdout, "error", "code") != "BASE_NOT_ON_DEFAULT" {
+		t.Fatalf("base only on remote default = code %d stdout %s stderr %s", code, stdout, stderr)
+	}
+	if !hasDiagnostic(t, stdout, "BASE_NOT_ON_DEFAULT", "base_commit") {
+		t.Fatalf("check omitted BASE_NOT_ON_DEFAULT on base_commit: %s", stdout)
+	}
+	if !strings.Contains(stdout, "local default branch is behind") || !strings.Contains(stdout, "repo_state") {
+		t.Fatalf("BASE_NOT_ON_DEFAULT hint omitted local-ref recovery: %s", stdout)
 	}
 }
 

@@ -770,12 +770,8 @@ Then it applies the ancestry rule:
 - `change-set update --base-commit X` is accepted when `X` is an ancestor of
   `HEAD` and the recorded `base_commit` is an ancestor of `X`. After the
   refresh merge, `X` is the default-branch head that the merge brought in.
-  After `refresh`, the caller must run the Source Control Manager's
-  `repo_state` before applying the suggested update or running `check`; that
-  read fast-forwards the local default branch to the fetched canonical remote
-  head. This preserves `ears-manager`'s existing local-default-ref precedence;
-  `ears-manager` still never fetches. So `base_commit` moves
-  forward along the change-set branch, never back or sideways. A new
+  So `base_commit` moves forward along the change-set branch, never back or
+  sideways. A new
   `base_commit` makes the impact assessment `stale` until a reviewed
   `change-set update --impact-file` records the assessment against the new
   base ([Impact review protocol](#impact-review-protocol)).
@@ -832,9 +828,11 @@ It reads the head of the local default branch,
 `refs/heads/<default_branch>`, and records that commit as `base_commit` and
 as `impact_assessment_base_commit`. It never takes the base from `HEAD`, and
 it never fetches: the Source Control Manager's
-[`repo_state`](source-control-manager.md#repo_state) fetches and
-fast-forwards the local default branch first
-([When the branch is created](git-integration.md#when-the-branch-is-created)).
+[`repo_state`](source-control-manager.md#repo_state) fetches the canonical
+remote and may fast-forward the local default branch first. The Drafting
+Table follows the local-ref result handling in
+[refresh step 6](source-control-manager.md#refresh) before relying on that
+ref ([When the branch is created][change-set-branch-created]).
 
 There are two cases:
 
@@ -972,6 +970,12 @@ canonical remote; CI fetches `repository.default_branch` from
 manifests' stored historical assessments and `base_commit` values remain
 preserved. Independent load failures are aggregated with semantic diagnostics
 from records that could still be read.
+After `refresh`, the Drafting Table runs SCM `repo_state` before applying the
+base update or running `check`; it follows the
+[refresh recovery rule](source-control-manager.md#refresh) because freshness
+prefers a resolved local default ref. `change-set update` checks ancestry
+against `HEAD`, not whether the base is on the default branch
+([ancestry check](#ancestry-check)).
 `--change-set` narrows that impact and freshness check to the named proposed
 manifest.
 "Matches" means that every current mechanical candidate has exactly one final
@@ -1005,11 +1009,13 @@ refreshes and re-reviews state rather than revising record content. A proposed
 `base_commit` that is not reachable from the default-branch head returns
 status `4` as `BASE_NOT_ON_DEFAULT`. `DEFAULT_MOVED` and `BASE_COMMIT_STALE`
 return status `5`, and the diagnostic names the recorded base and the current
-default-branch head. If a Source Control Manager `publish` failure includes an
-`error.details.next` suggested command, it is not the full sequence: after
-`refresh`, run `repo_state` first, then apply the suggested command and
-complete impact review before running `check`. Approved manifests are checked
-against their stored historical assessment. `check` never repairs files.
+default-branch head. An SCM `publish` failure may include its
+`error.details.next` argv; it is only the suggested update, not the full
+recovery sequence ([`publish`](source-control-manager.md#publish)). After
+`refresh`, run `repo_state` and follow the
+[refresh recovery rule](source-control-manager.md#refresh) before applying
+that command or running `check`. Approved manifests are checked against their
+stored historical assessment. `check` never repairs files.
 
 The class of a `project.` or `schema.` code, not its prefix, decides its
 status:
@@ -1066,10 +1072,9 @@ carries no diagnostics. A diagnostic arrives in `error.diagnostics`.
 `change-set compare` is deterministic and read-only. It compares the
 proposed change set with its `base_commit` by default; `--against` is used for
 an explicit immutable comparison revision (deferred to follow-on scope; passing
-`--against` is rejected with `change_set.invalid_base`). Each `changed` entry
-may contain `before` and `after` values. Each field is optional, and neither
-the current binary nor the PR renderer is required to emit it. Its result
-contains:
+`--against` is rejected with `change_set.invalid_base`). `before` and `after`
+are optional on each `changed` entry. When an entry has them, the PR body
+renderer shows them. Its result contains:
 
 ```json
 {
@@ -1084,9 +1089,8 @@ contains:
 }
 ```
 
-The arrays contain stable IDs. When a `changed` entry includes `before` or
-`after`, those fields hold the corresponding values; either can be omitted.
-The report distinguishes a finding from a command failure: a duplicate,
+The arrays contain stable IDs. The report distinguishes a finding from a
+command failure: a duplicate,
 conflict, or dependency cycle is returned as analysis data so the agent and
 user can decide how to revise the proposal. A malformed record or unreadable
 base is a non-zero failure. The PR body renderer consumes this result without
@@ -1353,3 +1357,4 @@ new design track.
   Logical record schema
 
 [git-init]: git-integration.md#project-initialization
+[change-set-branch-created]: git-integration.md#when-the-branch-is-created

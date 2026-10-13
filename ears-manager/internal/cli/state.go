@@ -1106,7 +1106,7 @@ func checkProposedBaseFreshness(root string, snapshot specvalidation.Snapshot, p
 		if !proposed[document.Value.ID] {
 			continue
 		}
-		diagnostic, failure := proposedBaseFreshnessDiagnostic(root, document, head, targetHead)
+		diagnostic, failure := proposedBaseFreshnessDiagnostic(root, snapshot.Config.Repository, document, head, targetHead)
 		if failure != nil {
 			return failure
 		}
@@ -1117,7 +1117,7 @@ func checkProposedBaseFreshness(root string, snapshot specvalidation.Snapshot, p
 	return freshnessFailure(diagnostics)
 }
 
-func proposedBaseFreshnessDiagnostic(root string, document specvalidation.Document[records.ChangeSet], head, targetHead string) (*specvalidation.Diagnostic, *commandFailure) {
+func proposedBaseFreshnessDiagnostic(root string, repository records.RepositoryConfig, document specvalidation.Document[records.ChangeSet], head, targetHead string) (*specvalidation.Diagnostic, *commandFailure) {
 	id := document.Value.ID
 	base := strings.TrimSpace(document.Value.BaseCommit)
 	path := filepath.ToSlash(document.Path)
@@ -1125,29 +1125,75 @@ func proposedBaseFreshnessDiagnostic(root string, document specvalidation.Docume
 		if fullCommitID(base) && shallowRepository(root) {
 			return nil, shallowHistoryFailure()
 		}
-		return freshnessDiagnostic(codeBaseNotOnDefault, path, id, base, targetHead), nil
+		return freshnessDiagnostic(codeBaseNotOnDefault, path, id, base, targetHead, ""), nil
 	}
 	onDefault, failure := isAncestor(root, strings.ToLower(base), targetHead)
 	if failure != nil {
 		return nil, failure
 	}
 	if !onDefault {
-		return freshnessDiagnostic(codeBaseNotOnDefault, path, id, base, targetHead), nil
+		remoteRelation, failure := canonicalRemoteDefaultRelation(root, repository, base)
+		if failure != nil {
+			return nil, failure
+		}
+		return freshnessDiagnostic(codeBaseNotOnDefault, path, id, base, targetHead, remoteRelation), nil
 	}
 	mergedIn, failure := isAncestor(root, targetHead, head)
 	if failure != nil {
 		return nil, failure
 	}
 	if !mergedIn {
-		return freshnessDiagnostic(codeDefaultMoved, path, id, base, targetHead), nil
+		return freshnessDiagnostic(codeDefaultMoved, path, id, base, targetHead, ""), nil
 	}
 	if strings.ToLower(base) != targetHead {
-		return freshnessDiagnostic(codeBaseCommitStale, path, id, base, targetHead), nil
+		return freshnessDiagnostic(codeBaseCommitStale, path, id, base, targetHead, ""), nil
 	}
 	return nil, nil
 }
 
-func freshnessDiagnostic(code, path, id, base, targetHead string) *specvalidation.Diagnostic {
+func canonicalRemoteDefaultRelation(root string, repository records.RepositoryConfig, base string) (string, *commandFailure) {
+	branch, failure := defaultBranchName(repository.DefaultBranch)
+	if failure != nil {
+		return "", failure
+	}
+	remotes, failure := canonicalRemoteNames(root, repository.CanonicalRemote)
+	if failure != nil {
+		return "", failure
+	}
+	localHead, localFailure := localBranchHead(root, branch)
+	for _, remote := range remotes {
+		ref := "refs/remotes/" + remote + "/" + branch
+		output, err := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}").Output()
+		if err != nil {
+			continue
+		}
+		remoteHead := strings.ToLower(strings.TrimSpace(string(output)))
+		if !fullCommitID(remoteHead) {
+			continue
+		}
+		onRemote, failure := isAncestor(root, strings.ToLower(base), remoteHead)
+		if failure != nil {
+			return "", failure
+		}
+		if !onRemote {
+			continue
+		}
+		if localFailure != nil {
+			return "behind", nil
+		}
+		behind, failure := isAncestor(root, localHead, remoteHead)
+		if failure != nil {
+			return "", failure
+		}
+		if behind {
+			return "behind", nil
+		}
+		return "diverged", nil
+	}
+	return "", nil
+}
+
+func freshnessDiagnostic(code, path, id, base, targetHead, remoteRelation string) *specvalidation.Diagnostic {
 	return &specvalidation.Diagnostic{
 		Code:     code,
 		Severity: "error",
@@ -1155,7 +1201,7 @@ func freshnessDiagnostic(code, path, id, base, targetHead string) *specvalidatio
 		RecordID: id,
 		Field:    "base_commit",
 		Message:  freshnessMessage(code, id, base, targetHead),
-		Hint:     freshnessHint(code, id, targetHead),
+		Hint:     freshnessHint(code, id, targetHead, remoteRelation),
 	}
 }
 
@@ -1171,14 +1217,20 @@ func freshnessMessage(code, id, base, targetHead string) string {
 	return fmt.Sprintf("Change set %s is based on %s, which is not the default-branch head %s.", id, base, targetHead)
 }
 
-func freshnessHint(code, id, targetHead string) string {
+func freshnessHint(code, id, targetHead, remoteRelation string) string {
 	switch code {
 	case codeBaseNotOnDefault:
+		if remoteRelation == "behind" {
+			return "The local default branch is behind the canonical remote-tracking default branch, which contains this base. Run the Source Control Manager's repo_state to try to fast-forward the local branch; continue only when default_branch.local is current or fast-forwarded. If it remains behind, ask the user to resolve the local default-branch state before retrying check."
+		}
+		if remoteRelation == "diverged" {
+			return "The local default branch has diverged from the canonical remote-tracking default branch, which contains this base. Run the Source Control Manager's repo_state, then ask the user to reconcile the local default-branch state before retrying check."
+		}
 		return "Record a base_commit that is on the default branch. No command repairs a base that the default branch does not contain."
 	case codeDefaultMoved:
-		return fmt.Sprintf("Refresh: merge the default branch into the change-set branch, run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
+		return fmt.Sprintf("Refresh: merge the default branch into the change-set branch, then run the Source Control Manager's repo_state. Continue only when default_branch.local is current or fast-forwarded; if it is behind or diverged, ask the user to resolve the local default-branch state. Then run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
 	case codeBaseCommitStale:
-		return fmt.Sprintf("The default branch is already merged. Run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
+		return fmt.Sprintf("The default branch is already merged. After refresh, run the Source Control Manager's repo_state before change-set update or check. Continue only when default_branch.local is current or fast-forwarded; if it is behind or diverged, ask the user to resolve the local default-branch state. Then run change-set update --change-set %s --base-commit %s, rerun impact, record a reviewed impact assessment, then run check, commit, and push.", id, targetHead)
 	}
 	return "Refresh the change set from the default branch, then rerun check."
 }
