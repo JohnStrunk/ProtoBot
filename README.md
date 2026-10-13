@@ -106,13 +106,19 @@ go test ./...
 go vet ./...
 ```
 
+Run these maintenance checks from a terminal or unguarded development
+session. In a guarded other-role shell session, code-executing runners
+such as `go test` are refused because the guard cannot inspect test code
+for indirect governed writes.
+
 ### Drafting Table OpenCode binding
 
 The OpenCode binding (`opencode.json`, `.opencode/`, the shared
 `.agents/drafting-table.yaml` manifest, and the `drafting-specifications`
 session skill) targets OpenCode 1.18.30. The `wms` MCP entry in
-`opencode.json` is a placeholder until a production WMS Adapter MCP server
-exists; the deterministic replay substitutes a recording stub. Run the
+`opencode.json` is a disabled placeholder (`enabled: false`) until a
+production WMS Adapter MCP server exists; the deterministic replay
+substitutes a recording stub. Run the
 headless replay against the pinned binary:
 
 ```sh

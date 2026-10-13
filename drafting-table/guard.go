@@ -66,6 +66,9 @@ type manifestMCPServer struct {
 
 type projectState struct {
 	root          string
+	gitDir        string
+	gitCommonDir  string
+	manifestPath  string
 	projectFound  bool
 	resolutionErr error
 	inspection    error
@@ -88,7 +91,7 @@ func evaluate(harness, role string, input hookInput) decision {
 	if state.resolutionErr != nil {
 		return refuse("project resolution", "Git working-tree root could not be inspected; verify the checkout and retry")
 	}
-	if !state.projectFound && role == roleOther {
+	if !state.projectFound && role == roleOther && state.manifestPath == "" {
 		return allow()
 	}
 	if state.inspection != nil {
@@ -102,7 +105,9 @@ func inspectProject(cwd string) projectState {
 	root, err := gitRoot(cwd)
 	if err != nil {
 		if errors.Is(err, errNotGitWorktree) {
-			if manifestErr := loadManifest("", &state.manifest); manifestErr != nil {
+			manifestPath, manifestErr := loadManifest("", &state.manifest)
+			state.manifestPath = manifestPath
+			if manifestErr != nil {
 				state.manifestErr = manifestErr
 			}
 			return state
@@ -111,7 +116,16 @@ func inspectProject(cwd string) projectState {
 		return state
 	}
 	state.root = root
-	if manifestErr := loadManifest(root, &state.manifest); manifestErr != nil {
+	gitDir, gitCommonDir, metadataErr := gitMetadataDirs(root)
+	if metadataErr != nil {
+		state.resolutionErr = metadataErr
+		return state
+	}
+	state.gitDir = gitDir
+	state.gitCommonDir = gitCommonDir
+	manifestPath, manifestErr := loadManifest(root, &state.manifest)
+	state.manifestPath = manifestPath
+	if manifestErr != nil {
 		state.manifestErr = manifestErr
 	}
 	control := filepath.Join(root, ".protobot")
@@ -198,7 +212,7 @@ func decideWithInspectionFailure(role string, input hookInput, state projectStat
 			base := writeTargetBase(input.ToolName, state, input.CWD)
 			for _, target := range targets {
 				resolved, pathErr := resolveProjectPath(state.root, base, target)
-				if pathErr != nil || isLexicalControlPath(state.root, base, target) || isLexicalProtectedPath(state.root, base, target) || isControlPath(state.root, resolved) {
+				if pathErr != nil || isLexicalControlPath(state.root, base, target) || isProtectedPathValue(state, base, target) || isControlPath(state.root, resolved) {
 					return refuse("rule 2", "project inspection failed; writes under .protobot/ or to other protected control paths are refused")
 				}
 				if guardedWritePath(state, resolved) {
@@ -238,7 +252,7 @@ func decideTool(role string, input hookInput, state projectState) decision {
 		}
 		base := writeTargetBase(tool, state, input.CWD)
 		for _, target := range targets {
-			if isLexicalControlPath(state.root, base, target) || isLexicalProtectedPath(state.root, base, target) {
+			if isLexicalControlPath(state.root, base, target) || isProtectedPathValue(state, base, target) {
 				return refuse("rule 3", "the target is under .protobot/, .git/, the adapter manifest, a registered artifact, or a configured store")
 			}
 			resolved, err := resolveProjectPath(state.root, base, target)

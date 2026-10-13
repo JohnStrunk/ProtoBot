@@ -331,6 +331,11 @@ pass, so the shim exits 0 or 2 and nothing else: a missing guard is a
 refusal, not the shell's exit 127. The shim holds no rule, reads no
 file, and registers no `Stop` or `SessionEnd` hook (H5).
 
+The current Go guard implements only `--harness opencode`; this shim's
+`--harness claude-code` invocation is refused as unsupported. This
+section describes the designed Claude Code binding, not a supported
+guard runtime for the current executable.
+
 ---
 
 ## Skill discovery and invocation
@@ -424,14 +429,20 @@ run. Nothing else is marked met.
 
 What the Claude Code layer stops, by route:
 
+The route table below is the designed Claude Code binding behavior. The
+current Go guard rejects this harness at input validation until a Claude
+Code vocabulary is implemented.
+
 | Write route to a guarded path | `drafting-table` agent | Every other session |
 | --- | --- | --- |
 | File tool under `.protobot/` | Tool not offered; also denied by the project rule | Denied by the project rule and the guard |
-| File tool under `.git/` or on `.agents/drafting-table.yaml` | Tool not offered | Refused by the guard when it returns a decision |
+| File tool under `.git/` or Git metadata, or on the adapter manifest path selected by the guard | Tool not offered | Refused by the guard when it returns a decision |
 | File tool on a registered path elsewhere | Tool not offered | Refused by the guard |
-| Shell writer, such as `sed -i` | Denied by `dontAsk` with no allow rule, and refused by the guard | Not stopped |
-| Output redirection in a shell command | Refused by the guard; a prefix rule cannot see it | Refused by the guard when the redirection target is written from the project root |
+| Shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, or `truncate` | Denied by `dontAsk` with no allow rule, and refused by the guard | Not stopped; a relative target after a working-directory change is refused as ambiguous |
+| Recognized shell writer to Git metadata or the adapter manifest path selected by the guard | Denied by `dontAsk` with no allow rule, and refused by the guard | Refused by the guard when its hook returns a decision; no later control catches these writes |
+| Output redirection in a shell command | Refused by the guard; a prefix rule cannot see it | Refused for a guarded target resolved from the project root; also refused when the target is ambiguous after a working-directory change or cannot be inspected safely |
 | Recognized opaque execution forms that could hide an indirect governed write | Denied by `dontAsk` with no allow rule, and refused by the guard | Refused by the guard when its hook returns a decision; a hook failure can pass the call through |
+| Some interpreter source-file invocations, such as `python helper.py`, renamed executables, or unrecognized shell writers/executors | Denied by `dontAsk` with no allow rule | Not generally stopped; an indirect `ears-manager` write has no later control |
 | Tool of another MCP server | Not loaded, because of `--strict-mcp-config` | The user's own configuration |
 | Subagent | `Agent` not offered | Not applicable |
 

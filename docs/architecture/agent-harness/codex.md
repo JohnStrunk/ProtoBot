@@ -163,6 +163,10 @@ profile:
   session the role for the guard, without the profile's tool and
   skill rules. That is the user's own configuration, and the fixture
   checks the `other` case only.
+- The current Go guard supports only `--harness opencode`; this
+  `--harness codex` invocation is refused as unsupported. The Codex
+  hook and route table describe the designed binding, not a supported
+  guard runtime for the current executable.
 - **An untrusted hook does not run.** Project trust is not enough:
   Codex keeps a trust hash for each hook in the user configuration,
   under `hooks.state`, and a changed hook needs trust again. The user
@@ -564,14 +568,20 @@ What the Codex layer stops on the normal active-hook path, by route.
 Sandbox restrictions still apply if the hook fails open, but guard-only
 refusals below do not:
 
+The route table describes the intended Codex integration once a Codex
+vocabulary is implemented; the current guard rejects this harness at
+input validation.
+
 | Write route to a guarded path | Role profile | Every other session |
 | --- | --- | --- |
 | Any write under `.git/`, and any network from the shell | Refused by the sandbox; the `scm` server writes `.git/` from its own process, bounded by its Drafting Table face | Refused by the sandbox in a `workspace-write` session |
-| File tool on `.agents/drafting-table.yaml` | Refused by the active guard | Refused by the sandbox in a `workspace-write` session; otherwise refused by the guard when it returns a decision |
+| File tool on the adapter manifest path selected by the guard | Refused by the active guard | Refused by the sandbox in a `workspace-write` session; otherwise refused by the guard when it returns a decision |
 | `apply_patch` under `.protobot/` or on a registered path | Offered to OpenAI models; refused by the active guard | Refused by the active guard |
-| Shell writer, such as `sed -i` | Refused by the active guard | Not stopped |
-| Output redirection in a shell command | Refused by the active guard | Refused by the active guard when the redirection target is written from the project root |
+| Shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, or `truncate` | Refused by the active guard | Not stopped; a relative target after a working-directory change is refused as ambiguous |
+| Recognized shell writer to Git metadata or the adapter manifest path selected by the guard | Refused by the active guard | Refused by the sandbox in a `workspace-write` session; otherwise refused by the active guard when it returns a decision, with no later control |
+| Output redirection in a shell command | Refused by the active guard | Refused for a guarded target resolved from the project root; also refused when the target is ambiguous after a working-directory change or cannot be inspected safely |
 | Recognized opaque execution forms that could hide an indirect governed write | Refused by the active guard | Refused by the active guard when its hook returns a decision; on hook fail-open, the sandbox only limits workspace and network effects |
+| Some interpreter source-file invocations, such as `python helper.py`, renamed executables, or unrecognized shell writers/executors | Refused by the active guard | Not generally stopped; an indirect `ears-manager` write has no later control |
 | Tool of another MCP server | Refused by the active guard | The user's own configuration |
 | Subagent | Not offered | Not applicable |
 
@@ -670,7 +680,7 @@ harness commands. For Codex:
 | List discovered skills (step 1) | `codex debug prompt-input` from a subdirectory of the clone, without the profile; the names in `<skills_instructions>` |
 | Headless turn in the role (steps 2 to 14) | `.codex/drafting-table exec --strict-config --json "<intent>"`; `.codex/drafting-table exec resume --last` or `resume <id>` to continue |
 | Headless turn outside the role (steps 2, 7, 9) | `codex exec --json "<prompt>"` |
-| Out-of-role setup and refused commands | Setup runs `change-set create` outside the session, because it writes `.git/`, which the sandbox refuses. Step 9 runs `git checkout -- docs/vision.md` outside the session after the role or out-of-role turn names it. Step 14 runs through the `scm` tools, and the `gh` stub records the call. The out-of-role run uses `workspace-write` too, so `echo x >> vision.md` succeeds inside the workspace |
+| Out-of-role setup and refused commands | Setup runs `change-set create` outside the session, because it writes `.git/`, which the sandbox refuses. Step 9 runs `truncate -s 0 docs/vision.md` in the out-of-role session; the direct writer to an ordinary registered artifact succeeds. The fixture driver restores `docs/vision.md` outside the guarded session after the diagnostic. Step 14 runs through the `scm` tools, and the `gh` stub records the call. The out-of-role run uses `workspace-write` too, so the writer succeeds inside the workspace |
 | Resolved native rules | No command prints them; the fixture keeps the profile and `hooks.json` next to the export |
 | Session export (step 15) | The session file under the fixture's `$CODEX_HOME/sessions/` and the `--json` event stream |
 

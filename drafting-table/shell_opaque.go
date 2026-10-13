@@ -5,9 +5,10 @@ import (
 	"strings"
 )
 
-// These checks deliberately recognize execution boundaries, not program
-// contents. A command outside the shell's transparent wrapper set is refused
-// because its governed effects cannot be established from argv.
+// These checks deliberately recognize common execution boundaries, not
+// program contents. Unknown command prefixes also pass through the literal
+// governed-write backstop; script-file execution and renamed binaries remain
+// documented residual limits rather than a claim of general containment.
 func isCodeInterpreter(name string, args []string) bool {
 	name = strings.ToLower(name)
 	family := ""
@@ -40,10 +41,36 @@ func isCodeInterpreter(name string, args []string) bool {
 		family = "guile"
 	case name == "clisp":
 		family = "clisp"
+	case name == "sed":
+		family = "sed"
+	case contains([]string{"r", "tclsh", "erl", "elixir", "octave", "jshell", "fish", "csh", "tcsh"}, name):
+		family = "opaque"
 	default:
 		return false
 	}
+	if family == "opaque" {
+		return !safeOpaqueInterpreterInfo(name, args[1:])
+	}
+	if family == "sed" {
+		return sedExecutionOpaque(args[1:])
+	}
 	return interpreterExecutesOpaqueCode(family, args[1:])
+}
+
+func safeOpaqueInterpreterInfo(name string, args []string) bool {
+	if len(args) != 1 {
+		return false
+	}
+	switch name {
+	case "r":
+		return contains([]string{"--help", "--version", "-h", "-v", "-V"}, args[0])
+	case "erl":
+		return contains([]string{"-help", "-version"}, args[0])
+	case "elixir", "octave", "jshell", "fish":
+		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, args[0])
+	default:
+		return false
+	}
 }
 
 func interpreterExecutesOpaqueCode(family string, args []string) bool {
@@ -69,6 +96,10 @@ func interpreterExecutesOpaqueCode(family string, args []string) bool {
 			if family == "awk" {
 				return true // The first positional awk argument is source code.
 			}
+			if family == "python" {
+				// shortcut: Python script-file contents remain an accepted residual boundary; upgrade to source inspection if that boundary changes.
+				return false
+			}
 			return false // Ordinary script/source-file forms remain available.
 		}
 		if inlineInterpreterOption(family, arg) {
@@ -81,8 +112,8 @@ func interpreterExecutesOpaqueCode(family string, args []string) bool {
 		if skip && !strings.Contains(arg, "=") && i+1 < len(args) {
 			i++
 			if scriptFile {
-				if family == "python" {
-					return false // -m starts module execution; later argv belongs to it.
+				if family == "python" || family == "awk" || args[i] == "-" {
+					return true
 				}
 				sourceFile = true
 			}
@@ -131,6 +162,9 @@ func inlineInterpreterOption(family, arg string) bool {
 	name, _, _ := strings.Cut(arg, "=")
 	switch family {
 	case "python":
+		if strings.HasPrefix(arg, "-m") && len(arg) > 2 {
+			return true
+		}
 		if strings.HasPrefix(arg, "--") {
 			return name == "--command"
 		}
@@ -185,6 +219,8 @@ func inlineInterpreterOption(family, arg string) bool {
 		return strings.HasPrefix(arg, "-c") || strings.HasPrefix(arg, "-e") || arg == "--command" || arg == "--eval" || strings.HasPrefix(arg, "--command=") || strings.HasPrefix(arg, "--eval=")
 	case "clisp":
 		return arg == "-x" || strings.HasPrefix(arg, "-x") || arg == "-eval" || arg == "-execute" || strings.HasPrefix(arg, "-eval=") || strings.HasPrefix(arg, "-execute=")
+	case "sed":
+		return false
 	}
 	return false
 }
@@ -302,6 +338,97 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 	return false, false, false
 }
 
+func sedExecutionOpaque(args []string) bool {
+	if len(args) == 1 && contains([]string{"--help", "-h", "--version"}, args[0]) {
+		return false
+	}
+	var scripts []string
+	scriptSeen := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-f" || arg == "--file" || strings.HasPrefix(arg, "-f") && !strings.HasPrefix(arg, "--") || strings.HasPrefix(arg, "--file="):
+			return true
+		case arg == "-e" || arg == "--expression":
+			if i+1 >= len(args) {
+				return true
+			}
+			i++
+			scripts = append(scripts, args[i])
+			scriptSeen = true
+		case strings.HasPrefix(arg, "--expression="):
+			scripts = append(scripts, strings.TrimPrefix(arg, "--expression="))
+			scriptSeen = true
+		case strings.HasPrefix(arg, "-e") && len(arg) > 2:
+			scripts = append(scripts, arg[2:])
+			scriptSeen = true
+		case arg == "--in-place" || strings.HasPrefix(arg, "--in-place=") || strings.HasPrefix(arg, "-i") && !strings.HasPrefix(arg, "--"):
+		case contains([]string{"-n", "--quiet", "--silent", "-E", "-r", "--regexp-extended", "--posix", "--sandbox", "--follow-symlinks", "--debug", "-s", "--separate", "-u", "--unbuffered", "-z", "--null-data"}, arg):
+		case arg == "--":
+			if !scriptSeen {
+				if i+1 >= len(args) {
+					return true
+				}
+				scripts = append(scripts, args[i+1])
+				scriptSeen = true
+			}
+			i = len(args)
+		case strings.HasPrefix(arg, "-"):
+			return true
+		default:
+			if !scriptSeen {
+				scripts = append(scripts, arg)
+				scriptSeen = true
+			}
+		}
+	}
+	if len(scripts) == 0 {
+		return true // No script means sed reads its program from stdin.
+	}
+	for _, script := range scripts {
+		if !safeSedScript(script) {
+			return true
+		}
+	}
+	return false
+}
+
+func safeSedScript(script string) bool {
+	if contains([]string{"p", "q", "d"}, script) {
+		return true
+	}
+	if len(script) < 4 || script[0] != 's' {
+		return false
+	}
+	delimiter := script[1]
+	if delimiter == '\n' || delimiter == '\\' || delimiter >= '0' && delimiter <= '9' || delimiter == ' ' || delimiter == '\t' {
+		return false
+	}
+	index := 2
+	for part := 0; part < 2; part++ {
+		for index < len(script) {
+			if script[index] == '\\' {
+				index += 2
+				continue
+			}
+			if script[index] == delimiter {
+				index++
+				break
+			}
+			index++
+		}
+		if index > len(script) || index == len(script) && (len(script) == 0 || script[len(script)-1] != delimiter) {
+			return false
+		}
+	}
+	for _, flag := range script[index:] {
+		if !strings.ContainsRune("gIp0123456789", flag) {
+			return false
+		}
+	}
+	return true
+}
+
 func isPythonLongOption(arg string) bool {
 	return contains([]string{"--help", "--help-env", "--help-xoptions", "--help-all", "--version", "--check-hash-based-pycs"}, arg)
 }
@@ -409,8 +536,10 @@ func isVersionedInterpreter(name, base string) bool {
 }
 
 func isRecipeRunner(name string) bool {
+	// This list is defense-in-depth, not an exhaustive command allowlist; the
+	// literal governed-command argv backstop handles unknown prefixes.
 	switch name {
-	case "make", "gmake", "rake", "just", "task", "npm", "npx", "yarn", "pnpm", "bun", "gradle", "ant", "mvn", "ninja", "cargo":
+	case "make", "gmake", "rake", "just", "task", "npm", "npx", "yarn", "pnpm", "bun", "bunx", "gradle", "gradlew", "ant", "mvn", "ninja", "cargo", "uv", "uvx", "tox", "poetry", "pipenv", "pip", "pipx", "cmake", "deno":
 		return true
 	default:
 		return false
@@ -430,22 +559,40 @@ func isInformationalCommand(args []string) bool {
 }
 
 func goExecutionOpaque(args []string) bool {
+	command, index, ok := goSubcommand(args)
+	if !ok {
+		return false
+	}
+	for _, arg := range args[index+1:] {
+		option, _, _ := strings.Cut(arg, "=")
+		option = strings.TrimLeft(option, "-") // Go accepts one or two leading dashes.
+		if (command == "build" && option == "toolexec") || (command == "vet" && option == "vettool") || (command == "env" && option == "w") {
+			return true
+		}
+	}
+	return contains([]string{"test", "run", "generate", "tool"}, command)
+}
+
+func goSubcommand(args []string) (string, int, bool) {
 	for i := 1; i < len(args); i++ {
 		arg := args[i]
-		if arg == "-C" && i+1 < len(args) {
+		if arg == "-C" {
+			if i+1 >= len(args) {
+				return "", 0, false
+			}
 			i++
 			continue
 		}
 		if strings.HasPrefix(arg, "-C=") || strings.HasPrefix(arg, "-") {
 			continue
 		}
-		return contains([]string{"test", "run", "generate", "tool"}, arg)
+		return arg, i, true
 	}
-	return false
+	return "", 0, false
 }
 
 func isOpaqueExecutionWrapper(name string) bool {
-	return contains([]string{"flock", "watch", "script", "tmux", "screen", "parallel", "su", "ssh", "strace"}, name)
+	return contains([]string{"flock", "watch", "script", "tmux", "screen", "parallel", "su", "ssh", "strace", "valgrind", "taskset", "runuser", "doas", "ionice", "ltrace", "chrt", "unshare", "perf", "nsenter", "systemd-run", "docker", "podman", "at", "batch", "chronic", "runcon"}, name)
 }
 
 func isOpaqueWrapperInvocation(name string, args []string) bool {
@@ -463,6 +610,8 @@ func isOpaqueWrapperInvocation(name string, args []string) bool {
 		return containsAny(args[1:], "-X", "-c", "-dm", "-dmS", "-D", "-S")
 	case "strace":
 		return straceCommandPresent(args[1:])
+	case "valgrind", "taskset", "runuser", "doas", "ionice", "ltrace", "chrt", "unshare", "perf", "nsenter", "systemd-run", "docker", "podman", "at", "batch", "chronic", "runcon":
+		return true
 	default:
 		return false
 	}
@@ -516,52 +665,12 @@ func containsAny(values []string, wanted ...string) bool {
 }
 
 func hasGitExecutionEnvironmentOverride(words []string) bool {
-	for i := 0; i < len(words); {
-		word := words[i]
-		if isShellControlWord(word) {
-			i++
-			continue
-		}
-		if assignmentWord.MatchString(word) {
-			if gitConfigAssignment(word) {
-				return true
-			}
-			i++
-			continue
-		}
-		switch filepath.Base(word) {
-		case "command", "exec", "nohup", "time", "nice":
-			i++
-			for i < len(words) && strings.HasPrefix(words[i], "-") {
-				i++
-			}
-		case "env":
-			i++
-			for i < len(words) {
-				arg := words[i]
-				if arg == "--" {
-					i++
-					break
-				}
-				if arg == "-u" || arg == "--unset" || arg == "-C" || arg == "--chdir" {
-					i += 2
-					continue
-				}
-				if assignmentWord.MatchString(arg) {
-					if gitConfigAssignment(arg) {
-						return true
-					}
-					i++
-					continue
-				}
-				if strings.HasPrefix(arg, "-") {
-					i++
-					continue
-				}
-				break
-			}
-		default:
-			return false
+	// An assignment of a Git execution key anywhere in the segment makes the
+	// child's behavior uninspectable, including when a wrapper such as
+	// timeout, stdbuf, or env precedes the assignment.
+	for _, word := range words {
+		if gitConfigAssignment(word) {
+			return true
 		}
 	}
 	return false
@@ -598,6 +707,31 @@ func gitSubcommandCanExecuteCommands(command string, args []string) bool {
 		return contains(args, "run")
 	case "difftool", "mergetool", "credential":
 		return true
+	case "branch", "remote", "tag", "worktree", "stash", "reflog", "submodule":
+		return !gitReadOnlyMetadataCommand(command, args)
+	case "add", "am", "apply", "checkout", "cherry-pick", "clean", "clone", "commit", "fetch", "filter-branch", "init", "merge", "mv", "notes", "pull", "push", "rebase", "reset", "restore", "revert", "rm", "switch", "update-index", "update-ref", "gc", "maintenance", "repack", "prune", "symbolic-ref":
+		return true
+	default:
+		return false
+	}
+}
+
+func gitReadOnlyMetadataCommand(command string, args []string) bool {
+	switch command {
+	case "branch":
+		return len(args) == 0 || len(args) == 1 && contains([]string{"--list", "-l", "--show-current", "--show-ref"}, args[0])
+	case "remote":
+		return len(args) == 0 || len(args) == 1 && contains([]string{"-v", "--verbose"}, args[0]) || len(args) == 2 && args[0] == "get-url"
+	case "tag":
+		return len(args) == 0 || len(args) == 1 && contains([]string{"-l", "--list"}, args[0])
+	case "worktree":
+		return len(args) == 1 && args[0] == "list"
+	case "stash":
+		return len(args) == 1 && args[0] == "list"
+	case "reflog":
+		return len(args) == 0 || len(args) == 1 && args[0] == "show"
+	case "submodule":
+		return len(args) > 0 && args[0] == "status"
 	default:
 		return false
 	}
@@ -716,7 +850,7 @@ func gitConfigCommandWritesExecutableConfig(args []string) bool {
 
 func gitExecutionConfigKey(key string) bool {
 	key = strings.ToLower(key)
-	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential."} {
+	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff."} {
 		if strings.HasPrefix(key, prefix) {
 			return true
 		}
@@ -731,12 +865,12 @@ func gitExecutionConfigKey(key string) bool {
 
 func gitExecutionConfigSection(section string) bool {
 	section = strings.ToLower(section)
-	return contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "core", "sequence", "interactive"}, section)
+	return contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "core", "sequence", "interactive"}, section)
 }
 
 func gitExecutionConfigPattern(pattern string) bool {
 	pattern = strings.ToLower(pattern)
-	for _, name := range []string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "core", "sequence", "interactive"} {
+	for _, name := range []string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "core", "sequence", "interactive"} {
 		if strings.Contains(pattern, name) {
 			return true
 		}
@@ -764,7 +898,7 @@ func shellExportsGitExecutionEnvironment(words []string) bool {
 
 func gitExecutionEnvironmentKey(key string) bool {
 	key = strings.ToUpper(key)
-	return strings.HasPrefix(key, "GIT_CONFIG_") || contains([]string{"GIT_PAGER", "PAGER", "GIT_EDITOR", "EDITOR", "VISUAL", "GIT_SEQUENCE_EDITOR"}, key)
+	return strings.HasPrefix(key, "GIT_CONFIG_") || contains([]string{"GIT_PAGER", "PAGER", "GIT_EDITOR", "EDITOR", "VISUAL", "GIT_SEQUENCE_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE"}, key)
 }
 
 var gitBuiltins = func() map[string]bool {

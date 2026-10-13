@@ -3,7 +3,6 @@ package guard
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -165,14 +164,17 @@ func decideOtherShell(input hookInput, state projectState) decision {
 	if !ok || strings.TrimSpace(command) == "" {
 		return refuse("rule 4", "command must be a non-empty string to check for governed writes")
 	}
-	switch invokesGovernedWrite(command, state.manifest) {
+	if len(command) > maxShellCommandBytes {
+		return refuse("rule 4", "command exceeds the 1 MiB inspection limit")
+	}
+	switch invokesGovernedWrite(command) {
 	case governedExecutionExplicitWrite:
 		return refuse("rule 4", "ears-manager writes are reserved for the drafting-table role")
 	case governedExecutionOpaque:
 		return refuse("rule 4", "command class is refused because execution cannot be inspected for governed writes")
 	}
 	if shellWritesProtectedPath(command, state, input.CWD, 0) {
-		return refuse("rule 7", "shell writer targets .git/ or the adapter manifest")
+		return refuse("rule 7", "shell writer targets protected control paths or has an ambiguous relative target after a working-directory change")
 	}
 	targets, changesDirectory, unsafe := inspectOtherShell(command, 0)
 	if unsafe {
@@ -182,7 +184,7 @@ func decideOtherShell(input hookInput, state projectState) decision {
 		return refuse("rule 7", "output redirection target is ambiguous after a working-directory change")
 	}
 	for _, target := range targets {
-		if isLexicalControlPath(state.root, input.CWD, target) || isLexicalProtectedPath(state.root, input.CWD, target) {
+		if isLexicalControlPath(state.root, input.CWD, target) || isProtectedPathValue(state, input.CWD, target) {
 			return refuse("rule 7", "output redirection targets a protected control path, registered artifact, or configured store")
 		}
 		resolved, err := resolveProjectPath(state.root, input.CWD, target)
@@ -282,7 +284,7 @@ func currentBranch(root string) (string, error) {
 	command.Env = safeCommandEnv()
 	output, err := command.Output()
 	if err != nil {
-		return "", fmt.Errorf("current branch could not be read")
+		return "", errors.New("current branch could not be read")
 	}
 	return strings.TrimSpace(string(output)), nil
 }

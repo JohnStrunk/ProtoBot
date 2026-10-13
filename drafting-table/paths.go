@@ -145,29 +145,41 @@ func isLexicalControlPath(root, cwd, value string) bool {
 	return isControlPath(root, lexical)
 }
 
-func isLexicalProtectedPath(root, cwd, value string) bool {
-	if value == "" {
-		return false
-	}
-	base := cwd
-	if base == "" {
-		base = root
-	}
-	if root == "" {
-		root = base
-	}
-	if root == "" {
-		return false
-	}
-	lexical := value
-	if !filepath.IsAbs(lexical) {
-		lexical = filepath.Join(base, filepath.FromSlash(lexical))
-	}
-	lexical, err := filepath.Abs(filepath.Clean(lexical))
-	if err != nil {
+func isProtectedPathValue(state projectState, cwd, value string) bool {
+	lexical, err := lexicalProjectPath(state.root, cwd, value)
+	if err != nil || protectedStatePath(state, lexical) {
 		return true
 	}
-	return protectedProjectPath(root, lexical)
+	resolved, err := resolveProjectPath(state.root, cwd, value)
+	return err != nil || protectedStatePath(state, resolved)
+}
+
+func lexicalProjectPath(root, cwd, value string) (string, error) {
+	if value == "" || strings.ContainsRune(value, '\x00') {
+		return "", errors.New("empty or invalid path")
+	}
+	if value == "~" || strings.HasPrefix(value, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			return "", errors.New("home directory is unavailable")
+		}
+		if value == "~" {
+			value = home
+		} else {
+			value = filepath.Join(home, strings.TrimPrefix(value, "~/"))
+		}
+	}
+	if !filepath.IsAbs(value) {
+		base := cwd
+		if base == "" {
+			base = root
+		}
+		if base == "" {
+			return "", errors.New("cannot resolve a relative path without a working directory")
+		}
+		value = filepath.Join(base, value)
+	}
+	return filepath.Abs(filepath.Clean(value))
 }
 
 func protectedProjectPath(root, target string) bool {
@@ -186,8 +198,19 @@ func protectedProjectPath(root, target string) bool {
 	return false
 }
 
+func protectedStatePath(state projectState, target string) bool {
+	if protectedProjectPath(state.root, target) || withinOrEqual(state.gitDir, target) || withinOrEqual(state.gitCommonDir, target) {
+		return true
+	}
+	return state.manifestPath != "" && filepath.Clean(target) == filepath.Clean(state.manifestPath)
+}
+
+func withinOrEqual(root, target string) bool {
+	return root != "" && target != "" && (filepath.Clean(root) == filepath.Clean(target) || within(root, target))
+}
+
 func guardedWritePath(state projectState, target string) bool {
-	if isControlPath(state.root, target) || protectedProjectPath(state.root, target) {
+	if isControlPath(state.root, target) || protectedStatePath(state, target) {
 		return true
 	}
 	for _, registered := range state.artifacts {

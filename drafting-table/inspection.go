@@ -49,6 +49,44 @@ func gitRoot(cwd string) (string, error) {
 	return filepath.Clean(root), nil
 }
 
+func gitMetadataDirs(root string) (string, string, error) {
+	resolve := func(option string) (string, error) {
+		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		defer cancel()
+		command := exec.CommandContext(ctx, "git", "-C", root, "rev-parse", option)
+		command.Env = safeCommandEnv()
+		output, err := command.Output()
+		if err != nil {
+			return "", errors.New("Git metadata directory could not be read")
+		}
+		path := strings.TrimSpace(string(output))
+		if path == "" {
+			return "", errors.New("Git returned an empty metadata directory")
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(root, path)
+		}
+		path, err = filepath.EvalSymlinks(path)
+		if err != nil {
+			return "", errors.New("Git metadata directory could not be resolved")
+		}
+		info, err := os.Stat(path)
+		if err != nil || !info.IsDir() {
+			return "", errors.New("Git metadata path is not a directory")
+		}
+		return filepath.Clean(path), nil
+	}
+	gitDir, err := resolve("--absolute-git-dir")
+	if err != nil {
+		return "", "", err
+	}
+	commonDir, err := resolve("--git-common-dir")
+	if err != nil {
+		return "", "", err
+	}
+	return gitDir, commonDir, nil
+}
+
 func safeCommandEnv() []string {
 	env := make([]string, 0, len(os.Environ())+2)
 	for _, entry := range os.Environ() {
@@ -89,7 +127,7 @@ func readYAMLFile(path string, destination any) error {
 	return nil
 }
 
-func loadManifest(root string, manifest *adapterManifest) error {
+func loadManifest(root string, manifest *adapterManifest) (string, error) {
 	var path string
 	var info os.FileInfo
 	var err error
@@ -101,45 +139,45 @@ func loadManifest(root string, manifest *adapterManifest) error {
 	if root == "" || errors.Is(err, os.ErrNotExist) {
 		home, homeErr := os.UserHomeDir()
 		if homeErr != nil || home == "" {
-			return errors.New("project and user-scope adapter manifests are unavailable")
+			return "", errors.New("project and user-scope adapter manifests are unavailable")
 		}
 		path = filepath.Join(home, ".agents", "drafting-table.yaml")
 		userScope = true
 		info, err = os.Lstat(path)
 		if err != nil {
-			return errors.New("project and user-scope adapter manifests are unavailable")
+			return "", errors.New("project and user-scope adapter manifests are unavailable")
 		}
 	}
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		return errors.New("the adapter manifest is missing or unreadable")
+		return filepath.Clean(path), errors.New("the adapter manifest is missing or unreadable")
 	}
 	resolved, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return errors.New("the adapter manifest path could not be resolved")
+		return filepath.Clean(path), errors.New("the adapter manifest path could not be resolved")
 	}
 	if userScope {
 		home, homeErr := os.UserHomeDir()
 		if homeErr != nil || !within(home, resolved) {
-			return errors.New("the user-scope adapter manifest resolves outside the user home")
+			return filepath.Clean(resolved), errors.New("the user-scope adapter manifest resolves outside the user home")
 		}
 	} else if !within(root, resolved) {
-		return errors.New("the project adapter manifest resolves outside the project root")
+		return filepath.Clean(resolved), errors.New("the project adapter manifest resolves outside the project root")
 	}
 	if err := readYAMLFile(path, manifest); err != nil {
-		return errors.New("the adapter manifest is malformed or unreadable")
+		return filepath.Clean(resolved), errors.New("the adapter manifest is malformed or unreadable")
 	}
 	if manifest.AdapterLayout != 1 || manifest.EntryPoint != "drafting-table" || len(manifest.ToolkitSkills) == 0 ||
 		len(manifest.GovernedCommands) != 1 || manifest.GovernedCommands[0] != "ears-manager" ||
 		len(manifest.GovernedMCPServers) != 2 || len(manifest.GovernedMCPServers["wms"].Tools) == 0 || len(manifest.GovernedMCPServers["scm"].Tools) == 0 {
-		return errors.New(".agents/drafting-table.yaml does not define adapter layout 1")
+		return filepath.Clean(resolved), errors.New(".agents/drafting-table.yaml does not define adapter layout 1")
 	}
 	skillName := regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
 	for _, name := range manifest.ToolkitSkills {
 		if len(name) > 64 || !skillName.MatchString(name) {
-			return errors.New(".agents/drafting-table.yaml contains an invalid skill name")
+			return filepath.Clean(resolved), errors.New(".agents/drafting-table.yaml contains an invalid skill name")
 		}
 	}
-	return nil
+	return filepath.Clean(resolved), nil
 }
 
 func configuredStores(config projectConfig) []string {

@@ -2,21 +2,27 @@ package guard
 
 import (
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
 const quotedControlWordPrefix = "\x00quoted-control:"
 
+var literalGovernedWritePattern = regexp.MustCompile(`(?i)(^|[^a-z0-9_./-])ears-manager([ \t]+--output(([ \t]+|=)(json|human))?)*[ \t]+(project[ \t]+init|artifact[ \t]+put|interface[ \t]+(add|update)|requirement[ \t]+(add|update|retire)|change-set[ \t]+(create|update))([^a-z0-9_-]|$)`)
+
 func inspectOtherShell(command string, depth int) ([]string, bool, bool) {
-	if depth > 8 {
+	if depth > maxShellAnalysisDepth || len(command) > maxShellCommandBytes || !otherShellSyntaxInspectable(command) {
 		return nil, false, true
 	}
-	targets, unsafe := parseOtherShellRedirects(command)
+	targets, unsafe := parseOtherShellRedirectsAtDepth(command, depth)
 	if unsafe {
 		return nil, false, true
 	}
 	changesDirectory := false
 	for _, words := range shellCommandSegments(command) {
+		if opaqueShellCommand(words) {
+			return nil, false, true
+		}
 		args := unwrapCommand(words)
 		if len(args) == 0 {
 			continue
@@ -31,7 +37,7 @@ func inspectOtherShell(command string, depth int) ([]string, bool, bool) {
 		if base == "cd" || base == "pushd" || base == "popd" || base == "source" || base == "." {
 			changesDirectory = true
 		}
-		nested, safe := nestedShellCommands(words)
+		nested, safe := nestedShellCommandsAtDepth(words, depth)
 		if !safe {
 			return nil, false, true
 		}
@@ -117,23 +123,30 @@ type findAction struct {
 }
 
 func nestedShellCommands(words []string) ([]nestedShellScript, bool) {
+	return nestedShellCommandsAtDepth(words, 0)
+}
+
+func nestedShellCommandsAtDepth(words []string, depth int) ([]nestedShellScript, bool) {
+	if depth > maxShellAnalysisDepth {
+		return nil, false
+	}
 	if len(words) == 0 {
 		return nil, true
 	}
 	name := filepath.Base(words[0])
 	if name == "env" {
-		script, found, safe := envSplitString(words)
+		_, found, safe := envSplitString(words)
 		if !safe {
 			return nil, false
 		}
 		if found {
-			return []nestedShellScript{{script: script}}, true
+			return nil, false // env -S has its own argv splitting rules.
 		}
 		unwrapped := unwrapCommand(words)
 		if len(unwrapped) == 0 || sameWords(words, unwrapped) {
 			return nil, false
 		}
-		return nestedShellCommands(unwrapped)
+		return nestedShellCommandsAtDepth(unwrapped, depth+1)
 	}
 	if isShellInterpreter(name) {
 		script, found, safe := shellCommandString(words)
@@ -152,7 +165,7 @@ func nestedShellCommands(words []string) ([]nestedShellScript, bool) {
 		}
 		var result []nestedShellScript
 		for _, action := range actions {
-			children, childSafe := nestedShellCommands(action.args)
+			children, childSafe := nestedShellCommandsAtDepth(action.args, depth+1)
 			if !childSafe {
 				return nil, false
 			}
@@ -171,14 +184,14 @@ func nestedShellCommands(words []string) ([]nestedShellScript, bool) {
 		if !found {
 			return nil, true // xargs defaults to echo when no command is given.
 		}
-		return nestedShellCommands(command)
+		return nestedShellCommandsAtDepth(command, depth+1)
 	}
 	unwrapped := unwrapCommand(words)
 	if len(unwrapped) == 0 {
 		return nil, false
 	}
 	if !sameWords(words, unwrapped) {
-		return nestedShellCommands(unwrapped)
+		return nestedShellCommandsAtDepth(unwrapped, depth+1)
 	}
 	return nil, true
 }
@@ -193,6 +206,64 @@ func sameWords(left, right []string) bool {
 		}
 	}
 	return true
+}
+
+func opaqueShellCommand(words []string) bool {
+	if len(words) == 0 {
+		return false
+	}
+	if shellStartupEnvironmentAssignment(words) {
+		return true
+	}
+	args := unwrapCommand(stripShellControlPrefix(words))
+	args = stripShellControlPrefix(args)
+	if len(args) == 0 {
+		return false
+	}
+	switch filepath.Base(args[0]) {
+	case "eval", "source", ".", "trap", "coproc", "alias", "unalias", "shopt", "function":
+		return true
+	case "enable":
+		for _, arg := range args[1:] {
+			if strings.HasPrefix(arg, "-") && strings.Contains(strings.TrimLeft(arg, "-"), "f") {
+				return true
+			}
+		}
+	case "set":
+		return shellEnablesAllexport(args[1:])
+	}
+	return false
+}
+
+func shellStartupEnvironmentAssignment(words []string) bool {
+	keys := []string{
+		"BASH_ENV", "ENV", "ZDOTDIR", "SHELLOPTS", "BASHOPTS", "PROMPT_COMMAND",
+		"LD_PRELOAD", "LD_AUDIT", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH",
+		"PYTHONPATH", "PYTHONHOME", "PYTHONSTARTUP", "PERL5OPT", "PERL5LIB",
+		"RUBYOPT", "RUBYLIB", "NODE_OPTIONS", "NODE_PATH",
+	}
+	for _, word := range words {
+		key, _, assigned := strings.Cut(strings.TrimLeft(word, "-"), "=")
+		if assigned && contains(keys, key) {
+			return true
+		}
+	}
+	return false
+}
+
+func shellEnablesAllexport(args []string) bool {
+	for index, arg := range args {
+		if arg == "-a" || arg == "--allexport" || arg == "-oallexport" {
+			return true
+		}
+		if arg == "-o" && index+1 < len(args) && args[index+1] == "allexport" {
+			return true
+		}
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(strings.TrimLeft(arg, "-"), "a") {
+			return true
+		}
+	}
+	return false
 }
 
 func envSplitString(args []string) (string, bool, bool) {
@@ -220,14 +291,27 @@ func shellCommandString(args []string) (string, bool, bool) {
 			return "", false, false
 		}
 		if strings.HasPrefix(arg, "--") {
-			option, _, hasValue := strings.Cut(arg, "=")
+			option, optionValue, hasValue := strings.Cut(arg, "=")
 			switch option {
-			case "--noprofile", "--norc", "--posix", "--restricted", "--verbose", "--debugger", "--noediting", "--dump-po-strings", "--dump-strings":
+			case "--noprofile", "--norc", "--posix", "--restricted", "--verbose", "--noediting", "--dump-po-strings", "--dump-strings":
 				if hasValue {
 					return "", false, false
 				}
 				i++
-			case "--rcfile", "--init-file", "--encoding":
+			case "--rcfile", "--init-file":
+				if !hasValue {
+					if i+1 >= len(args) {
+						return "", false, false
+					}
+					optionValue = args[i+1]
+					i += 2
+				} else {
+					i++
+				}
+				if optionValue != "/dev/null" {
+					return "", false, false
+				}
+			case "--encoding":
 				if !hasValue {
 					if i+1 >= len(args) {
 						return "", false, false
@@ -359,10 +443,17 @@ const (
 	governedExecutionOpaque
 )
 
-func invokesGovernedWrite(command string, _ adapterManifest) governedExecution {
+func invokesGovernedWrite(command string) governedExecution {
+	return invokesGovernedWriteAtDepth(command, 0)
+}
+
+func invokesGovernedWriteAtDepth(command string, depth int) governedExecution {
+	if depth > maxShellAnalysisDepth || len(command) > maxShellCommandBytes || !otherShellSyntaxInspectable(command) {
+		return governedExecutionOpaque
+	}
 	finding := governedExecutionNone
 	for _, words := range shellCommandSegments(command) {
-		current := governedWordsWrite(words)
+		current := governedWordsWriteAtDepth(words, depth)
 		if current == governedExecutionExplicitWrite {
 			return current
 		}
@@ -536,10 +627,23 @@ func skipHereDocument(command string, operator int) (string, int, bool) {
 }
 
 func governedWordsWrite(words []string) governedExecution {
+	return governedWordsWriteAtDepth(words, 0)
+}
+
+func governedWordsWriteAtDepth(words []string, depth int) governedExecution {
+	if depth > maxShellAnalysisDepth {
+		return governedExecutionOpaque
+	}
 	if len(words) == 0 {
 		return governedExecutionNone
 	}
+	if opaqueShellCommand(words) {
+		return governedExecutionOpaque
+	}
 	gitExecutionEnvironmentOverride := hasGitExecutionEnvironmentOverride(words)
+	if gitExecutionEnvironmentOverride {
+		return governedExecutionOpaque
+	}
 	words = stripShellControlPrefix(words)
 	if len(words) == 0 {
 		return governedExecutionNone
@@ -548,12 +652,12 @@ func governedWordsWrite(words []string) governedExecution {
 		return governedExecutionOpaque
 	}
 	if filepath.Base(words[0]) == "env" {
-		script, found, safe := envSplitString(words)
+		_, found, safe := envSplitString(words)
 		if !safe {
 			return governedExecutionOpaque
 		}
 		if found {
-			return invokesGovernedWrite(script, adapterManifest{GovernedCommands: []string{"ears-manager"}})
+			return governedExecutionOpaque
 		}
 	}
 	args := unwrapCommand(words)
@@ -561,9 +665,6 @@ func governedWordsWrite(words []string) governedExecution {
 		return governedExecutionOpaque
 	}
 	name := filepath.Base(args[0])
-	if name == "git" && gitExecutionEnvironmentOverride {
-		return governedExecutionOpaque
-	}
 	if opaqueGovernedExecution(name, args) {
 		return governedExecutionOpaque
 	}
@@ -575,7 +676,7 @@ func governedWordsWrite(words []string) governedExecution {
 		if !found {
 			return governedExecutionNone
 		}
-		return invokesGovernedWrite(script, adapterManifest{GovernedCommands: []string{"ears-manager"}})
+		return invokesGovernedWriteAtDepth(script, depth+1)
 	}
 	if name == "find" {
 		actions, safe := findActions(args)
@@ -584,7 +685,7 @@ func governedWordsWrite(words []string) governedExecution {
 		}
 		finding := governedExecutionNone
 		for _, action := range actions {
-			current := governedWordsWrite(action.args)
+			current := governedWordsWriteAtDepth(action.args, depth+1)
 			if current == governedExecutionExplicitWrite {
 				return current
 			}
@@ -602,9 +703,21 @@ func governedWordsWrite(words []string) governedExecution {
 		if !found {
 			return governedExecutionNone
 		}
-		return governedWordsWrite(command)
+		current := governedWordsWriteAtDepth(command, depth+1)
+		if current == governedExecutionNone && len(command) > 0 && filepath.Base(command[0]) == "ears-manager" {
+			// xargs appends standard-input tokens to the child argv, so a
+			// governed write can be assembled from uninspectable stdin data.
+			return governedExecutionOpaque
+		}
+		return current
 	}
 	if name != "ears-manager" {
+		if len(args) > 0 && strings.HasPrefix(args[0], quotedControlWordPrefix) {
+			return governedExecutionNone
+		}
+		if containsLiteralGovernedWrite(args) {
+			return governedExecutionExplicitWrite
+		}
 		return governedExecutionNone
 	}
 	args, safe := stripOutputOptions(args[1:])
@@ -626,6 +739,82 @@ func governedWordsWrite(words []string) governedExecution {
 	default:
 		return governedExecutionNone
 	}
+}
+
+func containsLiteralGovernedWrite(args []string) bool {
+	// shortcut: this backstop recognizes literal argv sequences only; extend it
+	// when a concrete wrapper string format is identified.
+	if len(args) == 0 {
+		return false
+	}
+	if literalOutputCommand(args) {
+		return false
+	}
+	for index, arg := range args {
+		if filepath.Base(arg) != "ears-manager" || index+1 >= len(args) {
+			if code, found := commandStringOperand(args, index); found && governedWriteInCommandString(code) {
+				return true
+			}
+			continue
+		}
+		if governedWordsWriteAtDepth(append([]string{"ears-manager"}, args[index+1:]...), 0) == governedExecutionExplicitWrite {
+			return true
+		}
+		if code, found := commandStringOperand(args, index); found && governedWriteInCommandString(code) {
+			return true
+		}
+	}
+	return false
+}
+
+func literalOutputCommand(args []string) bool {
+	name := filepath.Base(args[0])
+	if contains([]string{"echo", "printf", "cat", "grep", "rg", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "pwd", "ls", "date", "true", "false"}, name) {
+		return true
+	}
+	return name == "git" && len(args) > 1 && contains([]string{"grep", "status", "diff", "log", "show", "rev-parse", "branch"}, args[1])
+}
+
+func commandStringOperand(args []string, index int) (string, bool) {
+	arg := args[index]
+	for _, short := range []string{"-c", "-e", "-S"} {
+		if arg == short {
+			if index+1 < len(args) {
+				return args[index+1], true
+			}
+			return "", false
+		}
+		if strings.HasPrefix(arg, short) && len(arg) > len(short) {
+			return strings.TrimPrefix(strings.TrimPrefix(arg, short), "="), true
+		}
+	}
+	for _, long := range []string{"--command", "--eval", "--execute", "--split-string", "--expression", "--cmd", "--run", "--script", "--program"} {
+		if arg == long {
+			if index+1 < len(args) {
+				return args[index+1], true
+			}
+			return "", false
+		}
+		if strings.HasPrefix(arg, long+"=") {
+			return strings.TrimPrefix(arg, long+"="), true
+		}
+	}
+	return "", false
+}
+
+func governedWriteInCommandString(command string) bool {
+	if literalGovernedWritePattern.MatchString(command) {
+		return true
+	}
+	for _, words := range shellCommandSegments(command) {
+		for index, word := range words {
+			if filepath.Base(word) == "ears-manager" && index+1 < len(words) &&
+				governedWordsWriteAtDepth(words[index:], 1) == governedExecutionExplicitWrite {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // opaqueGovernedExecution identifies command forms whose execution can be
@@ -675,7 +864,7 @@ func stripShellControlPrefix(words []string) []string {
 
 func isShellControlWord(word string) bool {
 	switch word {
-	case "do", "then", "else", "elif", "if", "for", "while", "until", "case", "select", "!", "coproc":
+	case "do", "then", "else", "elif", "if", "for", "while", "until", "case", "select", "!":
 		return true
 	default:
 		return false
@@ -690,6 +879,10 @@ func unwrapCommand(words []string) []string {
 		case "env":
 			i := 1
 			for i < len(args) {
+				if args[i] == "-S" || args[i] == "--split-string" || strings.HasPrefix(args[i], "--split-string=") ||
+					(strings.HasPrefix(args[i], "-") && !strings.HasPrefix(args[i], "--") && strings.Contains(args[i], "S")) {
+					return nil // env -S has its own argv grammar; do not guess after unwrapping.
+				}
 				if args[i] == "--" {
 					i++
 					break
@@ -721,6 +914,11 @@ func unwrapCommand(words []string) []string {
 				return nil
 			}
 			args = args[i:]
+		case "builtin":
+			if len(args) < 2 {
+				return nil
+			}
+			args = args[1:]
 		case "timeout":
 			i := 1
 			for i < len(args) && strings.HasPrefix(args[i], "-") {
@@ -795,20 +993,10 @@ func unwrapCommand(words []string) []string {
 			}
 			args = args[1:]
 		case "sudo":
-			i := 1
-			for i < len(args) && strings.HasPrefix(args[i], "-") {
-				i++
-				if i < len(args) && !strings.HasPrefix(args[i], "-") && strings.Contains(args[i-1], "u") {
-					i++
-				}
+			if isInformationalCommand(args) {
+				return args
 			}
-			for i < len(args) && assignmentWord.MatchString(args[i]) {
-				i++
-			}
-			if i >= len(args) {
-				return nil
-			}
-			args = args[i:]
+			return nil // sudo option parsing is too broad to unwrap safely.
 		default:
 			for len(args) > 0 && assignmentWord.MatchString(args[0]) {
 				args = args[1:]

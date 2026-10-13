@@ -200,9 +200,11 @@ binding runs its hook on the machine of everyone who opens the project.
 
 A project that does not carry the adapter can install the same shared
 files under `~/.agents/` and each binding under its harness's user
-config directory. Outside the Drafting Table role, the guard does
-nothing in a directory that is not a ProtoBot project, so a user-scope
-install leaves other work unchanged.
+config directory. Outside the Drafting Table role, the guard goes quiet
+only where it finds no adapter manifest at project or user scope: a
+user-scope install keeps rules 3, 4, and 7 active for other roles in
+the directories it covers, while a machine with no discoverable
+manifest leaves other work unchanged.
 
 None of these files is a specification artifact, and a governed write
 must not reach them either: the guard refuses an `artifact put` or
@@ -211,9 +213,11 @@ must not reach them either: the guard refuses an `artifact put` or
 `AGENTS.md`, or `CLAUDE.md` ([Shell operations](#shell-operations)).
 Otherwise the role could register its own hook, manifest, or project
 instructions as an artifact and rewrite them for the next session.
-Rule 3 also refuses direct file-writing tool arguments and inspectable
-output redirections to `.git/` and the adapter manifest
-`.agents/drafting-table.yaml` in every role.
+Rule 3 refuses direct file-writing tool arguments to `.git/` and the
+adapter manifest path selected by the guard. Rule 7 refuses recognized
+shell writers to Git's resolved metadata directories and that manifest
+path, as well as output redirections to guarded paths; redirections
+that cannot be inspected safely are refused.
 
 ### The adapter manifest
 
@@ -570,8 +574,13 @@ performs them:
 
 ### The guard
 
-`drafting-table-guard` is the only adapter code shared by every harness.
-It is one executable with no runtime dependency, like `ears-manager`.
+`drafting-table-guard` is the intended adapter code shared by every
+harness. It is one executable with no runtime dependency, like
+`ears-manager`. The current Go executable implements only the OpenCode
+vocabulary; calls using `--harness claude-code` or `--harness codex` are
+refused as unsupported until those vocabularies are implemented. The
+Claude Code and Codex binding documents below describe designed
+integrations, not supported guard runtimes for this executable.
 Each binding wires it into the tool-call path. Guard availability is a
 per-call fact: a hook or plugin being installed, trusted, or passing a
 startup probe does not prove that the guard returned a decision for a
@@ -609,12 +618,13 @@ passes a call when that invocation fails or does not run.
 
 #### Tool vocabulary
 
-The guard carries one vocabulary row per harness. A row lists which
+The contract defines one vocabulary row per harness. A row lists which
 tool names write files and where their target paths are, which tool runs
 shell commands and where the command is, which tools read or search
 files and where their path is, which tool loads a skill, and how MCP
-tool names are formed. It is data, not logic. Adding a harness adds a
-row and its test vectors. Under the Drafting Table role, a tool name
+tool names are formed. It is data, not logic. The current Go executable
+implements the OpenCode row; supporting another harness requires adding
+its row and test vectors. Under the Drafting Table role, a tool name
 that the row does not list is refused. A search tool is a read of
 every file below its path, so rule 5 applies to that path: a search
 whose path is the project root, or a directory that holds a denied
@@ -634,8 +644,10 @@ document names them, and guard rules 5 and 6 treat them as reads.
    at the root of the Git working tree that contains `cwd`, by the rule
    in [The project root](../git-integration.md#the-project-root). Without
    a `.protobot/` directory there, the directory is not a ProtoBot
-   project: outside the Drafting Table role the guard allows
-   everything, and under the role it still applies rules 5 and 6, with
+   project: outside the Drafting Table role the guard goes quiet only
+   when no adapter manifest is discoverable at project or user scope;
+   with a manifest, rules 3, 4, and 7 still apply there. Under the role
+   it still applies rules 5 and 6, with
    `ears-manager project init`, `ears-manager <any> --help`,
    `ears-manager --version`, and the clock as the only shell
    operations. The `scm` tools work there too (rule 4), so the role can
@@ -653,33 +665,51 @@ document names them, and guard rules 5 and 6 treat them as reads.
    `.protobot/project.yaml` itself, which #34 lets the Drafting Table
    read; it parses no other file under `.protobot/`
    ([`ears-manager` CLI](../../architecture.md#ears-manager-cli)). If
-    either read fails, it refuses every file write and every shell command in
-    the Drafting Table role, refuses writes to guarded paths in every
-    role, and names the failure. Other writes outside those paths remain
-    subject to rules 4 and 7; they are not universally refused because the
-    harness layer is optional. Unauthorized
-   persistent edits to registered paths remain subject to downstream
-   checks ([What the harness layer stops][layer-stops]); those checks
-   cannot establish the source of an `ears-manager` file-source input.
-3. **Guarded paths, every role.** A file-writing tool or inspectable
-   output redirection to `.protobot/`, `.git/`, the adapter manifest
-   `.agents/drafting-table.yaml`, a registered artifact path, or below a
-   configured store is refused. Paths are compared after symlink
-   resolution; a registered directory or a store guards everything below
-   it, and a write whose target path cannot be read is refused.
-4. **Governed operations.** A write command of a program in
-   `governed_commands`, such as `ears-manager requirement add`, and a
-   tool of a server in `governed_mcp_servers` are refused outside the
-   Drafting Table role. A read command, such as
+   either read fails, it refuses every file write and shell command in
+   the Drafting Table role and names the failure. In every role it still
+   refuses `.protobot/`, Git metadata directories, and the adapter
+   manifest path selected by the guard. Configured-store paths remain
+   guarded when they were read and resolved successfully. If `artifact
+   list` fails, the registered-artifact set is unknown, so other-role
+   file writes outside known control paths are not guaranteed to be
+   refused. Other writes remain subject to rules 4 and 7; they are not
+   universally refused because the harness layer is optional.
+   Unauthorized persistent edits to registered paths remain subject to
+   downstream checks ([What the harness layer stops][layer-stops]); those
+   checks cannot establish the source of an `ears-manager` file-source
+   input.
+3. **Guarded paths, every role.** A file-writing tool targeting
+   `.protobot/`, `.git/`, Git's resolved worktree or common metadata
+   directory, the adapter manifest path selected by the guard, a
+   registered artifact path, or below a configured store is refused.
+   Paths are compared after symlink resolution; a registered directory
+   or a store guards everything below it, and a write whose target path
+   cannot be read is refused.
+4. **Governed operations.** An `ears-manager` write command is refused
+   outside the Drafting Table role regardless of whether the manifest
+   lists it in `governed_commands`; this is unconditional adapter-core
+   behavior. Tools of servers in `governed_mcp_servers` are also
+   refused outside the role. A read command, such as
    `ears-manager requirement list`, is allowed in every role. The guard
-   also refuses recognized opaque execution forms that could hide an
-   indirect governed write, including inline or standard-input interpreter
-   programs, command-string wrappers, Git aliases, and recipe/build runners.
-   It inspects transparent wrappers recursively when their child argv can
-   be determined safely. These are guard refusals, not a general-purpose
-    shell sandbox; ordinary shell writers outside guarded paths remain
-    subject to the limitations in
-    [What the harness layer stops](#what-the-harness-layer-stops).
+   refuses recognized opaque execution forms that could hide an indirect
+   governed write, including inline or standard-input interpreters,
+    command-string wrappers, Git aliases and metadata-writing Git
+    commands, and recipe/build/test runners. It also refuses unrecognized
+    command prefixes when their argv contains a literal `ears-manager`
+    write form. It inspects transparent wrappers recursively when their
+    child argv can be determined safely. Shell expansions, command
+    substitutions, backticks, line continuations, brace groups,
+    here-documents, and input redirections fail closed in the other-role path.
+    Opaque classes include ordinary
+   development checks such as `go test` in other-role shell sessions;
+   run maintenance checks from a terminal outside the guarded session.
+   These are guard refusals, not a general-purpose shell sandbox.
+    Some ordinary interpreter source-file invocations (for example,
+    `python helper.py`), renamed executables, and direct writers outside
+    the recognized inventory remain residual routes; an indirect
+    `ears-manager` write through them has no later registry-integrity
+    control. This boundary is an accepted limitation of the local MVP,
+    not a claim that every shell execution is contained.
    Inside the role, only the tools that the manifest lists for a governed
    server are allowed; every other tool of that server, a lifecycle
    transition among them, and every tool of any other server is refused.
@@ -723,14 +753,25 @@ document names them, and guard rules 5 and 6 treat them as reads.
    and refuses a registration whose `<nnnnn>` is not the change set of
    `<branch>`.
 7. **Other roles' shell commands.** Output redirection to a guarded path,
-   written from the project root, such as `> docs/vision.md` or
-   `> .agents/drafting-table.yaml`, is refused. Rule 4 separately refuses
-    recognized opaque execution forms that could hide an indirect governed
-    write. A path mentioned as ordinary quoted text is not a write, so
-   `echo "see docs/vision.md" > notes.txt` is allowed. A direct shell
-   writer such as `sed -i`, `cp`, or `tee` targeting an ordinary registered
-   artifact is not generally stopped; registered-path integrity checks
-   remain the later control when the registry is unchanged.
+   resolved from the project root, such as `> docs/vision.md` or
+   `> .agents/drafting-table.yaml`, is refused. A redirection after a
+   working-directory change is refused as ambiguous, and a redirection
+   whose target cannot be inspected safely is refused. A direct shell
+   writer with a relative target after a working-directory change is
+   also refused as ambiguous. Direct shell writers recognized by the
+   guard, including `tee`, `cp`, `mv`, `dd`, `install`, `ln`,
+   `truncate`, `rm`, `rsync`, `patch`, `ed`, and `find` file-output
+   actions, are refused when their target is Git metadata or the
+   adapter manifest path selected by the guard. The inventory is
+   targeted, not exhaustive: an unrecognized
+   writer to those paths is not guaranteed to be stopped. Rule 4
+   separately refuses recognized opaque execution forms that could hide
+   an indirect governed write. A quoted path is ordinary text, not a
+   write, so `echo "see docs/vision.md" > notes.txt` is allowed. A direct
+   shell writer such as `sed -i`, `cp`, `tee`, or `truncate` targeting an
+   ordinary registered artifact is not generally stopped; registered-
+   path integrity checks remain the later control when the registry is
+   unchanged.
 
 The guard runs no Git command that writes, opens no network connection,
 writes no file, and does nothing when a session is idle or ends.
@@ -827,23 +868,27 @@ specific and are not refusals.
 
 | Route to guarded state | Drafting Table role | Every other role | Caught later by |
 | --- | --- | --- | --- |
-| File-writing tool targeting `.protobot/`, `.git/`, `.agents/drafting-table.yaml`, a registered artifact, or a configured store | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | None for `.git/` or the adapter manifest; registered-path checks catch other persistent specification edits only when the registry remains intact |
-| Shell writer to an ordinary registered artifact, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Pre-stage digest comparison, `ears-manager check`, and CI path ownership, for persistent registered-path edits that leave the registry intact |
-| Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is a guarded path written from the project root | Same, for persistent registered-path edits that leave the registry intact |
-| Recognized opaque execution forms that could hide an indirect governed write | Refused by rule 6's shell grammar | Refused by rule 4 when the guard recognizes the form | None for an indirect `ears-manager` write: the CLI can update registry digests, so later integrity checks cannot identify the unauthorized caller |
+| File-writing tool targeting `.protobot/`, `.git/` or Git metadata directories, the adapter manifest path selected by the guard, a registered artifact, or a configured store | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | None for Git metadata or the manifest; registered-path checks catch other persistent specification edits only when the registry remains intact |
+| Recognized shell writer to Git metadata or the adapter manifest path selected by the guard, such as `tee`, `cp`, `mv`, `dd`, `install`, `ln`, `truncate`, `rm`, `rsync`, `patch`, `ed`, or `find -fprintf` | Refused by the guard | Refused by the guard when it returns a decision | None; no later layer detects these writes |
+| Shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, or `truncate` | Refused by the guard | Not stopped; a relative target after a working-directory change is refused as ambiguous | Pre-stage digest comparison, `ears-manager check`, and CI path ownership, for persistent registered-path edits that leave the registry intact |
+| Output redirection in a shell command | Refused by the guard | Refused for a guarded target resolved from the project root; also refused when a working-directory change makes the target ambiguous or the target cannot be inspected safely | Same, for persistent registered-path edits that leave the registry intact |
+| Recognized opaque execution forms or literal governed-write argv sequences that could hide an indirect governed write | Refused by rule 6's shell grammar | Refused by rule 4 when the guard recognizes the form | None for an indirect `ears-manager` write: the CLI can update registry digests, so later integrity checks cannot identify the unauthorized caller |
+| Some interpreter source-file invocations, such as `python helper.py`, renamed executables, or unrecognized shell writers/executors | Refused by rule 6's exact shell grammar | Not generally stopped by this targeted guard | None for an indirect `ears-manager` write or a protected-path write; these remain accepted residual limits, not sandbox guarantees |
 | `ears-manager --content-file` or `--impact-file` with a value other than `-`, or with `-` or `--content-stdin` and input redirection | Refused when the guard runs; binding-specific hook failures may pass the call through | Same | None: integrity and CI cannot establish whether the bytes came from standard input or an external file |
 | Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | No tool-call check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
 | Subagent | Refused by the guard | Not applicable | No launch check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
 
 A route marked "not stopped" is real. An agent outside the role can
 still change a registered file through an ordinary shell writer, for
-example after `cd docs`. The pre-stage digest comparison refuses to stage
-the change, `ears-manager check` fails in CI, and the Drafting Table
-offers the two routes forward from
-[The pre-stage digest comparison][pre-stage]. That later control does not
-cover an indirect `ears-manager` write or a write that also changes the
-registry digests; recognized opaque execution forms are therefore refused
-by the guard before execution.
+example `printf x | tee docs/vision.md` from the project root. The
+pre-stage digest comparison refuses to stage the change,
+`ears-manager check` fails in CI, and the Drafting Table offers the two
+routes forward from [The pre-stage digest comparison][pre-stage]. Those
+later controls do not cover an indirect `ears-manager` write or a write
+that also changes the registry digests. Recognized opaque execution
+forms are therefore refused by the guard before execution, while the
+source-file, renamed-executable, and unrecognized-writer routes in the
+table remain explicit residual limits of this local MVP.
 
 A user can also switch the harness layer off, by editing a binding or
 starting the harness without hooks. Unauthorized persistent edits to
@@ -1332,7 +1377,7 @@ repository state.
 | 6 | In the role, replayed turns write a record under `.protobot/requirements/` with a file tool, run `sed -i` on `docs/vision.md`, and run `ears-manager --output json check > docs/vision.md` | All three are refused, by the guard or earlier by native rules. Every file is byte-identical. |
 | 7 | Outside the role, replayed turns write `docs/vision.md` and edit `.protobot/change-sets/cs-00002.yaml` with file tools | Both are refused. Both files are unchanged. |
 | 8 | The `ears-manager` stub fails the next `requirement add` with #30's failure envelope and status 4 | The shell result carries the envelope unchanged. No second write follows. The working tree is as it was after step 5. |
-| 9 | Outside the role, a replayed turn runs `cd docs && echo x >> vision.md`; then the user asks the role for a commit | The shell write succeeds, because the redirection target is not written from the project root. The SCM's `commit` stages nothing and fails with `SPEC_DIGEST_MISMATCH`, #34's pre-stage digest comparison, or with `SPEC_CHECK_FAILED` when the `ears-manager` stub reports no `artifact.digest_mismatch` code. Its diagnostic names `docs/vision.md` with `ears-manager`'s diagnostics, and `git checkout -- docs/vision.md` as the discard route, which the role does not run. Outside the role, a replayed turn runs it, and the file is back at its committed content, so the step-5 Vision write is gone too and the digest still differs ([`commit`][scm-commit]). In the role, a replayed turn repeats the step-5 `artifact put`, and `check --change-set CS-00003` no longer reports `artifact.digest_mismatch` for that record. |
+| 9 | Outside the role, a replayed turn runs `truncate -s 0 docs/vision.md` from the project root; then the user asks the role for a commit | The direct shell writer to an ordinary registered artifact succeeds. The SCM's `commit` stages nothing and fails with `SPEC_DIGEST_MISMATCH`, #34's pre-stage digest comparison, or with `SPEC_CHECK_FAILED` when the `ears-manager` stub reports no `artifact.digest_mismatch` code. Its diagnostic names `docs/vision.md` with `ears-manager`'s diagnostics, and `git checkout -- docs/vision.md` as the discard route, which the role does not run. The fixture driver performs that discard outside the guarded session, restoring the committed content so the step-5 Vision write is gone and the digest still differs ([`commit`][scm-commit]). In the role, a replayed turn repeats the step-5 `artifact put`, and `check --change-set CS-00003` no longer reports `artifact.digest_mismatch` for that record. |
 | 10 | The session ends | No commit and no push since setup. The step-5 record and the Vision write are still in the working tree. No harness or MCP stub process remains. |
 | 11 | Start a new session, without continuing, through the entry point | A new session ID. The resume reads present `CS-00003`, its branch, and the step-5 requirement and Vision as uncommitted drafts. No call reads an earlier session. |
 | 12 | Push a commit to the default branch of `origin` from outside the session, then continue the session through the entry point | The resume reads run again and present `CS-00003`, its branch, and `base_commit` from governed reads and `repo_state`, not from the conversation. The summary makes no claim about the default branch; step 14 detects the move. |

@@ -13,10 +13,15 @@ type parsedShell struct {
 	stdin   string
 }
 
+const (
+	maxShellCommandBytes  = 1 << 20
+	maxShellAnalysisDepth = 8
+)
+
 var assignmentWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
 
 func parseSimpleShell(command string) (parsedShell, error) {
-	if len(command) > 1<<20 {
+	if len(command) > maxShellCommandBytes {
 		return parsedShell{}, errors.New("command exceeds the 1 MiB limit")
 	}
 	var words []string
@@ -184,7 +189,11 @@ func parseQuotedHereDocument(command string, operator int, words []string) (pars
 }
 
 func parseOtherShellRedirects(command string) ([]string, bool) {
-	if len(command) > 1<<20 {
+	return parseOtherShellRedirectsAtDepth(command, 0)
+}
+
+func parseOtherShellRedirectsAtDepth(command string, depth int) ([]string, bool) {
+	if len(command) > maxShellCommandBytes || depth > maxShellAnalysisDepth {
 		return nil, true
 	}
 	var targets []string
@@ -213,16 +222,16 @@ func parseOtherShellRedirects(command string) ([]string, bool) {
 			i++
 		case '<':
 			if i+1 < len(command) && command[i+1] == '<' {
-				tail, afterBody, ok := otherHereDocument(command, i)
+				document, ok := parseOtherHereDocument(command, i)
 				if !ok {
 					return targets, true
 				}
-				trailingTargets, unsafe := parseOtherShellRedirects(tail)
+				trailingTargets, unsafe := parseOtherShellRedirectsAtDepth(document.tail, depth+1)
 				if unsafe {
 					return targets, true
 				}
 				targets = append(targets, trailingTargets...)
-				i = afterBody - 1
+				i = document.afterBody - 1
 			}
 		case '>':
 			operatorEnd := i + 1
@@ -291,6 +300,21 @@ func ambiguousRedirectTarget(target string) bool {
 }
 
 func otherHereDocument(command string, operator int) (string, int, bool) {
+	document, ok := parseOtherHereDocument(command, operator)
+	if !ok {
+		return "", 0, false
+	}
+	return document.tail, document.afterBody, true
+}
+
+type parsedOtherHereDocument struct {
+	tail      string
+	body      string
+	afterBody int
+	quoted    bool
+}
+
+func parseOtherHereDocument(command string, operator int) (parsedOtherHereDocument, bool) {
 	index := operator + 2
 	stripTabs := false
 	if index < len(command) && command[index] == '-' {
@@ -305,36 +329,40 @@ func otherHereDocument(command string, operator int) (string, int, bool) {
 		quote = command[index]
 		index++
 	}
+	quoted := quote != 0
 	start := index
 	for index < len(command) {
 		if quote != 0 {
 			if quote == '"' && (command[index] == '$' || command[index] == '`' || command[index] == '\\') {
-				return "", 0, false
+				return parsedOtherHereDocument{}, false
 			}
 			if command[index] == quote {
 				break
 			}
-		} else if strings.ContainsRune(" \t\r\n;|&<>", rune(command[index])) {
-			break
-		} else if command[index] == '$' || command[index] == '`' {
-			return "", 0, false
+		} else {
+			if strings.ContainsRune(" \t\r\n;|&<>", rune(command[index])) {
+				break
+			}
+			if command[index] == '$' || command[index] == '`' || command[index] == '\\' {
+				return parsedOtherHereDocument{}, false
+			}
 		}
 		index++
 	}
 	delimiter := command[start:index]
 	if delimiter == "" {
-		return "", 0, false
+		return parsedOtherHereDocument{}, false
 	}
 	if quote != 0 {
 		if index >= len(command) {
-			return "", 0, false
+			return parsedOtherHereDocument{}, false
 		}
 		index++
 	}
 	delimiterEnd := index
 	headerLineBreak := strings.IndexByte(command[index:], '\n')
 	if headerLineBreak < 0 {
-		return "", 0, false
+		return parsedOtherHereDocument{}, false
 	}
 	headerEnd := index + headerLineBreak
 	bodyStart := headerEnd + 1
@@ -354,14 +382,114 @@ func otherHereDocument(command string, operator int) (string, int, bool) {
 			if end < len(command) {
 				after++
 			}
-			return command[delimiterEnd:headerEnd], after, true
+			return parsedOtherHereDocument{
+				tail:      command[delimiterEnd:headerEnd],
+				body:      command[bodyStart:lineStart],
+				afterBody: after,
+				quoted:    quoted,
+			}, true
 		}
 		if end == len(command) {
 			break
 		}
 		lineStart = end + 1
 	}
-	return "", 0, false
+	return parsedOtherHereDocument{}, false
+}
+
+// otherShellSyntaxInspectable rejects shell syntax whose expansions or grammar
+// the lightweight argv scanner cannot faithfully inspect. Single-quoted text
+// remains literal data; quoted here-documents are likewise opaque data.
+func otherShellSyntaxInspectable(command string) bool {
+	return otherShellSyntaxInspectableAtDepth(command, 0)
+}
+
+func otherShellSyntaxInspectableAtDepth(command string, depth int) bool {
+	if len(command) > maxShellCommandBytes || depth > maxShellAnalysisDepth || strings.ContainsRune(command, '\x00') {
+		return false
+	}
+	quote := byte(0)
+	wordStart := true
+	for i := 0; i < len(command); i++ {
+		char := command[i]
+		if quote == '\'' {
+			if char == '\'' {
+				quote = 0
+			}
+			continue
+		}
+		if quote == '"' {
+			switch char {
+			case '"':
+				quote = 0
+			case '$', '`':
+				return false
+			case '\\':
+				if i+1 >= len(command) || command[i+1] == '\n' {
+					return false
+				}
+				if !strings.ContainsRune("$`\"\\", rune(command[i+1])) {
+					return false
+				}
+				i++
+			}
+			continue
+		}
+		switch char {
+		case '\'', '"':
+			quote = char
+			wordStart = false
+		case '\\':
+			if i+1 >= len(command) || command[i+1] == '\n' {
+				return false
+			}
+			i++
+			wordStart = false
+		case '$', '`', '*', '?', '[', '(', ')':
+			return false
+		case '{', '}':
+			if (wordStart && (i+1 == len(command) || strings.ContainsRune(" \t\r\n;|&<>", rune(command[i+1])))) ||
+				(char == '}' && wordStart) || (char == '{' && shellBraceExpansionAt(command, i)) {
+				return false
+			}
+			wordStart = false
+		case '~':
+			if wordStart && i+1 < len(command) && command[i+1] != '/' && !strings.ContainsRune(" \t\r\n;|&<>", rune(command[i+1])) {
+				return false
+			}
+			wordStart = false
+		case '<':
+			// Input redirection can feed unscanned code to a wrapper or
+			// interpreter. The other-role path cannot prove its consumer is
+			// data-only, so fail closed on files, here-documents, and here-strings.
+			return false
+		case ' ', '\t', '\r', '\n', ';', '|', '&', '>':
+			wordStart = true
+		default:
+			if char == '#' && wordStart {
+				for i+1 < len(command) && command[i+1] != '\n' {
+					i++
+				}
+				continue
+			}
+			wordStart = false
+		}
+	}
+	return quote == 0
+}
+
+func shellBraceExpansionAt(command string, open int) bool {
+	for index := open + 1; index < len(command); index++ {
+		char := command[index]
+		if strings.ContainsRune(" \t\r\n;|&<>", rune(char)) {
+			return false
+		}
+		if char == '}' {
+			text := command[open+1 : index]
+			return strings.Contains(text, ",") || strings.Contains(text, "..")
+		}
+	}
+	return false
 }
 
 func readShellTarget(command string, index int) (string, int, bool) {

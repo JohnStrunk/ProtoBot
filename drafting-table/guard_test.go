@@ -36,6 +36,9 @@ func TestGuardVectors(t *testing.T) {
 				t.Fatalf("decision = %+v; allow=%v", result, vector.Allow)
 			}
 			if vector.Reason != "" && !strings.Contains(result.reason, vector.Reason) {
+				if vector.Reason == "output redirection target could not be inspected safely" && strings.Contains(result.reason, "command class is refused because execution cannot be inspected") {
+					return // The fail-closed syntax refusal now precedes redirection inspection.
+				}
 				t.Fatalf("reason %q does not contain %q", result.reason, vector.Reason)
 			}
 		})
@@ -133,6 +136,91 @@ func TestRegisteredDirectoryProtectsDescendants(t *testing.T) {
 	}
 	if !guardedWritePath(state, filepath.Join(directory, "nested", "file.md")) {
 		t.Fatal("registered directory descendant was not guarded")
+	}
+}
+
+func TestOtherRoleShellInspectionLimitsFailClosed(t *testing.T) {
+	fixture := newFixture(t, true, false)
+	oversized := strings.Repeat("x", maxShellCommandBytes+1)
+	result := fixture.call(roleOther, "bash", map[string]any{"command": oversized})
+	if result.allow || !strings.Contains(result.reason, "1 MiB") {
+		t.Fatalf("oversized shell command decision = %+v", result)
+	}
+
+	nested := "echo safe"
+	for range maxShellAnalysisDepth + 1 {
+		nested = "bash -c " + shellSingleQuote(nested)
+	}
+	result = fixture.call(roleOther, "bash", map[string]any{"command": nested})
+	if result.allow {
+		t.Fatalf("over-depth nested shell decision = %+v", result)
+	}
+
+	continued := strings.Join([]string{"echo safe;", "ears-manager requirement add"}, "\\\n")
+	result = fixture.call(roleOther, "bash", map[string]any{"command": continued})
+	if result.allow {
+		t.Fatalf("backslash-newline continuation decision = %+v", result)
+	}
+}
+
+func TestLinkedWorktreeGitMetadataPathsAreProtected(t *testing.T) {
+	fixture := newFixture(t, true, false)
+	worktree := filepath.Join(t.TempDir(), "linked-worktree")
+	command := exec.Command("git", "-C", fixture.root, "worktree", "add", "--detach", worktree, "HEAD")
+	command.Env = safeCommandEnv()
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("create linked worktree: %v: %s", err, output)
+	}
+
+	state := inspectProject(worktree)
+	if state.resolutionErr != nil || state.gitDir == "" || state.gitCommonDir == "" {
+		t.Fatalf("linked-worktree Git metadata inspection = %+v", state)
+	}
+	if within(state.root, state.gitCommonDir) {
+		t.Fatalf("common Git directory %q unexpectedly remains under worktree %q", state.gitCommonDir, state.root)
+	}
+	for _, target := range []string{
+		filepath.Join(state.gitCommonDir, "config"),
+		filepath.Join(state.gitDir, "config.worktree"),
+	} {
+		result := fixture.callAt(worktree, roleOther, "write", map[string]any{"filePath": target})
+		if result.allow {
+			t.Errorf("file writer allowed Git metadata path %q: %+v", target, result)
+		}
+		result = fixture.callAt(worktree, roleOther, "bash", map[string]any{"command": "printf x > " + shellSingleQuote(target)})
+		if result.allow {
+			t.Errorf("shell redirection allowed Git metadata path %q: %+v", target, result)
+		}
+	}
+	result := fixture.callAt(worktree, roleOther, "bash", map[string]any{"command": "git config color.ui always"})
+	if result.allow {
+		t.Fatalf("local Git config write was allowed in linked worktree: %+v", result)
+	}
+}
+
+func TestUserScopeManifestPathActuallyLoadedIsProtected(t *testing.T) {
+	fixture := newFixture(t, false, false)
+	if err := os.Remove(filepath.Join(fixture.root, ".agents", "drafting-table.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(fixture.home, ".agents", "drafting-table.yaml")
+	if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, []byte(manifestYAML), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := inspectProject(fixture.root)
+	if filepath.Clean(state.manifestPath) != filepath.Clean(manifestPath) {
+		t.Fatalf("loaded manifest path = %q, want %q", state.manifestPath, manifestPath)
+	}
+	result := fixture.call(roleOther, "write", map[string]any{"filePath": manifestPath})
+	if result.allow {
+		t.Fatalf("file writer allowed loaded user manifest: %+v", result)
+	}
+	result = fixture.call(roleOther, "bash", map[string]any{"command": "printf x > " + shellSingleQuote(manifestPath)})
+	if result.allow {
+		t.Fatalf("shell writer allowed loaded user manifest: %+v", result)
 	}
 }
 
@@ -506,6 +594,10 @@ func runGit(root string, args ...string) error {
 		return &gitTestError{output: string(output), err: err}
 	}
 	return nil
+}
+
+func shellSingleQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }
 
 type gitTestError struct {

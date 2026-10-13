@@ -75,7 +75,8 @@ needs the `external_directory` rule in
   "mcp": {
     "wms": {
       "type": "local",
-      "command": ["<WMS Adapter MCP server, named by #31>"]
+      "command": ["<WMS Adapter MCP server, named by #31>"],
+      "enabled": false
     },
     "scm": {
       "type": "local",
@@ -83,6 +84,7 @@ needs the `external_directory` rule in
     }
   },
   "permission": {
+    "apply_patch": "deny",
     "edit": {
       ".protobot/**": "deny"
     },
@@ -101,11 +103,16 @@ needs the `external_directory` rule in
   names the server. The `scm` server is the Drafting Table face of the
   [Source Control Manager](../source-control-manager.md), which runs
   every Git and Git host operation of the role. Neither entry holds a
-  credential. `ears-manager` needs no entry: it is a shell operation.
+  credential. The placeholder `wms` command stays disabled until #31
+  provides an executable server. `ears-manager` needs no entry: it is a
+  shell operation.
 - **`edit` is denied under `.protobot/` for every agent.** The `edit`
   rule covers every OpenCode file tool: `edit`, `write`, and the patch
   tool. It is a static copy of the guard's guarded-path rule that holds
   even when plugins do not load.
+- **`apply_patch` is denied globally**, so file patches reach the guard
+  only through direct hook fixtures; the native tool is not offered in
+  the resolved OpenCode tool set.
 - **The `wms` and `scm` tools are denied here and allowed only in the
   `drafting-table` agent**, a native copy of the MCP half of guard rule
   4. The `ears-manager` half has no native copy: the agent's `bash`
@@ -113,7 +120,8 @@ needs the `external_directory` rule in
   agent's named allows match the normalized names in the manifest; the
   guard independently enforces the same list.
 
-This file adds denies and nothing else;
+This file disables the unimplemented WMS placeholder and adds permission
+denials, but no allow rules;
 [How the rules combine](#how-the-rules-combine) explains why.
 
 ### The `drafting-table` agent
@@ -287,7 +295,12 @@ record ([Traces](adapter-contract.md#traces)).
 1. **Tracks the role.** OpenCode's `tool.execute.before` hook does not
    name the agent, but `chat.params` does. The shim records the agent of
    each session: `drafting-table` is the Drafting Table role, and every
-   other agent, and a session the shim has not seen yet, is `other`.
+   other agent is `other`. A tool call from a session the shim has not
+   seen yet is also treated as `other`, which fails closed for
+   `ears-manager` writes and governed tools but leaves rule 5's
+   credential-read refusals to the native deny list; that unbound-session
+   window is a recorded gap, because refusing every unbound call would
+   also refuse tool calls from sessions the shim cannot attribute.
 2. **Builds the guard input.** For each tool call it writes the
    `PreToolUse` JSON — `hook_event_name`, `session_id`, `cwd`,
    `tool_name`, and `tool_input` from the call's arguments — and runs
@@ -407,11 +420,13 @@ row that depends on the guard:
 | Write route to a guarded path | `drafting-table` agent | Every other agent |
 | --- | --- | --- |
 | File tool under `.protobot/` | Tool not offered | Refused by the project rule and the guard |
-| File tool under `.git/` or on `.agents/drafting-table.yaml` | Tool not offered | Refused by the active guard |
+| File tool under `.git/` or Git metadata, or on the adapter manifest path selected by the guard | Tool not offered | Refused by the active guard |
 | File tool on a registered path elsewhere | Tool not offered | Refused by the guard |
-| Shell writer, such as `sed -i` | Refused by the native copy and the active guard | Not stopped |
-| Output redirection in a shell command | Refused by the active guard; not checked inside an allowed native command pattern | Refused by the active guard when the redirection target is written from the project root |
+| Shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, or `truncate` | Refused by the native copy and the active guard | Not stopped; a relative target after a working-directory change is refused as ambiguous |
+| Recognized shell writer to Git metadata or the adapter manifest path selected by the guard | Refused by the role's exact shell grammar | Refused by the active guard when it returns a decision; no later control catches these writes |
+| Output redirection in a shell command | Refused by the active guard; not checked inside an allowed native command pattern | Refused for a guarded target resolved from the project root; also refused when the target is ambiguous after a working-directory change or cannot be inspected safely |
 | Recognized opaque execution forms that could hide an indirect governed write | Refused by the role's exact shell grammar | Refused by the active guard; no native rule covers it if the plugin is absent |
+| Some interpreter source-file invocations, such as `python helper.py`, renamed executables, or unrecognized shell writers/executors | Refused by the role's exact shell grammar | Not generally stopped; an indirect `ears-manager` write has no later control |
 | Tool of another MCP server | Not offered | The user's own configuration |
 | Subagent | `task` not offered | Not applicable |
 
