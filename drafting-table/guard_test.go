@@ -42,6 +42,18 @@ func TestGuardVectors(t *testing.T) {
 	}
 }
 
+func TestEarsManagerRemainsGovernedWhenManifestOmitsCommand(t *testing.T) {
+	fixture := newFixture(t, true, false)
+	manifest := strings.Replace(manifestYAML, "  - ears-manager\n", "", 1)
+	if err := os.WriteFile(filepath.Join(fixture.root, ".agents", "drafting-table.yaml"), []byte(manifest), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	result := fixture.call(roleOther, "bash", map[string]any{"command": "ears-manager requirement add"})
+	if result.allow || !strings.Contains(result.reason, "ears-manager writes are reserved") {
+		t.Fatalf("manifest omission bypassed governed command protection: %+v", result)
+	}
+}
+
 func TestApplyPatchUsesOpenCodeToolNameAndTargets(t *testing.T) {
 	fixture := newFixture(t, true, false)
 	patch := "*** Begin Patch\n*** Update File: docs/vision.md\n@@\n-old\n+new\n*** End Patch"

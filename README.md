@@ -132,10 +132,11 @@ Writes are validated against a candidate specification before an atomic file
 transaction is applied; JSON output and exit statuses are deterministic.
 
 `change-set create` cuts and checks out the change-set branch, and
-`change-set show --at FULL-SHA` reads a manifest at a named commit. The
-Source Control Manager commits, pushes, and opens the pull request. Immutable
-historical `--at` reads on the other commands and explicit `--against`
-comparisons remain separate follow-on work.
+`change-set show --at FULL-SHA` and `artifact list --at FULL-SHA` read state at
+a named commit. The Source Control Manager commits, pushes, and opens the pull
+request. Immutable historical `--at` reads on the remaining read and analysis
+commands, and explicit `--against` comparisons, remain separate follow-on
+work.
 
 ## Specification store
 

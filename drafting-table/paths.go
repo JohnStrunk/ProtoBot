@@ -145,8 +145,49 @@ func isLexicalControlPath(root, cwd, value string) bool {
 	return isControlPath(root, lexical)
 }
 
+func isLexicalProtectedPath(root, cwd, value string) bool {
+	if value == "" {
+		return false
+	}
+	base := cwd
+	if base == "" {
+		base = root
+	}
+	if root == "" {
+		root = base
+	}
+	if root == "" {
+		return false
+	}
+	lexical := value
+	if !filepath.IsAbs(lexical) {
+		lexical = filepath.Join(base, filepath.FromSlash(lexical))
+	}
+	lexical, err := filepath.Abs(filepath.Clean(lexical))
+	if err != nil {
+		return true
+	}
+	return protectedProjectPath(root, lexical)
+}
+
+func protectedProjectPath(root, target string) bool {
+	relative := relativeTo(root, target)
+	if relative == "" {
+		return false
+	}
+	if relative == filepath.ToSlash(filepath.Join(".agents", "drafting-table.yaml")) {
+		return true
+	}
+	for _, part := range strings.Split(relative, "/") {
+		if part == ".git" {
+			return true
+		}
+	}
+	return false
+}
+
 func guardedWritePath(state projectState, target string) bool {
-	if isControlPath(state.root, target) {
+	if isControlPath(state.root, target) || protectedProjectPath(state.root, target) {
 		return true
 	}
 	for _, registered := range state.artifacts {

@@ -162,12 +162,17 @@ func isHelpForm(words []string) bool {
 
 func decideOtherShell(input hookInput, state projectState) decision {
 	command, ok := stringField(input.ToolInput, "command")
-	if !ok {
-		return allow()
+	if !ok || strings.TrimSpace(command) == "" {
+		return refuse("rule 4", "command must be a non-empty string to check for governed writes")
 	}
-	if invokesGovernedWrite(command, state.manifest) ||
-		(state.manifestErr != nil && invokesGovernedWrite(command, adapterManifest{GovernedCommands: []string{"ears-manager"}})) {
+	switch invokesGovernedWrite(command, state.manifest) {
+	case governedExecutionExplicitWrite:
 		return refuse("rule 4", "ears-manager writes are reserved for the drafting-table role")
+	case governedExecutionOpaque:
+		return refuse("rule 4", "command class is refused because execution cannot be inspected for governed writes")
+	}
+	if shellWritesProtectedPath(command, state, input.CWD, 0) {
+		return refuse("rule 7", "shell writer targets .git/ or the adapter manifest")
 	}
 	targets, changesDirectory, unsafe := inspectOtherShell(command, 0)
 	if unsafe {
@@ -177,15 +182,15 @@ func decideOtherShell(input hookInput, state projectState) decision {
 		return refuse("rule 7", "output redirection target is ambiguous after a working-directory change")
 	}
 	for _, target := range targets {
-		if isLexicalControlPath(state.root, input.CWD, target) {
-			return refuse("rule 7", "output redirection targets .protobot/, a registered artifact, or a configured store")
+		if isLexicalControlPath(state.root, input.CWD, target) || isLexicalProtectedPath(state.root, input.CWD, target) {
+			return refuse("rule 7", "output redirection targets a protected control path, registered artifact, or configured store")
 		}
 		resolved, err := resolveProjectPath(state.root, input.CWD, target)
 		if err != nil {
 			return refuse("rule 7", "output redirection targets could not be resolved safely")
 		}
 		if guardedWritePath(state, resolved) {
-			return refuse("rule 7", "output redirection targets .protobot/, a registered artifact, or a configured store")
+			return refuse("rule 7", "output redirection targets a protected control path, registered artifact, or configured store")
 		}
 	}
 	return allow()

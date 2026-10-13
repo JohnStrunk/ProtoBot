@@ -567,9 +567,11 @@ refusals below do not:
 | Write route to a guarded path | Role profile | Every other session |
 | --- | --- | --- |
 | Any write under `.git/`, and any network from the shell | Refused by the sandbox; the `scm` server writes `.git/` from its own process, bounded by its Drafting Table face | Refused by the sandbox in a `workspace-write` session |
+| File tool on `.agents/drafting-table.yaml` | Refused by the active guard | Refused by the sandbox in a `workspace-write` session; otherwise refused by the guard when it returns a decision |
 | `apply_patch` under `.protobot/` or on a registered path | Offered to OpenAI models; refused by the active guard | Refused by the active guard |
 | Shell writer, such as `sed -i` | Refused by the active guard | Not stopped |
 | Output redirection in a shell command | Refused by the active guard | Refused by the active guard when the redirection target is written from the project root |
+| Recognized opaque execution forms that could hide an indirect governed write | Refused by the active guard | Refused by the active guard when its hook returns a decision; on hook fail-open, the sandbox only limits workspace and network effects |
 | Tool of another MCP server | Refused by the active guard | The user's own configuration |
 | Subagent | Not offered | Not applicable |
 

@@ -371,6 +371,146 @@
     "reason": "registered artifact"
   },
   {
+    "name": "other-role shell command is absent",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {},
+    "reason": "command must be a non-empty string"
+  },
+  {
+    "name": "other-role shell command is null",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": null},
+    "reason": "command must be a non-empty string"
+  },
+  {
+    "name": "other-role shell command is not a string",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": 42},
+    "reason": "command must be a non-empty string"
+  },
+  {
+    "name": "other-role shell command is empty",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": ""},
+    "reason": "command must be a non-empty string"
+  },
+  {
+    "name": "other-role shell command is whitespace only",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": " \t\n "},
+    "reason": "command must be a non-empty string"
+  },
+  {
+    "name": "Python inline code is opaque to governed-write inspection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python -c 'import os; os.system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl inline code is opaque to governed-write inspection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -e 'system \"ears-manager requirement add\"'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl bundled inline-code flag is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -we 'system \"ears-manager requirement add\"'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Node inline code is opaque to governed-write inspection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "node -e 'require(\"child_process\").execSync(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Ruby inline code is opaque to governed-write inspection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ruby -e 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "osascript inline code is opaque to governed-write inspection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "osascript -e 'do shell script \"ears-manager requirement add\"'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "stdbuf transparent wrapper governed write",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "stdbuf --output=L ears-manager requirement add"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "setsid transparent wrapper governed write",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "setsid -f ears-manager requirement add"},
+    "reason": "ears-manager writes are reserved"
+  },
+  {
+    "name": "make recipe execution is opaque to governed-write inspection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "make fixture"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git command alias execution is opaque to governed-write inspection",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c 'alias.run=!ears-manager requirement add' run"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "interpreter informational command remains allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python --version"},
+    "allow": true
+  },
+  {
+    "name": "interpreter script invocation remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python helper.py"},
+    "allow": true
+  },
+  {
+    "name": "make informational command remains allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "make --version"},
+    "allow": true
+  },
+  {
+    "name": "Git non-alias configuration remains allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c color.ui=always status"},
+    "allow": true
+  },
+  {
+    "name": "governed-command text in a quoted echo remains allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo 'python -c os.system(\\\"ears-manager requirement add\\\")'"},
+    "allow": true
+  },
+  {
     "name": "governed write outside the role",
     "role": "other",
     "tool_name": "bash",
@@ -477,5 +617,600 @@
     "tool_name": "bash",
     "tool_input": {"command": "git switch -c cs/00001-project-init main"},
     "reason": "Project already initialized"
+  },
+  {
+    "name": "Perl bundled octal and inline execution",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -0777ne 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl zero bundle inline execution",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -0ne 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl debug bundle inline execution",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -de 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl s bundle inline execution",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -se 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl t bundle inline execution",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -te 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl U bundle inline execution",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -Ue 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Ruby encoding short option before eval",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ruby -E utf-8 -e 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Ruby encoding long option before eval",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ruby --encoding utf-8 -e 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Ruby verbose bundle before eval",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ruby -ve 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Node memory option before eval",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "node --max-old-space-size 512 -e 'require(\"child_process\").execSync(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Python i-c cluster",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python -ic 'import os; os.system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Python E-c cluster",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python -Ec 'import os; os.system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Python O-c cluster",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python -Oc 'import os; os.system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Python long value option before eval",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python --check-hash-based-pycs always -c 'import os; os.system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Attached osascript eval flag",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "osascript -edo shell script \"ears-manager requirement add\""},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Threaded versioned Python inline code",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python3.13t -c 'import os; os.system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Versioned PyPy inline code",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "pypy3 -c 'import os; os.system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Python here-document source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python - <<'EOF'\nprint('hello')\nEOF"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Piped Python stdin source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "echo 'print(1)' | python"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Python end-of-options stdin source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "python --"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Bare Node stdin execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "node"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Perl dash stdin source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "perl -"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Awk positional program is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "awk 'BEGIN { system(\"ears-manager requirement add\") }'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Awk program after end-of-options is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "awk -- 'BEGIN { system(\"ears-manager requirement add\") }'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "PHP inline execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "php -r 'system(\"ears-manager requirement add\");'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Lua inline execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "lua -e 'os.execute(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Rscript expression is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "Rscript -e 'system(\"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "GDB command expression is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "gdb -ex 'shell ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Expect command source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "expect -c 'exec ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "PowerShell command source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "pwsh -Command 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Guile command source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "guile -c '(system \"ears-manager requirement add\")'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "CLISP command source is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "clisp -x '(ext:run-program \"ears-manager\" :arguments (list \"requirement\" \"add\"))'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "flock command string is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "flock -c 'ears-manager requirement add' lock"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "watch command is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "watch ears-manager requirement add"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "script command string is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "script -c 'ears-manager requirement add' /dev/null"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "tmux new session command is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "tmux new-session 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "screen detached command is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "screen -dmS session ears-manager requirement add"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "parallel command is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "parallel ears-manager requirement add ::: item"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "su command string is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "su -c 'ears-manager requirement add' user"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "ssh remote command is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ssh host ears-manager requirement add"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "strace wrapped command is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "strace -f ears-manager requirement add"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Rake task execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "rake release"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Just recipe execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "just release"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Task recipe execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "task release"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "npm script execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "npm test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "npx package execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "npx tool"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Yarn script execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "yarn test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "pnpm script execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "pnpm test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Bun script execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "bun run test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Gradle task execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "gradle test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Ant target execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ant test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Maven goal execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "mvn test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Ninja target execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "ninja all"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Cargo test execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "cargo test"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Go test execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "go test ./..."},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Go run execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "go run ./cmd/tool"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Go generate execution is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "go generate ./..."},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Go build is not treated as execution of the built program",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "go build ./..."},
+    "allow": true
+  },
+  {
+    "name": "Go version informational control is allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "go version"},
+    "allow": true
+  },
+  {
+    "name": "Empty shell command fails closed in project",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": ""},
+    "reason": "command must be a non-empty string"
+  },
+  {
+    "name": "Non-string shell command fails closed in project",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": 7},
+    "reason": "command must be a non-empty string"
+  },
+  {
+    "name": "npm version informational control is allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "npm --version"},
+    "allow": true
+  },
+  {
+    "name": "Git read-only built-in is allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git status --short"},
+    "allow": true
+  },
+  {
+    "name": "Git config alias persistent write is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config alias.run '!ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git global alias persistent write is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global alias.run '!ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git file alias persistent write is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --file .git/config --add alias.run '!ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alias unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --unset-all alias.run"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alias regexp unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --unset-regexp '^alias\\.'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git configured unknown alias invocation is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git run"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alias from config environment override is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.run GIT_CONFIG_VALUE_0='!ears-manager requirement add' git run"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alias read is allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --get alias.run"},
+    "allow": true
+  },
+  {
+    "name": "File write to Git metadata is protected in project",
+    "role": "other",
+    "tool_name": "write",
+    "tool_input": {"filePath": ".git/config"},
+    "reason": ".git/"
+  },
+  {
+    "name": "File write to adapter manifest is protected in project",
+    "role": "other",
+    "tool_name": "write",
+    "tool_input": {"filePath": ".agents/drafting-table.yaml"},
+    "reason": "adapter manifest"
+  },
+  {
+    "name": "Patch to Git metadata is protected",
+    "role": "other",
+    "tool_name": "apply_patch",
+    "tool_input": {"patchText": "*** Begin Patch\n*** Update File: .git/config\n@@\n-old\n+new\n*** End Patch"},
+    "reason": ".git/"
+  },
+  {
+    "name": "Shell redirection to Git metadata is protected in project",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "printf x > .git/config"},
+    "reason": "protected control path"
+  },
+  {
+    "name": "Shell redirection to adapter manifest is protected",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "printf x > .agents/drafting-table.yaml"},
+    "reason": "protected control path"
+  },
+  {
+    "name": "tee cannot write Git metadata",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "tee .git/config"},
+    "reason": "shell writer targets"
+  },
+  {
+    "name": "cp cannot overwrite the adapter manifest",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "cp backup.yaml .agents/drafting-table.yaml"},
+    "reason": "shell writer targets"
+  },
+  {
+    "name": "sed in-place cannot overwrite Git metadata",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "sed -i s/a/b/ .git/config"},
+    "reason": "shell writer targets"
+  },
+  {
+    "name": "Git local alias persistent write is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --local alias.run '!ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git bisect run command is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git bisect run 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git explicit alias option is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c alias.run='!ears-manager requirement add' run"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Ordinary registered artifact sed edit remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "sed -i s/a/b/ docs/vision.md"},
+    "allow": true
+  },
+  {
+    "name": "Ordinary registered artifact copy remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "cp notes.txt docs/vision.md"},
+    "allow": true
+  },
+  {
+    "name": "Ordinary registered artifact tee remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "tee docs/vision.md"},
+    "allow": true
   }
 ]

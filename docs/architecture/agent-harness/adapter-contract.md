@@ -45,8 +45,9 @@ binding per harness:
   harness binding must provide.
 - **[OpenCode Harness Binding](opencode.md) is the first binding.** It
   defines the OpenCode files that meet this contract, designed against
-  OpenCode 1.18.30 and partly observed with a stub model. Its fixture
-  runs in #77.
+  OpenCode 1.18.30. Its fixture ran in #77 against the pinned binary;
+  H1 to H12 are met with the plugin-absent fail-open path and deferred
+  steps recorded as gaps, and H13 was not checked.
 - **[Claude Code Harness Binding](claude-code.md) is the second.** It
   defines the Claude Code files, designed against the Claude Code
   2.1.273 documentation and CLI help. Its fixture has not run yet.
@@ -210,6 +211,9 @@ must not reach them either: the guard refuses an `artifact put` or
 `AGENTS.md`, or `CLAUDE.md` ([Shell operations](#shell-operations)).
 Otherwise the role could register its own hook, manifest, or project
 instructions as an artifact and rewrite them for the next session.
+Rule 3 also refuses direct file-writing tool arguments and inspectable
+output redirections to `.git/` and the adapter manifest
+`.agents/drafting-table.yaml` in every role.
 
 ### The adapter manifest
 
@@ -649,32 +653,50 @@ document names them, and guard rules 5 and 6 treat them as reads.
    `.protobot/project.yaml` itself, which #34 lets the Drafting Table
    read; it parses no other file under `.protobot/`
    ([`ears-manager` CLI](../../architecture.md#ears-manager-cli)). If
-   either read fails, it refuses every file write and every shell command in
-   the Drafting Table role, refuses a write under `.protobot/` in every
-   role, and names the failure. Other writes outside the role are
-   allowed, because the harness layer is optional. Unauthorized
+    either read fails, it refuses every file write and every shell command in
+    the Drafting Table role, refuses writes to guarded paths in every
+    role, and names the failure. Other writes outside those paths remain
+    subject to rules 4 and 7; they are not universally refused because the
+    harness layer is optional. Unauthorized
    persistent edits to registered paths remain subject to downstream
    checks ([What the harness layer stops][layer-stops]); those checks
    cannot establish the source of an `ears-manager` file-source input.
-3. **Guarded paths, every role.** A file write under `.protobot/`, to
-   a registered artifact path, or below a store is refused. Paths are
-   compared after symlink resolution, for reads and writes alike, a
-   registered directory or a store guards everything below it, and a
-   write whose target path cannot be read is refused.
+3. **Guarded paths, every role.** A file-writing tool or inspectable
+   output redirection to `.protobot/`, `.git/`, the adapter manifest
+   `.agents/drafting-table.yaml`, a registered artifact path, or below a
+   configured store is refused. Paths are compared after symlink
+   resolution; a registered directory or a store guards everything below
+   it, and a write whose target path cannot be read is refused.
 4. **Governed operations.** A write command of a program in
    `governed_commands`, such as `ears-manager requirement add`, and a
    tool of a server in `governed_mcp_servers` are refused outside the
    Drafting Table role. A read command, such as
-   `ears-manager requirement list`, is allowed in every role. Inside
-   the role, only the tools that the manifest lists for a governed
+   `ears-manager requirement list`, is allowed in every role. The guard
+   also refuses recognized opaque execution forms that could hide an
+   indirect governed write, including inline or standard-input interpreter
+   programs, command-string wrappers, Git aliases, and recipe/build runners.
+   It inspects transparent wrappers recursively when their child argv can
+   be determined safely. These are guard refusals, not a general-purpose
+    shell sandbox; ordinary shell writers outside guarded paths remain
+    subject to the limitations in
+    [What the harness layer stops](#what-the-harness-layer-stops).
+   Inside the role, only the tools that the manifest lists for a governed
    server are allowed; every other tool of that server, a lifecycle
-   transition among them, and every tool of any other server is
-   refused. The WMS boundary rejects such a transition in any case
+   transition among them, and every tool of any other server is refused.
+   The WMS boundary rejects such a transition in any case
    ([Validation Rules](../validation-rules.md), case VR-006), so this
    rule is the early copy of that refusal. `scm branch_init` is the only
    route for cutting the initialization branch, and its contract permits
    it only while `.protobot/` is absent at the working-tree root
    ([SCM `branch_init` precondition](../source-control-manager.md#branch_init)).
+
+   The opaque-execution refusal is shared adapter-core behavior for the
+   local TUI bindings in single-player and multi-player modes. A Web
+   Drafting Table uses a hosted runtime instead of these local harness
+   bindings and must enforce the equivalent governed-write boundary at
+   its own tool boundary. If a local binding does not obtain a guard
+   decision, its recorded fail-open behavior and sandbox still apply;
+   this rule does not claim to control a call the guard never inspects.
 5. **The role's tool set.** Under the Drafting Table role, the guard
    refuses every file write, subagent launch, web fetch, and web search,
    every read under `.protobot/` other than `project.yaml`, every read
@@ -700,10 +722,15 @@ document names them, and guard rules 5 and 6 treat them as reads.
    fields from `project.yaml`, and the change sets through `ears-manager`,
    and refuses a registration whose `<nnnnn>` is not the change set of
    `<branch>`.
-7. **Other roles' shell commands.** A command whose output redirection
-   targets a guarded path written from the project root, such as
-   `> docs/vision.md`, is refused. A path in any other position is not
-   a write, so `echo "see docs/vision.md" > notes.txt` is allowed.
+7. **Other roles' shell commands.** Output redirection to a guarded path,
+   written from the project root, such as `> docs/vision.md` or
+   `> .agents/drafting-table.yaml`, is refused. Rule 4 separately refuses
+    recognized opaque execution forms that could hide an indirect governed
+    write. A path mentioned as ordinary quoted text is not a write, so
+   `echo "see docs/vision.md" > notes.txt` is allowed. A direct shell
+   writer such as `sed -i`, `cp`, or `tee` targeting an ordinary registered
+   artifact is not generally stopped; registered-path integrity checks
+   remain the later control when the registry is unchanged.
 
 The guard runs no Git command that writes, opens no network connection,
 writes no file, and does nothing when a session is idle or ends.
@@ -800,18 +827,23 @@ specific and are not refusals.
 
 | Route to guarded state | Drafting Table role | Every other role | Caught later by |
 | --- | --- | --- | --- |
-| File-writing tool | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | Pre-stage digest comparison, `ears-manager check`, CI path ownership, for persistent edits to registered paths |
-| Shell writer, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Same, for persistent edits to registered paths |
-| Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is written from the project root | Same, for persistent edits to registered paths |
+| File-writing tool targeting `.protobot/`, `.git/`, `.agents/drafting-table.yaml`, a registered artifact, or a configured store | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | None for `.git/` or the adapter manifest; registered-path checks catch other persistent specification edits only when the registry remains intact |
+| Shell writer to an ordinary registered artifact, such as `sed -i`, `cp`, or `tee` | Refused by the guard | Not stopped | Pre-stage digest comparison, `ears-manager check`, and CI path ownership, for persistent registered-path edits that leave the registry intact |
+| Output redirection in a shell command | Refused by the guard | Refused by the guard when the redirection target is a guarded path written from the project root | Same, for persistent registered-path edits that leave the registry intact |
+| Recognized opaque execution forms that could hide an indirect governed write | Refused by rule 6's shell grammar | Refused by rule 4 when the guard recognizes the form | None for an indirect `ears-manager` write: the CLI can update registry digests, so later integrity checks cannot identify the unauthorized caller |
 | `ears-manager --content-file` or `--impact-file` with a value other than `-`, or with `-` or `--content-stdin` and input redirection | Refused when the guard runs; binding-specific hook failures may pass the call through | Same | None: integrity and CI cannot establish whether the bytes came from standard input or an external file |
 | Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | No tool-call check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
 | Subagent | Refused by the guard | Not applicable | No launch check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
 
 A route marked "not stopped" is real. An agent outside the role can
-still change a registered file through its shell, for example after
-`cd docs`. The pre-stage digest comparison refuses to stage the change,
-`ears-manager check` fails in CI, and the Drafting Table offers the two
-routes forward from [The pre-stage digest comparison][pre-stage].
+still change a registered file through an ordinary shell writer, for
+example after `cd docs`. The pre-stage digest comparison refuses to stage
+the change, `ears-manager check` fails in CI, and the Drafting Table
+offers the two routes forward from
+[The pre-stage digest comparison][pre-stage]. That later control does not
+cover an indirect `ears-manager` write or a write that also changes the
+registry digests; recognized opaque execution forms are therefore refused
+by the guard before execution.
 
 A user can also switch the harness layer off, by editing a binding or
 starting the harness without hooks. Unauthorized persistent edits to
@@ -1152,8 +1184,9 @@ status names it.
 
 The table records what each harness offers for each obligation. The
 OpenCode column is bound in [OpenCode Harness Binding](opencode.md)
-and partly observed against a stub model on 2026-09-16; its fixture
-runs in #77. The Claude Code column is bound
+and its fixture ran in #77 against the pinned binary; H1 to H12 are met
+with the plugin-absent fail-open path and deferred steps recorded as
+gaps, and H13 was not checked. The Claude Code column is bound
 in [Claude Code Harness Binding](claude-code.md) from the published
 documentation and CLI help of Claude Code 2.1.273, read on 2026-09-16,
 and not yet checked by the fixture. The Codex column is bound in

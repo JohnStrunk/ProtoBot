@@ -320,6 +320,9 @@ func xargsCommand(args []string) ([]string, bool, bool) {
 			return append([]string(nil), args[i:]...), true, true
 		}
 		option, _, hasValue := strings.Cut(arg, "=")
+		if !hasValue && isAttachedXargsValue(arg) {
+			continue
+		}
 		switch option {
 		case "-0", "--null", "-r", "--no-run-if-empty", "-x", "--exit", "-t", "--verbose", "-p", "--interactive", "--show-limits":
 			if hasValue {
@@ -339,16 +342,35 @@ func xargsCommand(args []string) ([]string, bool, bool) {
 	return nil, false, true
 }
 
-func invokesGovernedWrite(command string, manifest adapterManifest) bool {
-	if !contains(manifest.GovernedCommands, "ears-manager") {
-		return false
-	}
-	for _, words := range shellCommandSegments(command) {
-		if governedWordsWrite(words) {
+func isAttachedXargsValue(option string) bool {
+	for _, prefix := range []string{"-a", "-d", "-E", "-e", "-I", "-J", "-L", "-l", "-n", "-P", "-s"} {
+		if strings.HasPrefix(option, prefix) && len(option) > len(prefix) {
 			return true
 		}
 	}
 	return false
+}
+
+type governedExecution uint8
+
+const (
+	governedExecutionNone governedExecution = iota
+	governedExecutionExplicitWrite
+	governedExecutionOpaque
+)
+
+func invokesGovernedWrite(command string, _ adapterManifest) governedExecution {
+	finding := governedExecutionNone
+	for _, words := range shellCommandSegments(command) {
+		current := governedWordsWrite(words)
+		if current == governedExecutionExplicitWrite {
+			return current
+		}
+		if current == governedExecutionOpaque {
+			finding = current
+		}
+	}
+	return finding
 }
 
 func shellCommandSegments(command string) [][]string {
@@ -513,18 +535,22 @@ func skipHereDocument(command string, operator int) (string, int, bool) {
 	return "", 0, false
 }
 
-func governedWordsWrite(words []string) bool {
+func governedWordsWrite(words []string) governedExecution {
 	if len(words) == 0 {
-		return false
+		return governedExecutionNone
 	}
+	gitExecutionEnvironmentOverride := hasGitExecutionEnvironmentOverride(words)
 	words = stripShellControlPrefix(words)
 	if len(words) == 0 {
-		return false
+		return governedExecutionNone
+	}
+	if shellExportsGitExecutionEnvironment(words) {
+		return governedExecutionOpaque
 	}
 	if filepath.Base(words[0]) == "env" {
 		script, found, safe := envSplitString(words)
 		if !safe {
-			return true
+			return governedExecutionOpaque
 		}
 		if found {
 			return invokesGovernedWrite(script, adapterManifest{GovernedCommands: []string{"ears-manager"}})
@@ -532,44 +558,61 @@ func governedWordsWrite(words []string) bool {
 	}
 	args := unwrapCommand(words)
 	if len(args) == 0 {
-		return true
+		return governedExecutionOpaque
 	}
 	name := filepath.Base(args[0])
+	if name == "git" && gitExecutionEnvironmentOverride {
+		return governedExecutionOpaque
+	}
+	if opaqueGovernedExecution(name, args) {
+		return governedExecutionOpaque
+	}
 	if isShellInterpreter(name) {
 		script, found, safe := shellCommandString(args)
 		if !safe {
-			return true
+			return governedExecutionOpaque
 		}
-		return found && invokesGovernedWrite(script, adapterManifest{GovernedCommands: []string{"ears-manager"}})
+		if !found {
+			return governedExecutionNone
+		}
+		return invokesGovernedWrite(script, adapterManifest{GovernedCommands: []string{"ears-manager"}})
 	}
 	if name == "find" {
 		actions, safe := findActions(args)
 		if !safe {
-			return true
+			return governedExecutionOpaque
 		}
+		finding := governedExecutionNone
 		for _, action := range actions {
-			if governedWordsWrite(action.args) {
-				return true
+			current := governedWordsWrite(action.args)
+			if current == governedExecutionExplicitWrite {
+				return current
+			}
+			if current == governedExecutionOpaque {
+				finding = current
 			}
 		}
-		return false
+		return finding
 	}
 	if name == "xargs" {
 		command, found, safe := xargsCommand(args)
 		if !safe {
-			return true
+			return governedExecutionOpaque
 		}
-		return found && governedWordsWrite(command)
+		if !found {
+			return governedExecutionNone
+		}
+		return governedWordsWrite(command)
 	}
 	if name != "ears-manager" {
-		return false
+		return governedExecutionNone
 	}
 	args, safe := stripOutputOptions(args[1:])
 	if !safe {
-		return true
+		return governedExecutionOpaque
 	}
 	if len(args) == 0 || contains(args, "--help") || contains(args, "--version") {
-		return false
+		return governedExecutionNone
 	}
 	name = args[0]
 	if len(args) >= 2 {
@@ -579,7 +622,29 @@ func governedWordsWrite(words []string) bool {
 	case "project init", "artifact put", "interface add", "interface update",
 		"requirement add", "requirement update", "requirement retire",
 		"change-set create", "change-set update":
+		return governedExecutionExplicitWrite
+	default:
+		return governedExecutionNone
+	}
+}
+
+// opaqueGovernedExecution identifies command forms whose execution can be
+// hidden from the shell-word scanner. Informational commands and ordinary
+// script-file invocations remain available.
+func opaqueGovernedExecution(name string, args []string) bool {
+	switch {
+	case isCodeInterpreter(name, args):
 		return true
+	case isRecipeRunner(name):
+		return !isInformationalCommand(args)
+	case name == "go":
+		// Build/inspection commands do not execute the resulting Go package;
+		// test, run, generate, and tool do execute code outside this scanner.
+		return goExecutionOpaque(args)
+	case name == "git":
+		return gitInvocationOpaque(args)
+	case isOpaqueExecutionWrapper(name):
+		return isOpaqueWrapperInvocation(name, args)
 	default:
 		return false
 	}
@@ -668,6 +733,58 @@ func unwrapCommand(words []string) []string {
 			if i < len(args) {
 				i++ // timeout duration
 			}
+			if i >= len(args) {
+				return nil
+			}
+			args = args[i:]
+		case "stdbuf":
+			i := 1
+			for i < len(args) {
+				option := args[i]
+				if option == "--help" || option == "--version" {
+					return args
+				}
+				if option == "--" {
+					i++
+					break
+				}
+				if option == "-i" || option == "-o" || option == "-e" || option == "--input" || option == "--output" || option == "--error" {
+					i += 2
+					continue
+				}
+				if strings.HasPrefix(option, "--input=") || strings.HasPrefix(option, "--output=") || strings.HasPrefix(option, "--error=") ||
+					(strings.HasPrefix(option, "-i") && len(option) > 2) || (strings.HasPrefix(option, "-o") && len(option) > 2) || (strings.HasPrefix(option, "-e") && len(option) > 2) {
+					i++
+					continue
+				}
+				if strings.HasPrefix(option, "-") {
+					return nil
+				}
+				break
+			}
+			if i >= len(args) {
+				return nil
+			}
+			args = args[i:]
+		case "setsid":
+			i := 1
+			for i < len(args) {
+				switch args[i] {
+				case "-c", "--ctty", "-f", "--fork", "-w", "--wait":
+					i++
+				case "--help", "--version":
+					return args
+				case "--":
+					i++
+					goto setsidCommand
+				default:
+					if strings.HasPrefix(args[i], "-") {
+						return nil
+					}
+					goto setsidCommand
+				}
+			}
+		setsidCommand:
 			if i >= len(args) {
 				return nil
 			}

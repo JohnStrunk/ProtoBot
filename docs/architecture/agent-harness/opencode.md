@@ -407,9 +407,11 @@ row that depends on the guard:
 | Write route to a guarded path | `drafting-table` agent | Every other agent |
 | --- | --- | --- |
 | File tool under `.protobot/` | Tool not offered | Refused by the project rule and the guard |
+| File tool under `.git/` or on `.agents/drafting-table.yaml` | Tool not offered | Refused by the active guard |
 | File tool on a registered path elsewhere | Tool not offered | Refused by the guard |
 | Shell writer, such as `sed -i` | Refused by the native copy and the active guard | Not stopped |
 | Output redirection in a shell command | Refused by the active guard; not checked inside an allowed native command pattern | Refused by the active guard when the redirection target is written from the project root |
+| Recognized opaque execution forms that could hide an indirect governed write | Refused by the role's exact shell grammar | Refused by the active guard; no native rule covers it if the plugin is absent |
 | Tool of another MCP server | Not offered | The user's own configuration |
 | Subagent | `task` not offered | Not applicable |
 

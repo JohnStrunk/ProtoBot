@@ -427,9 +427,11 @@ What the Claude Code layer stops, by route:
 | Write route to a guarded path | `drafting-table` agent | Every other session |
 | --- | --- | --- |
 | File tool under `.protobot/` | Tool not offered; also denied by the project rule | Denied by the project rule and the guard |
+| File tool under `.git/` or on `.agents/drafting-table.yaml` | Tool not offered | Refused by the guard when it returns a decision |
 | File tool on a registered path elsewhere | Tool not offered | Refused by the guard |
 | Shell writer, such as `sed -i` | Denied by `dontAsk` with no allow rule, and refused by the guard | Not stopped |
 | Output redirection in a shell command | Refused by the guard; a prefix rule cannot see it | Refused by the guard when the redirection target is written from the project root |
+| Recognized opaque execution forms that could hide an indirect governed write | Denied by `dontAsk` with no allow rule, and refused by the guard | Refused by the guard when its hook returns a decision; a hook failure can pass the call through |
 | Tool of another MCP server | Not loaded, because of `--strict-mcp-config` | The user's own configuration |
 | Subagent | `Agent` not offered | Not applicable |
 
