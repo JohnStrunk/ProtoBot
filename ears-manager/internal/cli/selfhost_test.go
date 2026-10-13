@@ -408,10 +408,15 @@ func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
 
 func newSelfHostingCheckout(t *testing.T) string {
 	t.Helper()
-	return newSelfHostingCheckoutFrom(t, selfHostingRoot(t))
+	return buildSelfHostingCheckout(t, selfHostingRoot(t), false)
 }
 
 func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
+	t.Helper()
+	return buildSelfHostingCheckout(t, source, true)
+}
+
+func buildSelfHostingCheckout(t *testing.T, source string, splitApproved bool) string {
 	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
@@ -428,20 +433,18 @@ func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
 
 	allManifests := selfHostingChangeSetRelPaths(t, source)
 	var approvedManifests, proposedManifests []string
-	for _, rel := range allManifests {
-		if isChangeSetApprovedInSource(source, rel) {
-			approvedManifests = append(approvedManifests, rel)
-		} else {
-			proposedManifests = append(proposedManifests, rel)
+	if splitApproved {
+		for _, rel := range allManifests {
+			if isChangeSetApprovedInSource(source, rel) {
+				approvedManifests = append(approvedManifests, rel)
+			} else {
+				proposedManifests = append(proposedManifests, rel)
+			}
 		}
-	}
-
-	// When source has no unapproved proposals (e.g. initial repository state with only
-	// the seed CS-00001), treat the seed as the active proposal so checkout fixtures
-	// can exercise the proposed-change-set lifecycle.
-	if len(proposedManifests) == 0 {
-		proposedManifests = approvedManifests
-		approvedManifests = nil
+	} else {
+		// The default fixture keeps CS-00001 and any extra change sets on the
+		// proposed PR branch so lifecycle tests can exercise CS-00001's proposal workflow.
+		proposedManifests = allManifests
 	}
 
 	// Write project and projection configs
