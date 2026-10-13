@@ -21,8 +21,19 @@ SKIPPED=0
 # cleaned up even if the script is interrupted.
 CREATED_FILES=()
 STAGED_FILES=()
+AGENTS_FILE="${REPO_ROOT}/AGENTS.md"
+AGENTS_BACKUP=""
+
+restore_agents_md() {
+    if [[ -n "${AGENTS_BACKUP}" ]] && [[ -f "${AGENTS_BACKUP}" ]]; then
+        cp "${AGENTS_BACKUP}" "${AGENTS_FILE}"
+        rm -f "${AGENTS_BACKUP}"
+        AGENTS_BACKUP=""
+    fi
+}
 
 cleanup() {
+    restore_agents_md
     for f in "${STAGED_FILES[@]}"; do
         git -C "${REPO_ROOT}" restore --staged -- "${f}" 2>/dev/null || true
     done
@@ -303,6 +314,148 @@ elif [[ "${lint_spec_rc}" -ne 0 ]]; then
 else
     echo "PASS  spec-doc-independence: new spec does not demand review.yaml update"
     PASS=$((PASS + 1))
+fi
+
+# ── AGENTS.md context-budget ratchet ───────────────────────
+
+echo ""
+echo "── AGENTS.md context-budget ────────────────────────────"
+
+# skillsaw is already the pre-commit / lint.py hook for instruction
+# files. context-budget + .skillsaw-baseline.json (ceiling) reject
+# token growth in AGENTS.md without a special-purpose line-count
+# script. Assert that the committed ceiling equals len(AGENTS.md)//4
+# (no unratcheted headroom) and that the configured agents-md warn
+# limit is <= that value so context-budget always emits a finding.
+ceiling_check_rc=0
+ceiling_check_output="$(python3 - "${REPO_ROOT}" <<'PY'
+import json, pathlib, sys, yaml
+
+repo_root = pathlib.Path(sys.argv[1])
+agents_path = repo_root / "AGENTS.md"
+baseline_path = repo_root / ".skillsaw-baseline.json"
+skillsaw_yaml = repo_root / ".skillsaw.yaml"
+
+agents_text = agents_path.read_text(encoding="utf-8")
+agents_tokens = len(agents_text) // 4
+
+with open(baseline_path, encoding="utf-8") as f:
+    baseline_data = json.load(f)
+
+ceiling_entry = None
+for v in baseline_data.get("violations", []):
+    if v.get("rule_id") == "context-budget" and v.get("file_path") == "AGENTS.md":
+        ceiling_entry = v
+        break
+
+if not ceiling_entry:
+    print("missing AGENTS.md context-budget entry in .skillsaw-baseline.json")
+    sys.exit(1)
+
+committed_ceiling = ceiling_entry.get("value")
+if committed_ceiling is None:
+    print("missing value in AGENTS.md context-budget baseline entry")
+    sys.exit(1)
+
+if int(committed_ceiling) != agents_tokens:
+    print(f"committed ceiling ({committed_ceiling}) != len(AGENTS.md)//4 ({agents_tokens})")
+    sys.exit(1)
+
+baseline_mode = ceiling_entry.get("baseline_mode")
+if baseline_mode != "ceiling":
+    print(f"expected baseline_mode 'ceiling', got '{baseline_mode}'")
+    sys.exit(1)
+
+with open(skillsaw_yaml, encoding="utf-8") as f:
+    skillsaw_config = yaml.safe_load(f)
+
+limits = skillsaw_config.get("rules", {}).get("context-budget", {}).get("limits", {}).get("agents-md", {})
+if isinstance(limits, dict):
+    warn_limit = limits.get("warn")
+else:
+    warn_limit = limits
+
+if warn_limit is None:
+    print("missing agents-md warn limit in .skillsaw.yaml")
+    sys.exit(1)
+
+if int(warn_limit) > int(committed_ceiling):
+    print(f"configured warn limit ({warn_limit}) > committed ceiling ({committed_ceiling})")
+    sys.exit(1)
+
+PY
+)" || ceiling_check_rc=$?
+
+if [[ "${ceiling_check_rc}" -ne 0 ]]; then
+    echo "FAIL  agents-md-budget-ceiling: ${ceiling_check_output}"
+    FAIL=$((FAIL + 1))
+else
+    echo "PASS  agents-md-budget-ceiling: committed ceiling equals len(AGENTS.md)//4 and warn limit is <= ceiling"
+    PASS=$((PASS + 1))
+fi
+
+lint_agents_rc=0
+lint_agents_output="$(python3 "${LINT}" --files AGENTS.md 2>&1)" || lint_agents_rc=$?
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_agents_clean="$(echo "${lint_agents_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+
+if echo "${lint_agents_clean}" | grep -qE "! skillsaw( |$)"; then
+    echo "SKIP  agents-md-budget-current: skillsaw tool not available"
+    SKIPPED=$((SKIPPED + 1))
+elif [[ "${lint_agents_rc}" -eq 0 ]] \
+    && echo "${lint_agents_clean}" | grep -qE "✓ skillsaw( |$)"; then
+    echo "PASS  agents-md-budget-current: current AGENTS.md is within the ceiling"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  agents-md-budget-current: skillsaw did not pass on AGENTS.md (exit ${lint_agents_rc})"
+    echo "${lint_agents_output}" | tail -8 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
+fi
+
+# Overflow by a 1-token delta instead of large fixture blocks.
+# Adding 4 - (len(text) % 4) characters increases len(text)//4 by exactly
+# 1 token. Ending with a newline ensures pre-commit end-of-file-fixer passes
+# without modifying the file before skillsaw runs.
+AGENTS_BACKUP="$(mktemp)"
+cp "${AGENTS_FILE}" "${AGENTS_BACKUP}"
+python3 - "${AGENTS_FILE}" <<'PY'
+import sys
+
+agents_path = sys.argv[1]
+with open(agents_path, "r", encoding="utf-8") as f:
+    text = f.read()
+
+cur_tokens = len(text) // 4
+needed_chars = 4 - (len(text) % 4)
+pad = ("x" * (needed_chars - 1)) + "\n"
+assert len(pad) == needed_chars
+assert (len(text) + len(pad)) // 4 == cur_tokens + 1
+
+with open(agents_path, "a", encoding="utf-8") as f:
+    f.write(pad)
+PY
+
+lint_bloat_rc=0
+lint_bloat_output="$(python3 "${LINT}" --files AGENTS.md 2>&1)" || lint_bloat_rc=$?
+# shellcheck disable=SC2001  # regex substitution requires sed
+lint_bloat_clean="$(echo "${lint_bloat_output}" | sed 's/\x1b\[[0-9;]*m//g')"
+restore_agents_md
+
+if [[ "${ceiling_check_rc}" -ne 0 ]]; then
+    echo "FAIL  agents-md-budget-overflow: prerequisite ceiling check failed (${ceiling_check_output})"
+    FAIL=$((FAIL + 1))
+elif echo "${lint_bloat_clean}" | grep -qE "! skillsaw( |$)"; then
+    echo "SKIP  agents-md-budget-overflow: skillsaw tool not available"
+    SKIPPED=$((SKIPPED + 1))
+elif [[ "${lint_bloat_rc}" -ne 0 ]] \
+    && echo "${lint_bloat_clean}" | grep -qE "✗ skillsaw( |$)" \
+    && echo "${lint_bloat_clean}" | grep -qF "context-budget"; then
+    echo "PASS  agents-md-budget-overflow: token growth fails context-budget"
+    PASS=$((PASS + 1))
+else
+    echo "FAIL  agents-md-budget-overflow: expected skillsaw context-budget failure (exit ${lint_bloat_rc})"
+    echo "${lint_bloat_output}" | tail -12 | sed 's/^/    /'
+    FAIL=$((FAIL + 1))
 fi
 
 # ── Go formatting and vet ───────────────────────────────────
