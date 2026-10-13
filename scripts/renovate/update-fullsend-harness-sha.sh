@@ -10,29 +10,9 @@ if ! command -v curl >/dev/null 2>&1; then
   exit 1
 fi
 
-AUTH_HEADER_FILE=""
-cleanup() {
-  if [[ -n "${AUTH_HEADER_FILE:-}" && -f "${AUTH_HEADER_FILE:-}" ]]; then
-    rm -f "${AUTH_HEADER_FILE}"
-  fi
-}
-trap cleanup EXIT INT TERM HUP
-
-token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
-if [[ -n "${token}" ]]; then
-  AUTH_HEADER_FILE=$(mktemp "${TMPDIR:-/tmp}/harness-auth.XXXXXX")
-  chmod 0600 "${AUTH_HEADER_FILE}"
-  printf 'Authorization: token %s\n' "${token}" > "${AUTH_HEADER_FILE}"
-fi
-
 fetch_harness() {
   local url="$1"
-  local -a curl_opts
-  curl_opts=(-fsSL)
-  if [[ -n "${AUTH_HEADER_FILE:-}" ]]; then
-    curl_opts+=(-H "@${AUTH_HEADER_FILE}")
-  fi
-  curl "${curl_opts[@]}" -- "${url}"
+  curl -fsSL -- "${url}"
 }
 
 hash_sha256() {
