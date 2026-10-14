@@ -167,7 +167,7 @@ func TestSelfHostingProposedChangeSetBaseNotOnDefaultFailsCheck(t *testing.T) {
 }
 
 func TestSelfHostingProposedBaseOnCanonicalRemoteSuggestsRepoState(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
 	localHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
@@ -213,7 +213,7 @@ func TestSelfHostingProposedBaseOnCanonicalRemoteSuggestsRepoState(t *testing.T)
 }
 
 func TestSelfHostingProposedBaseOnDivergedCanonicalRemoteFailsCheck(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
 	commonHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
@@ -549,11 +549,21 @@ func TestSelfHostingCheckoutWithoutDefaultBranchRefs(t *testing.T) {
 		t.Fatal("resolveSourceDefaultBranchRef succeeded on a source without default-branch refs")
 	}
 
+	// Without explicit partition, building a checkout from a ref-less source
+	// falls back to approving the committed seed (CS-00001) rather than fataling.
+	fallbackRoot := newSelfHostingCheckoutFrom(t, source)
+	t.Chdir(fallbackRoot)
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+		t.Fatalf("fallback CS-00001 status = %q, want approved", status)
+	}
+
 	root := buildSelfHostingCheckoutWithPartition(t, source, approvedRels, proposedRels)
 	t.Chdir(root)
 
 	// CS-00001 (initial seed) remains approved.
-	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
 	assertSuccess(t, code, stdout, stderr)
 	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
 		t.Fatalf("CS-00001 status = %q, want approved", status)
@@ -628,20 +638,8 @@ func hermeticSelfHostingSource(t *testing.T) string {
 	writeTestFile(t, root, ".protobot/project.yaml", readTestFile(t, origin, ".protobot/project.yaml"))
 	writeTestFile(t, root, ".protobot/projection.yaml", readTestFile(t, origin, ".protobot/projection.yaml"))
 
-	ref, err := resolveSourceDefaultBranchRef(origin)
-	if err != nil {
-		t.Fatalf("hermeticSelfHostingSource: %v", err)
-	}
-
 	allManifests := selfHostingChangeSetRelPaths(t, origin)
-	var approvedManifests, proposedManifests []string
-	for _, rel := range allManifests {
-		if isChangeSetApprovedInTree(origin, ref, rel) {
-			approvedManifests = append(approvedManifests, rel)
-		} else {
-			proposedManifests = append(proposedManifests, rel)
-		}
-	}
+	approvedManifests, proposedManifests := partitionChangeSets(origin, allManifests)
 
 	if len(approvedManifests) > 0 {
 		appReqs, appIfaces := referencedRecordsForChangeSets(t, origin, approvedManifests)
@@ -667,23 +665,36 @@ func buildSelfHostingCheckout(t *testing.T, source string, manifests []string, s
 	t.Helper()
 	var approvedManifests, proposedManifests []string
 	if splitApproved {
-		ref, err := resolveSourceDefaultBranchRef(source)
-		if err != nil {
-			t.Fatalf("buildSelfHostingCheckout: %v", err)
-		}
-		for _, rel := range manifests {
-			if isChangeSetApprovedInTree(source, ref, rel) {
-				approvedManifests = append(approvedManifests, rel)
-			} else {
-				proposedManifests = append(proposedManifests, rel)
-			}
-		}
+		approvedManifests, proposedManifests = partitionChangeSets(source, manifests)
 	} else {
 		// Keep requested change sets on the proposed PR branch so lifecycle
 		// tests can exercise their proposal workflow.
 		proposedManifests = manifests
 	}
 	return buildSelfHostingCheckoutWithPartition(t, source, approvedManifests, proposedManifests)
+}
+
+func partitionChangeSets(source string, manifests []string) ([]string, []string) {
+	ref, err := resolveSourceDefaultBranchRef(source)
+	var approved, proposed []string
+	if err == nil {
+		for _, rel := range manifests {
+			if isChangeSetApprovedInTree(source, ref, rel) {
+				approved = append(approved, rel)
+			} else {
+				proposed = append(proposed, rel)
+			}
+		}
+	} else {
+		for _, rel := range manifests {
+			if filepath.Base(rel) == "cs-00001.yaml" {
+				approved = append(approved, rel)
+			} else {
+				proposed = append(proposed, rel)
+			}
+		}
+	}
+	return approved, proposed
 }
 
 func buildSelfHostingCheckoutWithPartition(t *testing.T, source string, approvedManifests, proposedManifests []string) string {
@@ -750,22 +761,7 @@ func resolveSourceDefaultBranchRef(source string) (string, error) {
 			}
 		}
 	}
-	// In CI pull-request checkouts, actions/checkout fetches refs/pull/*/merge or
-	// detaches at the merge commit. Parent 1 is the default-branch target commit.
-	cmd := gitCommand("-C", source, "rev-parse", "--verify", "--quiet", "HEAD^2")
-	if cmd.Run() == nil {
-		return "HEAD^1", nil
-	}
 	return "", fmt.Errorf("repository default branch could not be resolved in %s", source)
-}
-
-func isChangeSetApprovedInSource(t *testing.T, source, relPath string) bool {
-	t.Helper()
-	ref, err := resolveSourceDefaultBranchRef(source)
-	if err != nil {
-		t.Fatalf("cannot determine change-set approval: %v", err)
-	}
-	return isChangeSetApprovedInTree(source, ref, relPath)
 }
 
 func hasAnyRef(root string, refs ...string) bool {
