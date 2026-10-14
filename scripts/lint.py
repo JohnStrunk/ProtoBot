@@ -521,6 +521,14 @@ _REGISTRY: dict[str, dict[str, Any]] = {
                     r"^(eval/corpus/.+|docs/architecture/evaluation-corpus\.md)$"
                 ),
             },
+            # Intentionally omit --online to preserve the offline sandbox
+            # contract; CI's pre-commit entry performs online verification.
+            "harness-integrity": {
+                "cmd": "python3",
+                "fixed_args": ["scripts/check_harness_integrity.py"],
+                "pass_filenames": False,
+                "default_files": r"^\.fullsend/harness/[^/]+\.yaml$",
+            },
         },
     },
 }

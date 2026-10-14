@@ -69,8 +69,20 @@
       "postUpgradeTasks": {
         "commands": ["bash scripts/renovate/update-fullsend-harness-sha.sh"],
         "fileFilters": [".fullsend/harness/*.yaml"],
-        "executionMode": "branch",
+        // Per-update execution runs the hash updater for each agents upgrade,
+        // including grouped branches regardless of branch-config ordering.
+        "executionMode": "update",
       },
+    },
+    {
+      // Group related Fullsend and agent updates without automerging them.
+      "description": "Group Fullsend and agents updates",
+      "matchPackageNames": [
+        "fullsend-ai/fullsend",
+        "fullsend-ai/agents",
+      ],
+      "groupName": "fullsend",
+      "automerge": false,
     },
     {
       // Registries without release timestamps would otherwise leave Docker

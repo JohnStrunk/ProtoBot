@@ -148,3 +148,9 @@ repos:
         language: system
         pass_filenames: false
         files: ^(eval/corpus/.+|docs/architecture/evaluation-corpus\.md)$
+      - id: harness-integrity
+        name: harness-integrity
+        entry: python3 scripts/check_harness_integrity.py --online
+        language: system
+        pass_filenames: false
+        files: ^\.fullsend/harness/[^/]+\.yaml$
