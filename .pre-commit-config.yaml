@@ -142,3 +142,9 @@ repos:
         entry: python3 scripts/check_govet.py
         language: system
         files: \.go$
+      - id: eval-corpus-schema
+        name: eval-corpus-schema
+        entry: python3 eval/corpus/validate.py
+        language: system
+        pass_filenames: false
+        files: ^(eval/corpus/.+|docs/architecture/evaluation-corpus\.md)$

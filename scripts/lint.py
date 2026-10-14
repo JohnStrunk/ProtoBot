@@ -513,6 +513,14 @@ _REGISTRY: dict[str, dict[str, Any]] = {
                 "types": ["go"],
                 "default_files": r"\.go$",
             },
+            "eval-corpus-schema": {
+                "cmd": "python3",
+                "fixed_args": ["eval/corpus/validate.py"],
+                "pass_filenames": False,
+                "default_files": (
+                    r"^(eval/corpus/.+|docs/architecture/evaluation-corpus\.md)$"
+                ),
+            },
         },
     },
 }
