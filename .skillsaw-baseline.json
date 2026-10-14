@@ -31,8 +31,8 @@
       "fingerprint": "bf6aff1c1a975087",
       "rule_id": "content-section-length",
       "file_path": "AGENTS.md",
-      "line": 62,
-      "message": "Section 'Specification document hierarchy' is ~524 tokens (max recommended: 500)",
+      "line": 89,
+      "message": "Section 'Specification document hierarchy' is ~572 tokens (max recommended: 500)",
       "severity": "info"
     },
     {
@@ -292,12 +292,20 @@
       "severity": "info"
     },
     {
+      "fingerprint": "d2b4f8ad13e25933",
+      "rule_id": "content-section-length",
+      "file_path": "docs/architecture.md",
+      "line": 1021,
+      "message": "Section 'Related Documents' is ~530 tokens (max recommended: 500)",
+      "severity": "info"
+    },
+    {
       "fingerprint": "9ac2052ca695ae1d",
       "rule_id": "context-budget",
       "file_path": "AGENTS.md",
-      "message": "Estimated 4,097 tokens exceeds agents-md warn limit of 4,000",
+      "message": "Estimated 4,145 tokens exceeds agents-md warn limit of 4,000",
       "severity": "warning",
-      "value": 4097,
+      "value": 4145,
       "baseline_mode": "ceiling"
     }
   ]
