@@ -3,7 +3,8 @@
 
 By default this checks the local ``.fullsend/harness/*.yaml`` entries without
 network access. Pass ``--online`` to fetch each pinned raw file and compare its
-exact response bytes with the recorded SHA-256 digest.
+exact response bytes with the recorded SHA-256 digest, or ``--online-if-ci`` to
+do so only when ``CI=true``.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import argparse
 import hashlib
 import http.client
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -50,7 +52,25 @@ class _ResponseReadDeadlineError(TimeoutError):
 
 
 class _UnexpectedRedirectError(ValueError):
-    """The server returned a response for a different URL."""
+    """A redirect was rejected or the final response URL did not match."""
+
+
+class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Reject redirects before urllib can request their target URLs."""
+
+    def redirect_request(
+        self,
+        request: urllib.request.Request,
+        response: object,
+        code: int,
+        message: str,
+        headers: object,
+        new_url: str,
+    ) -> urllib.request.Request | None:
+        """Stop urllib from creating a request for a redirected URL."""
+        raise _UnexpectedRedirectError(
+            "redirect rejected while fetching pinned base URL"
+        )
 
 
 @dataclass(frozen=True)
@@ -83,6 +103,7 @@ def parse_pinned_base(value: str) -> PinnedBase:
 
 
 def _check_quoted_suffix(suffix: str) -> None:
+    """Require only whitespace after a quoted base scalar."""
     if suffix.strip():
         raise HarnessIntegrityError("base value must be one YAML scalar")
 
@@ -115,7 +136,9 @@ def load_pinned_base(path: Path) -> PinnedBase:
     try:
         content = path.read_text(encoding="utf-8-sig")
     except (OSError, UnicodeError) as error:
-        raise HarnessIntegrityError(f"cannot read harness YAML: {error}") from error
+        raise HarnessIntegrityError(
+            f"cannot read harness YAML ({type(error).__name__})"
+        ) from None
 
     entries: list[tuple[int, str]] = []
     for line_number, line in enumerate(content.splitlines(), start=1):
@@ -207,9 +230,8 @@ def _response_url(response: object) -> str | None:
     geturl = getattr(response, "geturl", None)
     if callable(geturl):
         url = geturl()
-        if isinstance(url, str):
-            return url
-    url = getattr(response, "url", None)
+    else:
+        url = getattr(response, "url", None)
     return url if isinstance(url, str) else None
 
 
@@ -225,24 +247,27 @@ def check_harness_file(path: Path, online: bool = False) -> list[str]:
         return []
 
     try:
-        with urllib.request.urlopen(
+        opener = urllib.request.build_opener(_NoRedirectHandler())
+        with opener.open(
             pinned_base.fetch_url,
             timeout=NETWORK_TIMEOUT_SECONDS,
         ) as response:
             response_url = _response_url(response)
-            if response_url is not None and response_url != pinned_base.fetch_url:
-                raise _UnexpectedRedirectError
+            if response_url != pinned_base.fetch_url:
+                raise _UnexpectedRedirectError(
+                    "final response URL is missing or differs from pinned base URL"
+                )
             content = _read_response_content(response)
-    except _UnexpectedRedirectError:
-        return [f"{display_path}: unexpected redirect while fetching pinned base URL"]
+    except _UnexpectedRedirectError as error:
+        return [f"{display_path}: {error}"]
     except _ResponseTooLargeError as error:
         return [f"{display_path}: {error}"]
     except _ResponseReadDeadlineError as error:
         return [f"{display_path}: {error}"]
-    except TimeoutError as error:
-        return [f"{display_path}: timed out while fetching pinned base URL: {error}"]
-    except (OSError, http.client.HTTPException) as error:
-        return [f"{display_path}: failed to fetch pinned base URL: {error}"]
+    except TimeoutError:
+        return [f"{display_path}: timed out while fetching pinned base URL"]
+    except (OSError, http.client.HTTPException):
+        return [f"{display_path}: failed to fetch pinned base URL"]
 
     actual_sha256 = hashlib.sha256(content).hexdigest()
     if actual_sha256 != pinned_base.expected_sha256:
@@ -267,14 +292,27 @@ def check_harness_files(files: Iterable[Path], online: bool = False) -> list[str
     return diagnostics
 
 
+def _ci_is_enabled() -> bool:
+    """Return whether the environment explicitly enables online CI checks."""
+    return os.environ.get("CI", "").strip().casefold() == "true"
+
+
 def main(argv: list[str] | None = None) -> int:
+    """Validate all configured harness files using the selected mode."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
+    online_group = parser.add_mutually_exclusive_group()
+    online_group.add_argument(
         "--online",
         action="store_true",
         help="fetch each pinned raw file and verify its exact SHA-256 digest",
     )
+    online_group.add_argument(
+        "--online-if-ci",
+        action="store_true",
+        help="verify hashes online only when CI is set to true",
+    )
     args = parser.parse_args(argv)
+    online = args.online or (args.online_if_ci and _ci_is_enabled())
 
     files = discover_harness_files(REPO_ROOT)
     if not files:
@@ -284,13 +322,13 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
-    diagnostics = check_harness_files(files, online=args.online)
+    diagnostics = check_harness_files(files, online=online)
     if diagnostics:
         for diagnostic in diagnostics:
             print(f"ERROR: {diagnostic}", file=sys.stderr)
         return 1
 
-    validation_mode = "online integrity" if args.online else "offline structure"
+    validation_mode = "online integrity" if online else "offline structure"
     print(f"Validated {len(files)} harness file(s) ({validation_mode}).")
     return 0
 
