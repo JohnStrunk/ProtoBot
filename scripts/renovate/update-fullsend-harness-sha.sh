@@ -3,6 +3,25 @@ set -euo pipefail
 
 # Called by Renovate postUpgradeTasks after a fullsend-ai/agents version bump.
 # Recomputes SHA256 hashes in .fullsend/harness/*.yaml base: URLs.
+# Uses curl (not gh) so the script runs inside renovatebot/github-action.
+
+if ! command -v curl >/dev/null 2>&1; then
+  echo "ERROR: curl is required to fetch harness files" >&2
+  exit 1
+fi
+
+fetch_harness() {
+  local url="$1"
+  curl -fsSL -- "${url}"
+}
+
+hash_sha256() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  else
+    shasum -a 256 | cut -d' ' -f1
+  fi
+}
 
 for harness_file in .fullsend/harness/*.yaml; do
   [[ -f "$harness_file" ]] || continue
@@ -19,21 +38,9 @@ for harness_file in .fullsend/harness/*.yaml; do
   fi
   version="${BASH_REMATCH[1]}"
   file_path="${BASH_REMATCH[2]}"
+  raw_url="https://raw.githubusercontent.com/fullsend-ai/agents/v${version}/${file_path}"
 
-  file_type=$(gh api "repos/fullsend-ai/agents/contents/${file_path}?ref=v${version}" --jq '.type')
-  if [[ "$file_type" != "file" ]]; then
-    echo "ERROR: Expected a regular file for ${file_path} at v${version}, got ${file_type:-null}" >&2
-    exit 1
-  fi
-
-  # Fetch the raw versioned harness and compute its integrity hash.
-  if command -v sha256sum >/dev/null 2>&1; then
-    new_sha=$(gh api "repos/fullsend-ai/agents/contents/${file_path}?ref=v${version}" \
-      -H 'Accept: application/vnd.github.raw' | sha256sum | cut -d' ' -f1)
-  else
-    new_sha=$(gh api "repos/fullsend-ai/agents/contents/${file_path}?ref=v${version}" \
-      -H 'Accept: application/vnd.github.raw' | shasum -a 256 | cut -d' ' -f1)
-  fi
+  new_sha=$(fetch_harness "${raw_url}" | hash_sha256)
 
   [[ -n "$new_sha" ]] || { echo "ERROR: Failed to compute SHA for ${file_path} at v${version}" >&2; exit 1; }
   [[ "$new_sha" =~ ^[a-f0-9]{64}$ ]] || { echo "ERROR: Invalid SHA256 hash '${new_sha}'" >&2; exit 1; }
