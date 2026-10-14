@@ -162,6 +162,12 @@ the pull request is created or updated, and CI is not required to
 post it ([Git and Project-Repository
 Integration](../architecture/git-integration.md#title-and-body)).
 
+**[Amended October 2026]** The earlier paragraph describes the summary's
+before/after presentation but does not make those values mandatory.
+`before` and `after` are optional on each `changed` entry. When an entry
+has them, the PR body renderer shows them (see the
+[`change-set compare` contract][cli-compare]).
+
 **Normalization rules.** `ears-manager` enforces canonical
 serialization on every write to keep diffs stable across
 editors and tooling:
@@ -443,5 +449,6 @@ serialized and organized on disk.
 
 [q7]: ../architecture/open-questions.md#q7-requirements-storage-format
 [phase2]: ../architecture/user-interaction-flow.md#phase-2-dimensioning
+[cli-compare]: ../architecture/ears-manager-cli.md#change-set-compare
 [em]: ../architecture/components.md#ears-manager
 [csm]: ../architecture/components.md#content-storage-model

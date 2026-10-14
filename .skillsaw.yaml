@@ -13,3 +13,15 @@ strict: true
 fail-on: info
 exclude:
   - ".worktrees/**"
+rules:
+  context-budget:
+    # AGENTS.md is injected into every dispatched agent's prompt.
+    # Keep the agents-md warn limit at or below the current size so
+    # context-budget always emits a finding; .skillsaw-baseline.json
+    # then ratchets that finding (ceiling mode) and rejects token
+    # growth. Consolidate existing rules or move instructions into
+    # on-demand skills before adding prose. After a successful
+    # shrink, run `skillsaw baseline` to lower the ceiling.
+    limits:
+      agents-md:
+        warn: 4000
