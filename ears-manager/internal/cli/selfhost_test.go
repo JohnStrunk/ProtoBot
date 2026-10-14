@@ -406,9 +406,41 @@ func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
 	)
 }
 
+func TestSelfHostingCheckoutWithoutDefaultBranchRefs(t *testing.T) {
+	// Simulate an environment like the Go CI job where neither refs/heads/main
+	// nor refs/remotes/origin/main exists in the source checkout.
+	source, extra := selfHostingSourceWithExtraChangeSet(t)
+	git(t, source, "update-ref", "-d", "refs/heads/main")
+	if hasAnyRef(source, "refs/heads/main", "refs/remotes/origin/main") {
+		t.Fatal("source still has default branch refs")
+	}
+
+	root := newSelfHostingCheckoutFrom(t, source)
+	t.Chdir(root)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+		t.Fatalf("CS-00001 status = %q, want approved", status)
+	}
+
+	var extraCS records.ChangeSet
+	if err := storage.ReadFile(filepath.Join(root, filepath.FromSlash(extra)), &extraCS); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", extraCS.ID)
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+		t.Fatalf("%s status = %q, want proposed", extraCS.ID, status)
+	}
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+}
+
 func newSelfHostingCheckout(t *testing.T) string {
 	t.Helper()
-	return newSelfHostingCheckoutFrom(t, selfHostingRoot(t))
+	return newSelfHostingCheckoutFrom(t, hermeticSelfHostingSource(t))
 }
 
 func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
@@ -419,6 +451,54 @@ func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
 func newSelfHostingSeedProposedCheckout(t *testing.T) string {
 	t.Helper()
 	return buildSelfHostingCheckout(t, selfHostingRoot(t), []string{".protobot/change-sets/cs-00001.yaml"}, false)
+}
+
+func hermeticSelfHostingSource(t *testing.T) string {
+	t.Helper()
+	origin := selfHostingRoot(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	git(t, root, "init", "-b", "main")
+	git(t, root, "config", "user.email", "test@example.invalid")
+	git(t, root, "config", "user.name", "Test User")
+
+	for _, rel := range []string{"docs/vision.md", "docs/architecture.md"} {
+		writeTestFile(t, root, rel, readTestFile(t, origin, rel))
+	}
+	writeTestFile(t, root, ".protobot/project.yaml", readTestFile(t, origin, ".protobot/project.yaml"))
+	writeTestFile(t, root, ".protobot/projection.yaml", readTestFile(t, origin, ".protobot/projection.yaml"))
+
+	allManifests := selfHostingChangeSetRelPaths(t, origin)
+	var approvedManifests, proposedManifests []string
+	for _, rel := range allManifests {
+		if isChangeSetApprovedInSource(origin, rel) {
+			approvedManifests = append(approvedManifests, rel)
+		} else {
+			proposedManifests = append(proposedManifests, rel)
+		}
+	}
+
+	if len(approvedManifests) > 0 {
+		appReqs, appIfaces := referencedRecordsForChangeSets(t, origin, approvedManifests)
+		for _, rel := range append(append(approvedManifests, appReqs...), appIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, origin, rel))
+		}
+		refreshProjectDigests(t, root)
+		git(t, root, "add", ".")
+		git(t, root, "commit", "-m", "approved specification records")
+	}
+
+	if len(proposedManifests) > 0 {
+		propReqs, propIfaces := referencedRecordsForChangeSets(t, origin, proposedManifests)
+		for _, rel := range append(append(proposedManifests, propReqs...), propIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, origin, rel))
+		}
+		refreshProjectDigests(t, root)
+	}
+	return root
 }
 
 func buildSelfHostingCheckout(t *testing.T, source string, manifests []string, splitApproved bool) string {
@@ -485,6 +565,19 @@ func isChangeSetApprovedInSource(source, relPath string) bool {
 	}
 	if isChangeSetApprovedInTree(source, "refs/remotes/origin/main", relPath) {
 		return true
+	}
+	if !hasAnyRef(source, "refs/heads/main", "refs/remotes/origin/main") {
+		return filepath.ToSlash(relPath) == ".protobot/change-sets/cs-00001.yaml"
+	}
+	return false
+}
+
+func hasAnyRef(root string, refs ...string) bool {
+	for _, ref := range refs {
+		cmd := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+		if cmd.Run() == nil {
+			return true
+		}
 	}
 	return false
 }
@@ -635,30 +728,7 @@ func isChangeSetApprovedInTree(root, ref, relPath string) bool {
 
 func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
 	t.Helper()
-	origin := selfHostingRoot(t)
-	root, err := filepath.EvalSymlinks(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	git(t, root, "init", "-b", "main")
-	git(t, root, "config", "user.email", "test@example.invalid")
-	git(t, root, "config", "user.name", "Test User")
-
-	for _, rel := range []string{"docs/vision.md", "docs/architecture.md"} {
-		writeTestFile(t, root, rel, readTestFile(t, origin, rel))
-	}
-	for _, rel := range []string{
-		".protobot/project.yaml",
-		".protobot/projection.yaml",
-		".protobot/change-sets/cs-00001.yaml",
-		".protobot/interfaces/protobot-cli.yaml",
-		".protobot/requirements/REQ-CLI-00001.yaml",
-	} {
-		writeTestFile(t, root, rel, readTestFile(t, origin, rel))
-	}
-	git(t, root, "add", ".")
-	git(t, root, "commit", "-m", "approved specification records")
+	root := hermeticSelfHostingSource(t)
 
 	id, rel := nextSelfHostingChangeSetRel(t, root)
 	reqID := "REQ-CLI-00002"
