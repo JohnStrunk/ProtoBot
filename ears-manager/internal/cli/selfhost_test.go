@@ -534,9 +534,9 @@ func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
 func TestSelfHostingCheckoutWithoutDefaultBranchRefs(t *testing.T) {
 	// Simulate an environment where default-branch refs are absent in the source checkout.
 	// When default-branch refs cannot be resolved, approval cannot be inferred
-	// automatically, so the approved and proposed partition must be explicit
-	// for the full source history (including later approved change sets).
-	source, approvedRels, proposedRels := selfHostingSourceWithApprovedAndProposedChangeSets(t)
+	// from branch refs, so the fallback preserves the full approved set from
+	// source git tracking while explicit partitioning remains supported.
+	source, approvedRels, proposedRels, approvedSyntheticID, proposedSyntheticID := selfHostingSourceWithApprovedAndProposedChangeSets(t)
 
 	// Use environment-isolated Git runner for destructive ref deletion.
 	isolatedGit(t, source, "update-ref", "-d", "refs/heads/main")
@@ -550,41 +550,75 @@ func TestSelfHostingCheckoutWithoutDefaultBranchRefs(t *testing.T) {
 	}
 
 	// Without explicit partition, building a checkout from a ref-less source
-	// falls back to approving the committed seed (CS-00001) rather than fataling.
+	// falls back to preserving the full tracked approved history rather than
+	// fataling or demoting later approved history to proposed.
 	fallbackRoot := newSelfHostingCheckoutFrom(t, source)
 	t.Chdir(fallbackRoot)
-	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
+
+	for _, rel := range approvedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+			t.Fatalf("fallback %s status = %q, want approved", id, status)
+		}
+	}
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", approvedSyntheticID)
 	assertSuccess(t, code, stdout, stderr)
 	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
-		t.Fatalf("fallback CS-00001 status = %q, want approved", status)
+		t.Fatalf("fallback %s status = %q, want approved", approvedSyntheticID, status)
 	}
 
-	root := buildSelfHostingCheckoutWithPartition(t, source, approvedRels, proposedRels)
-	t.Chdir(root)
-
-	// CS-00001 (initial seed) remains approved.
-	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
-	assertSuccess(t, code, stdout, stderr)
-	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
-		t.Fatalf("CS-00001 status = %q, want approved", status)
+	for _, rel := range proposedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+			t.Fatalf("fallback %s status = %q, want proposed", id, status)
+		}
 	}
-
-	// Later approved history (CS-00002) also remains approved.
-	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00002")
-	assertSuccess(t, code, stdout, stderr)
-	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
-		t.Fatalf("CS-00002 status = %q, want approved", status)
-	}
-
-	// Active proposal (CS-00003) is proposed.
-	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00003")
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", proposedSyntheticID)
 	assertSuccess(t, code, stdout, stderr)
 	if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
-		t.Fatalf("CS-00003 status = %q, want proposed", status)
+		t.Fatalf("fallback %s status = %q, want proposed", proposedSyntheticID, status)
 	}
 
 	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
 	assertSuccess(t, code, stdout, stderr)
+
+	// Explicit partition with the derived approved/proposed lists also works.
+	root := buildSelfHostingCheckoutWithPartition(t, source, approvedRels, proposedRels)
+	t.Chdir(root)
+
+	for _, rel := range approvedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+			t.Fatalf("explicit partition %s status = %q, want approved", id, status)
+		}
+	}
+
+	for _, rel := range proposedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+			t.Fatalf("explicit partition %s status = %q, want proposed", id, status)
+		}
+	}
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+}
+
+func changeSetIDFromRelPath(t *testing.T, root, rel string) string {
+	t.Helper()
+	var cs records.ChangeSet
+	if err := storage.ReadFile(filepath.Join(root, filepath.FromSlash(rel)), &cs); err != nil {
+		t.Fatal(err)
+	}
+	return cs.ID
 }
 
 func isolatedGit(t *testing.T, root string, args ...string) {
@@ -687,7 +721,7 @@ func partitionChangeSets(source string, manifests []string) ([]string, []string)
 		}
 	} else {
 		for _, rel := range manifests {
-			if filepath.Base(rel) == "cs-00001.yaml" {
+			if isChangeSetTracked(source, rel) {
 				approved = append(approved, rel)
 			} else {
 				proposed = append(proposed, rel)
@@ -918,17 +952,22 @@ func isChangeSetApprovedInTree(root, ref, relPath string) bool {
 	return cmd.Run() == nil
 }
 
+func isChangeSetTracked(root, relPath string) bool {
+	slashRel := filepath.ToSlash(relPath)
+	cmd := gitCommand("-C", root, "ls-files", "--error-unmatch", slashRel)
+	if cmd.Run() == nil {
+		return true
+	}
+	cmd = gitCommand("-C", root, "cat-file", "-e", "HEAD:"+slashRel)
+	return cmd.Run() == nil
+}
+
 func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
 	t.Helper()
 	root := hermeticSelfHostingSource(t)
 
 	id, rel := nextSelfHostingChangeSetRel(t, root)
-	reqID := "REQ-CLI-00002"
-	reqFilename, err := records.FilenameFor(records.RequirementStore, reqID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reqRel := filepath.ToSlash(filepath.Join(".protobot", "requirements", reqFilename))
+	reqID, reqRel := nextSelfHostingRequirementRel(t, root)
 	req := records.Requirement{
 		ID:   reqID,
 		Type: "event-driven",
@@ -977,21 +1016,16 @@ func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
 	return root, rel
 }
 
-func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, []string, []string) {
+func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, []string, []string, string, string) {
 	t.Helper()
 	root := hermeticSelfHostingSource(t)
 
-	// CS-00001 is already approved on main in root.
-	approvedRels := []string{".protobot/change-sets/cs-00001.yaml"}
+	// All manifests already in root (committed to main by hermeticSelfHostingSource) are approved.
+	approvedRels := append([]string{}, selfHostingChangeSetRelPaths(t, root)...)
 
-	// Add CS-00002 as later approved history on main.
+	// Add a synthetic change set as later approved history on main.
 	id2, rel2 := nextSelfHostingChangeSetRel(t, root)
-	reqID2 := "REQ-CLI-00002"
-	reqFilename2, err := records.FilenameFor(records.RequirementStore, reqID2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reqRel2 := filepath.ToSlash(filepath.Join(".protobot", "requirements", reqFilename2))
+	reqID2, reqRel2 := nextSelfHostingRequirementRel(t, root)
 	req2 := records.Requirement{
 		ID:   reqID2,
 		Type: "event-driven",
@@ -1037,19 +1071,14 @@ func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, [
 	writeTestFile(t, root, rel2, string(csData2))
 	refreshProjectDigests(t, root)
 
-	// Commit CS-00002 to main so it becomes approved history.
+	// Commit id2 to main so it becomes approved history.
 	isolatedGit(t, root, "add", ".protobot")
-	isolatedGit(t, root, "commit", "-m", "approved specification records for CS-00002")
+	isolatedGit(t, root, "commit", "-m", "approved specification records for "+id2)
 	approvedRels = append(approvedRels, rel2)
 
-	// Add CS-00003 as an active proposed change set in the working tree.
+	// Add a synthetic active proposed change set in the working tree.
 	id3, rel3 := nextSelfHostingChangeSetRel(t, root)
-	reqID3 := "REQ-CLI-00003"
-	reqFilename3, err := records.FilenameFor(records.RequirementStore, reqID3)
-	if err != nil {
-		t.Fatal(err)
-	}
-	reqRel3 := filepath.ToSlash(filepath.Join(".protobot", "requirements", reqFilename3))
+	reqID3, reqRel3 := nextSelfHostingRequirementRel(t, root)
 	req3 := records.Requirement{
 		ID:   reqID3,
 		Type: "event-driven",
@@ -1096,7 +1125,31 @@ func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, [
 	refreshProjectDigests(t, root)
 	proposedRels := []string{rel3}
 
-	return root, approvedRels, proposedRels
+	return root, approvedRels, proposedRels, id2, id3
+}
+
+func nextSelfHostingRequirementRel(t *testing.T, root string) (string, string) {
+	t.Helper()
+	used := make(map[string]bool)
+	matches, err := filepath.Glob(filepath.Join(root, ".protobot", "requirements", "REQ-CLI-*.yaml"))
+	if err == nil {
+		for _, match := range matches {
+			used[filepath.Base(match)] = true
+		}
+	}
+	for number := 2; number <= lastChangeSetNumber; number++ {
+		id := fmt.Sprintf("REQ-CLI-%05d", number)
+		filename, err := records.FilenameFor(records.RequirementStore, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if used[filename] {
+			continue
+		}
+		return id, filepath.ToSlash(filepath.Join(".protobot", "requirements", filename))
+	}
+	t.Fatal("no requirement sequence number is available")
+	return "", ""
 }
 
 func nextSelfHostingChangeSetRel(t *testing.T, root string) (string, string) {
