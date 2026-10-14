@@ -698,8 +698,9 @@ clone as trusted and holds the hook's trust entry.
 - The launcher refuses to start when `hooks.json` differs from the
   binding's by one byte, and the first tool call of every run in the
   role is the probe `true`, refused, which shows that the hook runs.
-- In step 14, the `scm` tools commit, refresh, and publish from outside
-  the sandbox with no prompt, and the `gh` stub records `pr create`.
+- In step 14, the `scm` tools commit, refresh, read `repo_state`, and
+  publish from outside the sandbox with no prompt, and the `gh` stub
+  records `pr create`.
 - The `wms` and `scm` tools answer in step 2 with `network_access` off.
 
 ---
