@@ -513,6 +513,22 @@ _REGISTRY: dict[str, dict[str, Any]] = {
                 "types": ["go"],
                 "default_files": r"\.go$",
             },
+            "eval-corpus-schema": {
+                "cmd": "python3",
+                "fixed_args": ["eval/corpus/validate.py"],
+                "pass_filenames": False,
+                "default_files": (
+                    r"^(eval/corpus/.+|docs/architecture/evaluation-corpus\.md)$"
+                ),
+            },
+            # The offline runner intentionally uses the default offline mode;
+            # the pre-commit entry uses --online-if-ci.
+            "harness-integrity": {
+                "cmd": "python3",
+                "fixed_args": ["scripts/check_harness_integrity.py"],
+                "pass_filenames": False,
+                "default_files": r"^\.fullsend/harness/[^/]+\.yaml$",
+            },
         },
     },
 }
