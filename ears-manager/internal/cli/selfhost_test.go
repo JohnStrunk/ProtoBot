@@ -554,6 +554,7 @@ func TestSelfHostingCheckoutWithoutDefaultBranchRefs(t *testing.T) {
 	// fataling or demoting later approved history to proposed.
 	fallbackRoot := newSelfHostingCheckoutFrom(t, source)
 	t.Chdir(fallbackRoot)
+	assertSelfHostingProposalBasesPinned(t, fallbackRoot, proposedRels)
 
 	for _, rel := range approvedRels {
 		id := changeSetIDFromRelPath(t, source, rel)
@@ -589,6 +590,7 @@ func TestSelfHostingCheckoutWithoutDefaultBranchRefs(t *testing.T) {
 	// Explicit partition with the derived approved/proposed lists also works.
 	root := buildSelfHostingCheckoutWithPartition(t, source, approvedRels, proposedRels)
 	t.Chdir(root)
+	assertSelfHostingProposalBasesPinned(t, root, proposedRels)
 
 	for _, rel := range approvedRels {
 		id := changeSetIDFromRelPath(t, source, rel)
@@ -619,6 +621,20 @@ func changeSetIDFromRelPath(t *testing.T, root, rel string) string {
 		t.Fatal(err)
 	}
 	return cs.ID
+}
+
+func assertSelfHostingProposalBasesPinned(t *testing.T, root string, proposedRels []string) {
+	t.Helper()
+	base := isolatedGitOutput(t, root, "rev-parse", "refs/heads/main")
+	for _, rel := range proposedRels {
+		var cs records.ChangeSet
+		if err := storage.ReadFile(filepath.Join(root, filepath.FromSlash(rel)), &cs); err != nil {
+			t.Fatal(err)
+		}
+		if cs.BaseCommit != base || cs.ImpactAssessmentBaseCommit != base {
+			t.Fatalf("%s base_commit=%q impact_assessment_base_commit=%q, want both %q", rel, cs.BaseCommit, cs.ImpactAssessmentBaseCommit, base)
+		}
+	}
 }
 
 func isolatedGit(t *testing.T, root string, args ...string) {
@@ -1018,16 +1034,43 @@ func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
 
 func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, []string, []string, string, string) {
 	t.Helper()
-	root := hermeticSelfHostingSource(t)
-
-	// All manifests already in root (committed to main by hermeticSelfHostingSource) are approved.
-	approvedRels := append([]string{}, selfHostingChangeSetRelPaths(t, root)...)
+	root, preexistingProposal := selfHostingSourceWithExtraChangeSet(t)
+	approvedRels, proposedRels := partitionChangeSets(root, selfHostingChangeSetRelPaths(t, root))
+	if !containsString(proposedRels, preexistingProposal) {
+		t.Fatalf("pre-existing proposal %s was not partitioned as proposed: %v", preexistingProposal, proposedRels)
+	}
+	if isChangeSetApprovedInTree(root, "refs/heads/main", preexistingProposal) || isChangeSetTracked(root, preexistingProposal) {
+		t.Fatalf("pre-existing proposal %s is not an untracked proposal on the source", preexistingProposal)
+	}
 
 	// Add a synthetic change set as later approved history on main.
-	id2, rel2 := nextSelfHostingChangeSetRel(t, root)
-	reqID2, reqRel2 := nextSelfHostingRequirementRel(t, root)
-	req2 := records.Requirement{
-		ID:   reqID2,
+	approvedID, approvedRel := nextSelfHostingChangeSetRel(t, root)
+	approvedRequirementID, approvedRequirementRel := nextSelfHostingRequirementRel(t, root)
+	proposalReqs, proposalIfaces := referencedRecordsForChangeSets(t, root, proposedRels)
+	proposalFiles := append(append(append([]string{}, proposedRels...), proposalReqs...), proposalIfaces...)
+	// Keep existing untracked proposals out of the approved commit and its store digests.
+	type hiddenFile struct {
+		rel  string
+		data []byte
+	}
+	var hiddenProposals []hiddenFile
+	for _, rel := range proposalFiles {
+		if isChangeSetTracked(root, rel) {
+			continue
+		}
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		hiddenProposals = append(hiddenProposals, hiddenFile{rel: rel, data: data})
+	}
+
+	approvedRequirement := records.Requirement{
+		ID:   approvedRequirementID,
 		Type: "event-driven",
 		Text: "When an engineer inspects specification status, the CLI shall report approved change sets.",
 		AppliesTo: records.Applicability{
@@ -1041,20 +1084,20 @@ func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, [
 		Created:    "2026-10-13T16:01:00Z",
 		Status:     records.StatusActive,
 	}
-	reqData2, err := storage.Encode(req2)
+	approvedRequirementData, err := storage.Encode(approvedRequirement)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, root, reqRel2, string(reqData2))
+	writeTestFile(t, root, approvedRequirementRel, string(approvedRequirementData))
 
-	cs2 := records.ChangeSet{
-		ID:         id2,
+	approvedChangeSet := records.ChangeSet{
+		ID:         approvedID,
 		BaseCommit: strings.Repeat("a", 40),
 		Intent:     "Document a previously approved historical change set",
 		Operations: []records.RequirementOperation{
 			{
 				Action:        "add",
-				RequirementID: reqID2,
+				RequirementID: approvedRequirementID,
 			},
 		},
 		AffectedInterfaces:         []string{},
@@ -1064,23 +1107,33 @@ func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, [
 		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
 		Created:                    "2026-10-13T16:00:00Z",
 	}
-	csData2, err := storage.Encode(cs2)
+	approvedChangeSetData, err := storage.Encode(approvedChangeSet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, root, rel2, string(csData2))
+	writeTestFile(t, root, approvedRel, string(approvedChangeSetData))
 	refreshProjectDigests(t, root)
 
-	// Commit id2 to main so it becomes approved history.
+	// Commit the synthetic set to main so it becomes approved history.
 	isolatedGit(t, root, "add", ".protobot")
-	isolatedGit(t, root, "commit", "-m", "approved specification records for "+id2)
-	approvedRels = append(approvedRels, rel2)
+	isolatedGit(t, root, "commit", "-m", "approved specification records for "+approvedID)
+	approvedRels = append(approvedRels, approvedRel)
+	for _, file := range hiddenProposals {
+		path := filepath.Join(root, filepath.FromSlash(file.rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, file.data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refreshProjectDigests(t, root)
 
 	// Add a synthetic active proposed change set in the working tree.
-	id3, rel3 := nextSelfHostingChangeSetRel(t, root)
-	reqID3, reqRel3 := nextSelfHostingRequirementRel(t, root)
-	req3 := records.Requirement{
-		ID:   reqID3,
+	proposedID, proposedRel := nextSelfHostingChangeSetRel(t, root)
+	proposedRequirementID, proposedRequirementRel := nextSelfHostingRequirementRel(t, root)
+	proposedRequirement := records.Requirement{
+		ID:   proposedRequirementID,
 		Type: "event-driven",
 		Text: "When an engineer adds a proposed change set, the CLI shall support multiple proposed change sets.",
 		AppliesTo: records.Applicability{
@@ -1094,20 +1147,20 @@ func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, [
 		Created:    "2026-10-13T16:03:00Z",
 		Status:     records.StatusActive,
 	}
-	reqData3, err := storage.Encode(req3)
+	proposedRequirementData, err := storage.Encode(proposedRequirement)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, root, reqRel3, string(reqData3))
+	writeTestFile(t, root, proposedRequirementRel, string(proposedRequirementData))
 
-	cs3 := records.ChangeSet{
-		ID:         id3,
+	proposedChangeSet := records.ChangeSet{
+		ID:         proposedID,
 		BaseCommit: strings.Repeat("a", 40),
 		Intent:     "Document an active proposed change set",
 		Operations: []records.RequirementOperation{
 			{
 				Action:        "add",
-				RequirementID: reqID3,
+				RequirementID: proposedRequirementID,
 			},
 		},
 		AffectedInterfaces:         []string{},
@@ -1117,15 +1170,16 @@ func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, [
 		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
 		Created:                    "2026-10-13T16:02:00Z",
 	}
-	csData3, err := storage.Encode(cs3)
+	proposedChangeSetData, err := storage.Encode(proposedChangeSet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	writeTestFile(t, root, rel3, string(csData3))
+	writeTestFile(t, root, proposedRel, string(proposedChangeSetData))
 	refreshProjectDigests(t, root)
-	proposedRels := []string{rel3}
+	proposedRels = append(proposedRels, proposedRel)
+	pinSelfHostingChangeSetsExcept(t, root)
 
-	return root, approvedRels, proposedRels, id2, id3
+	return root, approvedRels, proposedRels, approvedID, proposedID
 }
 
 func nextSelfHostingRequirementRel(t *testing.T, root string) (string, string) {
