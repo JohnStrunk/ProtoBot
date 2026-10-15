@@ -973,10 +973,6 @@ func artifactListReadFailure(failure *commandFailure) *commandFailure {
 	return failure
 }
 
-func validArtifactOwner(value string) bool {
-	return value == "user" || value == "ears-manager"
-}
-
 func runArtifactPut(args []string, stdin io.Reader) (any, Mutation, *commandFailure) {
 	parsed, failure := parseOptions(args, map[string]optionSpec{
 		"change-set":    {takesValue: true},
@@ -1274,6 +1270,10 @@ func validArtifactKind(value string) bool {
 	default:
 		return false
 	}
+}
+
+func validArtifactOwner(value string) bool {
+	return value == "user" || value == "ears-manager"
 }
 
 func validRelationshipType(value string) bool {

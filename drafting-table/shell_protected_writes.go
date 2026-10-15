@@ -120,5 +120,5 @@ func protectedShellTarget(state projectState, cwd, target string) bool {
 	if strings.HasPrefix(target, "~") && target != "~" && !strings.HasPrefix(target, "~/") {
 		return true
 	}
-	return isProtectedPathValue(state, cwd, target)
+	return isLexicalControlPath(state.root, cwd, target) || isProtectedPathValue(state, cwd, target)
 }

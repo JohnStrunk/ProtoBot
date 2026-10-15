@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -391,43 +392,284 @@ func findActions(args []string) ([]findAction, bool) {
 	return actions, true
 }
 
+func findActionMayCompleteGovernedWrite(args []string) bool {
+	// find may substitute or append matched paths, so its static argv can be
+	// incomplete even when a runtime match invokes ears-manager with a write.
+	return findActionMayCompleteGovernedWriteAtDepth(args, 0)
+}
+
+func findActionMayCompleteGovernedWriteAtDepth(args []string, depth int) bool {
+	if depth > maxShellAnalysisDepth {
+		return true
+	}
+	command := unwrapCommand(stripShellControlPrefix(args))
+	return commandMayCompleteGovernedWrite(command, depth)
+}
+
+func commandMayCompleteGovernedWrite(command []string, depth int) bool {
+	if len(command) == 0 {
+		return false
+	}
+	name := filepath.Base(command[0])
+	switch name {
+	case "ears-manager":
+		return argumentsContainFindPlaceholder(command[1:])
+	}
+	if strings.Contains(command[0], "{}") {
+		return true
+	}
+	if name == "sed" {
+		if isCodeInterpreter(name, command) && argumentsContainFindPlaceholder(command[1:]) {
+			return true
+		}
+		return sedCodeStringContainsFindPlaceholder(command[1:])
+	}
+	if isShellInterpreter(name) {
+		return shellCommandMayCompleteGovernedWrite(command, depth)
+	}
+	if isCodeInterpreter(name, command) {
+		// A code-bearing interpreter may parse a substituted argv value as source.
+		return argumentsContainFindPlaceholder(command[1:])
+	}
+	return false
+}
+
+func argumentsContainFindPlaceholder(args []string) bool {
+	for _, arg := range args {
+		if strings.Contains(arg, "{}") {
+			return true
+		}
+	}
+	return false
+}
+
+func shellCommandMayCompleteGovernedWrite(command []string, depth int) bool {
+	script, found, safe := shellCommandString(command)
+	if !safe {
+		return true
+	}
+	if !found {
+		return false
+	}
+	// find substitutes paths before the child shell parses its -c text.
+	if strings.Contains(script, "{}") {
+		return true
+	}
+	for _, words := range shellCommandSegments(script) {
+		if findActionMayCompleteGovernedWriteAtDepth(words, depth+1) {
+			return true
+		}
+	}
+	return false
+}
+
+func sedCodeStringContainsFindPlaceholder(args []string) bool {
+	scriptSeen := false
+	for index := 0; index < len(args); {
+		next, seen, placeholder := sedCodeArgument(args, index, scriptSeen)
+		if placeholder {
+			return true
+		}
+		scriptSeen = seen
+		index = next
+	}
+	return false
+}
+
+func sedCodeArgument(args []string, index int, scriptSeen bool) (int, bool, bool) {
+	if next, matched, placeholder := sedExpressionPlaceholder(args, index); matched {
+		return next, true, placeholder
+	}
+	if next, matched, placeholder := sedFilePlaceholder(args, index); matched {
+		return next, scriptSeen, placeholder
+	}
+	return otherSedCodeArgument(args, index, scriptSeen)
+}
+
+func otherSedCodeArgument(args []string, index int, scriptSeen bool) (int, bool, bool) {
+	arg := args[index]
+	if arg == "--" {
+		return len(args), scriptSeen, !scriptSeen && index+1 < len(args) && strings.Contains(args[index+1], "{}")
+	}
+	if strings.HasPrefix(arg, "-") || scriptSeen {
+		return index + 1, scriptSeen, false
+	}
+	return index + 1, true, strings.Contains(arg, "{}")
+}
+
+func sedExpressionPlaceholder(args []string, index int) (int, bool, bool) {
+	arg := args[index]
+	switch {
+	case arg == "-e" || arg == "--expression":
+		if index+1 >= len(args) {
+			return index + 1, true, true
+		}
+		return index + 2, true, strings.Contains(args[index+1], "{}")
+	case strings.HasPrefix(arg, "--expression="):
+		return index + 1, true, strings.Contains(strings.TrimPrefix(arg, "--expression="), "{}")
+	case strings.HasPrefix(arg, "-e") && len(arg) > 2:
+		return index + 1, true, strings.Contains(strings.TrimPrefix(arg, "-e"), "{}")
+	default:
+		return index + 1, false, false
+	}
+}
+
+func sedFilePlaceholder(args []string, index int) (int, bool, bool) {
+	arg := args[index]
+	switch {
+	case arg == "-f" || arg == "--file":
+		if index+1 >= len(args) {
+			return index + 1, true, true
+		}
+		return index + 2, true, strings.Contains(args[index+1], "{}")
+	case strings.HasPrefix(arg, "-f") && !strings.HasPrefix(arg, "--"):
+		return index + 1, true, strings.Contains(strings.TrimPrefix(arg, "-f"), "{}")
+	case strings.HasPrefix(arg, "--file="):
+		return index + 1, true, strings.Contains(strings.TrimPrefix(arg, "--file="), "{}")
+	default:
+		return index + 1, false, false
+	}
+}
+
 func xargsCommand(args []string) ([]string, bool, bool) {
-	for i := 1; i < len(args); i++ {
-		arg := args[i]
+	if len(args) == 2 && (args[1] == "--help" || args[1] == "--version") {
+		return nil, false, true
+	}
+	return parseXargsCommand(args)
+}
+
+func parseXargsCommand(args []string) ([]string, bool, bool) {
+	replacement, hasReplacement := "", false
+	for index := 1; index < len(args); {
+		arg := args[index]
 		if arg == "--" {
-			if i+1 == len(args) {
-				return nil, false, true
-			}
-			return append([]string(nil), args[i+1:]...), true, true
+			return xargsCommandTarget(args[index+1:], replacement, hasReplacement)
 		}
 		if !strings.HasPrefix(arg, "-") || arg == "-" {
-			return append([]string(nil), args[i:]...), true, true
+			return xargsCommandTarget(args[index:], replacement, hasReplacement)
 		}
-		option, _, hasValue := strings.Cut(arg, "=")
-		if !hasValue && isAttachedXargsValue(arg) {
-			continue
-		}
-		switch option {
-		case "-0", "--null", "-r", "--no-run-if-empty", "-x", "--exit", "-t", "--verbose", "-p", "--interactive", "--show-limits":
-			if hasValue {
+		value, next, replacementOption, safe := xargsReplacementOption(args, index)
+		if replacementOption {
+			if !safe || hasReplacement {
 				return nil, false, false
 			}
-		case "-a", "--arg-file", "-d", "--delimiter", "-E", "-e", "--eof", "-I", "--replace", "-J", "-L", "-l", "--max-lines", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars":
-			if !hasValue {
-				if i+1 >= len(args) {
-					return nil, false, false
-				}
-				i++
-			}
-		default:
+			replacement, hasReplacement = value, true
+			index = next
+			continue
+		}
+		next, safe = xargsRegularOption(args, index)
+		if !safe {
 			return nil, false, false
 		}
+		index = next
 	}
 	return nil, false, true
 }
 
+func xargsReplacementOption(args []string, index int) (string, int, bool, bool) {
+	value, needsValue, recognized := xargsReplacementValue(args[index])
+	if !recognized {
+		return "", index, false, true
+	}
+	if needsValue {
+		if index+1 >= len(args) {
+			return "", index, true, false
+		}
+		index++
+		value = args[index]
+	}
+	return value, index + 1, true, value != ""
+}
+
+func xargsReplacementValue(arg string) (string, bool, bool) {
+	switch {
+	case strings.HasPrefix(arg, "-I"):
+		return strings.TrimPrefix(arg, "-I"), arg == "-I", true
+	case strings.HasPrefix(arg, "-i"):
+		value := strings.TrimPrefix(arg, "-i")
+		if value == "" {
+			value = "{}"
+		}
+		return value, false, true
+	case strings.HasPrefix(arg, "-J"):
+		return strings.TrimPrefix(arg, "-J"), arg == "-J", true
+	case arg == "--replace":
+		return "{}", false, true
+	case strings.HasPrefix(arg, "--replace="):
+		return strings.TrimPrefix(arg, "--replace="), false, true
+	default:
+		return "", false, false
+	}
+}
+
+func xargsRegularOption(args []string, index int) (int, bool) {
+	arg := args[index]
+	option, _, hasValue := strings.Cut(arg, "=")
+	if xargsNoValueFlagCluster(arg) {
+		return index + 1, true
+	}
+	if !hasValue && isAttachedXargsValue(arg) {
+		return index + 1, true
+	}
+	switch option {
+	case "-0", "--null", "-r", "--no-run-if-empty", "-x", "--exit", "-t", "--verbose", "-p", "--interactive", "--show-limits":
+		return index + 1, !hasValue
+	case "-e", "--eof", "-l", "--max-lines":
+		// These optional values are recognized only when attached.
+		return index + 1, true
+	case "-a", "--arg-file", "-d", "--delimiter", "-E", "-L", "-n", "--max-args", "-P", "--max-procs", "-s", "--max-chars":
+		if hasValue {
+			return index + 1, true
+		}
+		if index+1 < len(args) {
+			return index + 2, true
+		}
+	}
+	return index, false
+}
+
+func xargsNoValueFlagCluster(arg string) bool {
+	if len(arg) < 3 || arg[0] != '-' || arg[1] == '-' {
+		return false
+	}
+	for _, flag := range arg[1:] {
+		if !strings.ContainsRune("0rxtp", flag) {
+			return false
+		}
+	}
+	return true
+}
+
+func xargsCommandTarget(command []string, replacement string, hasReplacement bool) ([]string, bool, bool) {
+	if len(command) == 0 {
+		return nil, false, true
+	}
+	if hasReplacement && xargsReplacementMayChangeExecution(command, replacement) {
+		return nil, false, false
+	}
+	return append([]string(nil), command...), true, true
+}
+
+func xargsReplacementMayChangeExecution(command []string, replacement string) bool {
+	if replacement == "" {
+		return true
+	}
+	// echo and printf do not execute substituted operands as commands or source.
+	literalOutput := contains([]string{"echo", "printf"}, filepath.Base(command[0]))
+	for index, arg := range command {
+		if !strings.Contains(arg, replacement) {
+			continue
+		}
+		if literalOutput && index > 0 {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
 func isAttachedXargsValue(option string) bool {
-	for _, prefix := range []string{"-a", "-d", "-E", "-e", "-I", "-J", "-L", "-l", "-n", "-P", "-s"} {
+	for _, prefix := range []string{"-a", "-d", "-E", "-e", "-L", "-l", "-n", "-P", "-s"} {
 		if strings.HasPrefix(option, prefix) && len(option) > len(prefix) {
 			return true
 		}
@@ -634,92 +876,121 @@ func governedWordsWriteAtDepth(words []string, depth int) governedExecution {
 	if depth > maxShellAnalysisDepth {
 		return governedExecutionOpaque
 	}
-	if len(words) == 0 {
-		return governedExecutionNone
-	}
-	if opaqueShellCommand(words) {
-		return governedExecutionOpaque
-	}
-	gitExecutionEnvironmentOverride := hasGitExecutionEnvironmentOverride(words)
-	if gitExecutionEnvironmentOverride {
-		return governedExecutionOpaque
-	}
-	words = stripShellControlPrefix(words)
-	if len(words) == 0 {
-		return governedExecutionNone
-	}
-	if shellExportsGitExecutionEnvironment(words) {
-		return governedExecutionOpaque
-	}
-	if filepath.Base(words[0]) == "env" {
-		_, found, safe := envSplitString(words)
-		if !safe {
-			return governedExecutionOpaque
-		}
-		if found {
-			return governedExecutionOpaque
-		}
+	words, result, finished := prepareGovernedWords(words)
+	if finished {
+		return result
 	}
 	args := unwrapCommand(words)
 	if len(args) == 0 {
 		return governedExecutionOpaque
 	}
+	return inspectGovernedCommand(args, depth)
+}
+
+func prepareGovernedWords(words []string) ([]string, governedExecution, bool) {
+	if len(words) == 0 {
+		return nil, governedExecutionNone, true
+	}
+	if opaqueShellCommand(words) || hasCommandExecutionEnvironmentOverride(words) {
+		return nil, governedExecutionOpaque, true
+	}
+	words = stripShellControlPrefix(words)
+	if len(words) == 0 {
+		return nil, governedExecutionNone, true
+	}
+	if shellExportsCommandExecutionEnvironment(words) {
+		return nil, governedExecutionOpaque, true
+	}
+	if filepath.Base(words[0]) == "env" {
+		_, found, safe := envSplitString(words)
+		if !safe || found {
+			return nil, governedExecutionOpaque, true
+		}
+	}
+	return words, governedExecutionNone, false
+}
+
+func inspectGovernedCommand(args []string, depth int) governedExecution {
 	name := filepath.Base(args[0])
 	if opaqueGovernedExecution(name, args) {
 		return governedExecutionOpaque
 	}
 	if isShellInterpreter(name) {
-		script, found, safe := shellCommandString(args)
-		if !safe {
-			return governedExecutionOpaque
-		}
-		if !found {
-			return governedExecutionNone
-		}
-		return invokesGovernedWriteAtDepth(script, depth+1)
+		return governedShellCommand(args, depth)
 	}
-	if name == "find" {
-		actions, safe := findActions(args)
-		if !safe {
-			return governedExecutionOpaque
-		}
-		finding := governedExecutionNone
-		for _, action := range actions {
-			current := governedWordsWriteAtDepth(action.args, depth+1)
-			if current == governedExecutionExplicitWrite {
-				return current
-			}
-			if current == governedExecutionOpaque {
-				finding = current
-			}
-		}
-		return finding
+	switch name {
+	case "find":
+		return governedFindActions(args, depth)
+	case "xargs":
+		return governedXargsCommand(args, depth)
+	case "ears-manager":
+		return governedEarsManagerCommand(args)
+	default:
+		return governedExternalCommand(args)
 	}
-	if name == "xargs" {
-		command, found, safe := xargsCommand(args)
-		if !safe {
-			return governedExecutionOpaque
-		}
-		if !found {
-			return governedExecutionNone
-		}
-		current := governedWordsWriteAtDepth(command, depth+1)
-		if current == governedExecutionNone && len(command) > 0 && filepath.Base(command[0]) == "ears-manager" {
-			// xargs appends standard-input tokens to the child argv, so a
-			// governed write can be assembled from uninspectable stdin data.
-			return governedExecutionOpaque
-		}
-		return current
+}
+
+func governedShellCommand(args []string, depth int) governedExecution {
+	script, found, safe := shellCommandString(args)
+	if !safe {
+		return governedExecutionOpaque
 	}
-	if name != "ears-manager" {
-		if len(args) > 0 && strings.HasPrefix(args[0], quotedControlWordPrefix) {
-			return governedExecutionNone
-		}
-		if containsLiteralGovernedWrite(args) {
-			return governedExecutionExplicitWrite
-		}
+	if !found {
 		return governedExecutionNone
 	}
+	return invokesGovernedWriteAtDepth(script, depth+1)
+}
+
+func governedFindActions(args []string, depth int) governedExecution {
+	actions, safe := findActions(args)
+	if !safe {
+		return governedExecutionOpaque
+	}
+	finding := governedExecutionNone
+	for _, action := range actions {
+		current := governedWordsWriteAtDepth(action.args, depth+1)
+		if current == governedExecutionExplicitWrite {
+			return current
+		}
+		if current == governedExecutionOpaque || findActionMayCompleteGovernedWrite(action.args) {
+			finding = governedExecutionOpaque
+		}
+	}
+	return finding
+}
+
+func governedXargsCommand(args []string, depth int) governedExecution {
+	command, found, safe := xargsCommand(args)
+	if !safe {
+		return governedExecutionOpaque
+	}
+	if !found {
+		return governedExecutionNone
+	}
+	current := governedWordsWriteAtDepth(command, depth+1)
+	if current != governedExecutionNone {
+		return current
+	}
+	child := unwrapCommand(stripShellControlPrefix(command))
+	if !xargsChildSafeForInputAppend(child) {
+		// xargs appends standard-input tokens to the static child argv. A
+		// non-output command may gain executable options or protected targets.
+		return governedExecutionOpaque
+	}
+	return governedExecutionNone
+}
+
+func governedExternalCommand(args []string) governedExecution {
+	if strings.HasPrefix(args[0], quotedControlWordPrefix) {
+		return governedExecutionNone
+	}
+	if containsLiteralGovernedWrite(args) {
+		return governedExecutionExplicitWrite
+	}
+	return governedExecutionNone
+}
+
+func governedEarsManagerCommand(args []string) governedExecution {
 	args, safe := stripOutputOptions(args[1:])
 	if !safe {
 		return governedExecutionOpaque
@@ -727,7 +998,7 @@ func governedWordsWriteAtDepth(words []string, depth int) governedExecution {
 	if len(args) == 0 || contains(args, "--help") || contains(args, "--version") {
 		return governedExecutionNone
 	}
-	name = args[0]
+	name := args[0]
 	if len(args) >= 2 {
 		name += " " + args[1]
 	}
@@ -773,6 +1044,34 @@ func literalOutputCommand(args []string) bool {
 		return true
 	}
 	return name == "git" && len(args) > 1 && contains([]string{"grep", "status", "diff", "log", "show", "rev-parse", "branch"}, args[1])
+}
+
+func xargsChildSafeForInputAppend(child []string) bool {
+	if len(child) == 0 {
+		return false
+	}
+	name := filepath.Base(child[0])
+	switch name {
+	case "sort", "uniq", "rg":
+		// These output commands also accept argv that writes files or runs helpers.
+		return false
+	case "git":
+		command, _, ok := gitSubcommand(child)
+		if !ok || contains([]string{"diff", "show", "log", "branch", "grep"}, command) {
+			return false
+		}
+		return contains([]string{"rev-parse", "status"}, command)
+	}
+	if contains(xargsAppendSafeOutputCommands, name) {
+		return true
+	}
+	return name == "ears-manager" && len(child) == 2 &&
+		(child[1] == "--help" || child[1] == "--version")
+}
+
+// This is narrower than literalOutputCommand because xargs can turn input into options.
+var xargsAppendSafeOutputCommands = []string{
+	"echo", "printf", "cat", "grep", "head", "tail", "wc", "cut", "tr", "pwd", "ls", "true", "false",
 }
 
 func commandStringOperand(args []string, index int) (string, bool) {
@@ -830,6 +1129,8 @@ func opaqueGovernedExecution(name string, args []string) bool {
 		// Build/inspection commands do not execute the resulting Go package;
 		// test, run, generate, and tool do execute code outside this scanner.
 		return goExecutionOpaque(args)
+	case name == "rg":
+		return ripgrepCanExecuteCommands(args) || os.Getenv("RIPGREP_CONFIG_PATH") != ""
 	case name == "git":
 		return gitInvocationOpaque(args)
 	case isOpaqueExecutionWrapper(name):
@@ -841,17 +1142,53 @@ func opaqueGovernedExecution(name string, args []string) bool {
 
 func stripOutputOptions(args []string) ([]string, bool) {
 	result := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		if args[i] != "--output" {
-			result = append(result, args[i])
-			continue
-		}
-		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "--") {
+	commandSeen := false
+	// ears-manager accepts global options throughout argv; unknown options
+	// before its command cannot safely be classified as read-only.
+	for index := 0; index < len(args); {
+		next, outputOption, safe := consumeOutputOption(args, index)
+		if !safe {
 			return nil, false
 		}
-		i++
+		if outputOption {
+			index = next
+			continue
+		}
+		arg := args[index]
+		if unknownGlobalOptionBeforeCommand(arg, commandSeen) {
+			return nil, false
+		}
+		result = append(result, arg)
+		commandSeen = commandSeen || !strings.HasPrefix(arg, "-")
+		index++
 	}
 	return result, true
+}
+
+func consumeOutputOption(args []string, index int) (int, bool, bool) {
+	arg := args[index]
+	switch {
+	case arg == "--output":
+		if index+1 >= len(args) || !validOutputFormat(args[index+1]) {
+			return index, false, false
+		}
+		return index + 2, true, true
+	case strings.HasPrefix(arg, "--output="):
+		if !validOutputFormat(strings.TrimPrefix(arg, "--output=")) {
+			return index, false, false
+		}
+		return index + 1, true, true
+	default:
+		return index, false, true
+	}
+}
+
+func unknownGlobalOptionBeforeCommand(arg string, commandSeen bool) bool {
+	return !commandSeen && strings.HasPrefix(arg, "-") && arg != "--help" && arg != "--version"
+}
+
+func validOutputFormat(value string) bool {
+	return value == "json" || value == "human"
 }
 
 func stripShellControlPrefix(words []string) []string {

@@ -46,8 +46,10 @@ binding per harness:
 - **[OpenCode Harness Binding](opencode.md) is the first binding.** It
   defines the OpenCode files that meet this contract, designed against
   OpenCode 1.18.30. Its fixture ran in #77 against the pinned binary;
-  H1 to H12 are met with the plugin-absent fail-open path and deferred
-  steps recorded as gaps, and H13 was not checked.
+  that run predates PR #273's Rule 4/7 guard changes and does not verify
+  their new cases. H1 to H12 describe the original run, with the
+  plugin-absent fail-open path and deferred steps recorded as gaps, and
+  H13 was not checked.
 - **[Claude Code Harness Binding](claude-code.md) is the second.** It
   defines the Claude Code files, designed against the Claude Code
   2.1.273 documentation and CLI help. Its fixture has not run yet.
@@ -213,11 +215,70 @@ must not reach them either: the guard refuses an `artifact put` or
 `AGENTS.md`, or `CLAUDE.md` ([Shell operations](#shell-operations)).
 Otherwise the role could register its own hook, manifest, or project
 instructions as an artifact and rewrite them for the next session.
-Rule 3 refuses direct file-writing tool arguments to `.git/` and the
-adapter manifest path selected by the guard. Rule 7 refuses recognized
-shell writers to Git's resolved metadata directories and that manifest
-path, as well as output redirections to guarded paths; redirections
-that cannot be inspected safely are refused.
+Rule 3 refuses file-writing tools targeting the `.protobot/` project-control
+namespace, Git metadata (including `.git/` and Git's resolved worktree or
+common metadata directory), reserved harness binding paths/files (`.agents/`,
+`.claude/`, `.codex/`, `.opencode/`, `.github/`, `opencode.json`, `AGENTS.md`,
+and `CLAUDE.md`), configured store paths and registered artifact paths known
+from successful project inspection, and the selected adapter manifest path
+and its containing directory/`skills/` subtree. The manifest directory is
+protected whether the selected target already exists or not. Rule 7 applies
+targeted shell-writer checks to the project-control namespace, Git metadata,
+reserved harness binding paths/files, configured store paths resolved by
+Rule 2, and the selected adapter manifest path and its containing
+directory/`skills/` subtree; it also refuses output redirections to those
+paths and registered artifact paths known from successful project inspection.
+A `cp` content-copy source such as `dir/.` or `.` is refused when its resolved
+destination directory is an ancestor of or equal to Git metadata, `.protobot/`,
+the selected manifest/`skills/`, `.agents/drafting-table.yaml`,
+`.agents/skills`, or safely resolved configured store paths. A plain directory
+copy such as `cp -r dir .` instead checks its mapped `./dir` destination.
+Recognized move/removal source operands are also checked: recursive `rm`
+operations, and `mv` operations whose source is a directory, are refused when
+it contains protected Git metadata, the `.protobot/` project-control
+namespace, the selected adapter manifest subtree, or a configured store.
+For `cp`, `mv`, and
+`install`, existing or trailing-slash directory destinations and
+`-t`/`--target-directory` also check each source's mapped
+`destination/basename(source)` target. `cp --parents`, `rsync --relative`/`-R`,
+and `rsync --files-from` fail closed because they change that mapping (`-R` is
+recursive for `cp` and relative for `rsync`; `--files-from` uses uninspected
+file-list entries to map output beneath the destination). `rsync --backup-dir`,
+`--partial-dir`, `--temp-dir`, and `--write-batch` fail closed because they can
+name write locations outside modeled destinations. `rsync --rsh`/`-e` and
+`--rsync-path` fail closed because they carry remote-side commands.
+`rsync --link-dest` fails closed because it can create a hard link from an
+alternate base into a mapped destination, allowing a later in-place update to
+change the base. `rsync --remove-source-files` fails closed because it deletes
+source operands, making the sources write locations. `ln` checks the same
+mapped destination for directory operands, including a trailing slash, and
+checks the implicit `basename(target)` destination for the single-operand
+forms `ln target` and `ln -s target`.
+`ln` and `cp -l`/`--link` or `-s`/`--symbolic-link` modes inspect source paths,
+including existing symlink chains and relative symbolic-link targets resolved
+from the destination's parent. Symlink-preserving analysis covers tree members
+for recursive `cp -r`/`-R`/`-a`/`--recursive` unless
+`-L`/`--dereference` is present without `-H` or an explicit
+symlink-preserving flag; `-H` dereferences command-line links but tree-member
+links remain covered. It covers top-level source links
+for `cp -a`/`--archive`/`-d`/`-P`/`--no-dereference` and for recursive `cp`
+without `-H`/`-L`/`--dereference`, `mv` source links and directory trees,
+`rsync -a`/`--archive`, or `rsync -r`/`--recursive` with `-l`/`--links`;
+`rsync -a`/`--archive`/`-l`/`--links` also preserve top-level source links.
+`cp --preserve=links` preserves hard links only, not symlink operands. The guard
+walks trees without following symlinks, re-anchors each relative link text at
+its mapped destination, checks absolute link text unchanged, and refuses if
+inspection fails or a walk exceeds 10,000 entries. For recursive `cp`,
+`-H` combined with `-L`/`--dereference` makes the guard scan tree-member links
+conservatively. If `-H`, `-L`, or `--dereference` is combined with an explicit
+symlink-preserving flag (`-a`, `-d`, `-P`, or `--no-dereference`), the guard
+also checks top-level source links.
+These checks refuse same-command link-source chains that would expose
+protected state. The shell-writer inventory is targeted, not exhaustive;
+an ordinary registered-file argv target is not generally refused solely
+because it is registered. Any shell command that contains both an output
+redirection and any working-directory change is refused, regardless of order.
+Redirections that cannot be inspected safely are refused.
 
 ### The adapter manifest
 
@@ -468,7 +529,7 @@ fields, never from the command, the prompt, or the conversation:
 
 | Operation | Command forms | Constraint |
 | --- | --- | --- |
-| Read specifications | `ears-manager --output json <read>`, where `<read>` is `<group> list`, `<group> show`, `artifact get`, `change-set compare`, `check`, or `impact` with #30's options; and `ears-manager <any> --help` and `ears-manager --version` | Read-only |
+| Read specifications | `ears-manager --output json <read>`, where `<read>` is `<group> list`, `<group> show`, `artifact get`, `artifact list`, `change-set compare`, `check`, or `impact` with #30's options; and `ears-manager <any> --help` and `ears-manager --version` | Read-only |
 | Write specifications | `ears-manager --output json <write>`, where `<write>` is `artifact put`, `interface add` or `update`, `requirement add`, `update`, or `retire`, or `change-set create` or `update` with #30's options; `artifact put --content-stdin` and `change-set update --impact-file -` take their input on standard input in a quoted here-document | #30's grammar; `--content-file` and `--impact-file` only with `-` |
 | Initialize a project | `ears-manager --output json project init` with #30's options, after the `scm` tool `branch_init` cut `<prefix>00001-project-init` | Only while `.protobot/` does not exist ([guard rule 1](#guard-rules)); #34's initialization order needs the branch before `project init` |
 | Read the clock | `date -u +%Y-%m-%dT%H:%M:%SZ` | Read-only; the value of every `--created` option that #30 requires |
@@ -490,7 +551,9 @@ are adapter, binding, and instruction files, never artifacts. The guard
 refuses:
 
 - an option or argument that the form does not show;
-- an environment assignment before the command;
+- a prefixed environment assignment before a Drafting Table-allowed
+  command; that role's exact shell grammar allows only the listed command
+  forms, while Rule 4 applies targeted key checks in other roles;
 - output redirection, command substitution, and variable expansion
   outside a quoted here-document body;
 - input redirection (`<`, `<>`) and any other standard-input source
@@ -666,10 +729,17 @@ document names them, and guard rules 5 and 6 treat them as reads.
    read; it parses no other file under `.protobot/`
    ([`ears-manager` CLI](../../architecture.md#ears-manager-cli)). If
    either read fails, it refuses every file write and shell command in
-   the Drafting Table role and names the failure. In every role it still
-   refuses `.protobot/`, Git metadata directories, and the adapter
-   manifest path selected by the guard. Configured-store paths remain
-   guarded when they were read and resolved successfully. If `artifact
+   the Drafting Table role and names the failure. In every role,
+   inspection-independent path checks still refuse writes under the
+   `.protobot/` project-control namespace; Git metadata, including `.git/`
+   and Git's resolved worktree or common metadata directory; reserved
+   harness binding paths/files (`.agents/`, `.claude/`, `.codex/`,
+   `.opencode/`, `.github/`, `opencode.json`, `AGENTS.md`, and `CLAUDE.md`);
+   and the selected adapter manifest path and its containing
+   directory/`skills/` subtree, whether or not the selected manifest exists.
+   When `project.yaml` is readable, its store paths (including defaults)
+   remain guarded if they resolve safely; if one cannot be resolved,
+   candidate writes fail closed. If `artifact
    list` fails, the registered-artifact set is unknown, so other-role
    file writes outside known control paths are not guaranteed to be
    refused. Other writes remain subject to rules 4 and 7; they are not
@@ -678,13 +748,20 @@ document names them, and guard rules 5 and 6 treat them as reads.
    downstream checks ([What the harness layer stops][layer-stops]); those
    checks cannot establish the source of an `ears-manager` file-source
    input.
-3. **Guarded paths, every role.** A file-writing tool targeting
-   `.protobot/`, `.git/`, Git's resolved worktree or common metadata
-   directory, the adapter manifest path selected by the guard, a
-   registered artifact path, or below a configured store is refused.
-   Paths are compared after symlink resolution; a registered directory
-   or a store guards everything below it, and a write whose target path
-   cannot be read is refused.
+3. **Guarded paths, every role.** A file-writing tool targeting the
+   `.protobot/` project-control namespace, Git metadata (including `.git/`
+   and Git's resolved worktree or common metadata directory), reserved harness
+   binding paths/files (`.agents/`, `.claude/`, `.codex/`, `.opencode/`,
+   `.github/`, `opencode.json`, `AGENTS.md`, or `CLAUDE.md`), configured
+   store paths (including defaults) resolved safely, registered
+   artifact paths known from successful project inspection, or the selected
+   adapter manifest path and its
+   containing directory/`skills/` subtree is refused. Paths are compared
+   lexically and after symlink resolution; a registered directory or
+   a configured store guards everything below it, the selected manifest is
+   protected whether or not it exists, and a target path that cannot be
+   inspected is refused. Rule 2 states what remains guarded when the
+   project or artifact registry cannot be read.
 4. **Governed operations.** An `ears-manager` write command is refused
    outside the Drafting Table role regardless of whether the manifest
    lists it in `governed_commands`; this is unconditional adapter-core
@@ -693,23 +770,91 @@ document names them, and guard rules 5 and 6 treat them as reads.
    `ears-manager requirement list`, is allowed in every role. The guard
    refuses recognized opaque execution forms that could hide an indirect
    governed write, including inline or standard-input interpreters,
-    command-string wrappers, Git aliases and metadata-writing Git
-    commands, and recipe/build/test runners. It also refuses unrecognized
-    command prefixes when their argv contains a literal `ears-manager`
-    write form. It inspects transparent wrappers recursively when their
-    child argv can be determined safely. Shell expansions, command
-    substitutions, backticks, line continuations, brace groups,
-    here-documents, and input redirections fail closed in the other-role path.
-    Opaque classes include ordinary
-   development checks such as `go test` in other-role shell sessions;
-   run maintenance checks from a terminal outside the guarded session.
-   These are guard refusals, not a general-purpose shell sandbox.
-    Some ordinary interpreter source-file invocations (for example,
-    `python helper.py`), renamed executables, and direct writers outside
-    the recognized inventory remain residual routes; an indirect
-    `ears-manager` write through them has no later registry-integrity
-    control. This boundary is an accepted limitation of the local MVP,
-    not a claim that every shell execution is contained.
+   command-string wrappers, Git aliases and metadata-writing Git
+   commands, and recipe/build/test runners. `find` runtime placeholders
+   are opaque when they can change execution, including substitutions
+   into interpreter/shell code strings or other execution-bearing argv.
+   `rg --pre`/`--pre=...`, `rg --pager`/`--pager=...`, and `rg --paging`
+   forms other than `--paging=never` or `--paging never` are opaque; a
+   missing paging value also fails closed. `git grep -O` and
+   `--open-files-in-pager[=...]` are opaque too. An inherited non-empty
+   `RIPGREP_CONFIG_PATH` also makes `rg` opaque; for example,
+   `RIPGREP_CONFIG_PATH=/tmp/rg.conf rg -n -e pattern -- docs/` is refused.
+   This does not make every `rg` invocation opaque. Git commands with
+   opaque output or write effects are also refused. `git archive` is
+   refused unconditionally, including `-o`, `--output`, and stdout forms.
+   Other examples are `git
+   bundle create`, `git format-patch` (unconditionally, because the
+   effective `format.outputDirectory` configuration can redirect output
+   even when neither `-o` nor `--output-directory` is present), `git
+   mailsplit` (an output-directory writer), `git checkout-index`, `git
+   fast-import`, and `git instaweb`.
+   These are examples, not a complete Git command inventory.
+
+Informational-only invocations whose remaining arguments are all among
+`--help`, `--version`, `-h`, `-v`, and `-V` are allowed, except that
+the only informational `xargs` forms recognized are `xargs --help` and
+`xargs --version`. A bare `xargs` is also allowed because its default child
+is `echo`. In stdin-append mode, only these unwrapped children are allowed:
+   `echo`, `printf`, `cat`, `grep`, `head`, `tail`, `wc`, `cut`, `tr`,
+   `pwd`, `ls`, `true`, `false`, read-only `git status` or `git rev-parse`,
+   and exactly `ears-manager --help` or `ears-manager --version`. Other
+   children are opaque, including argv-sensitive `sort`, `uniq`, `rg`, and
+   Git `diff`, `show`, `log`, `branch`, or `grep`. Replacement mode accepts
+   one of `-I`, `-i`, `-J`, or `--replace[=...]`; malformed or repeated
+   replacement options are refused. The call is opaque when substituted
+   input can change the child command name, another argument, or code.
+   Substitutions confined to arguments of a literal `echo` or `printf`
+   command remain allowed as output data. These are targeted rules; the
+   guard does not block every `xargs` invocation.
+
+   Git config invocations that set, unset, rename, or remove
+   executable-configuration keys or sections, or use `--unset-regexp`
+   patterns that can select them, are opaque; examples include `alias.*`,
+   `pager.*`, `diff.*`, `merge.*.driver`, `gpg.*.program`, `man.*`,
+   `browser.*`, `help.browser`, `web.browser`, `instaweb.httpd`,
+   `sendemail.<identity>.smtpserver`, and `submodule.<name>.update`, as
+   well as patterns such as `^help\..*$`; this is not a complete key
+   inventory. The guard also rejects targeted execution-related
+   environment forms that can redirect Git or ripgrep. Command-scoped
+   assignments to these keys, and these keys in recognized `export`,
+   `declare`, `typeset`, or `readonly` forms, make the command opaque:
+   `GIT_CONFIG_*`; `GIT_PAGER`, `PAGER`, `GIT_EDITOR`, `EDITOR`, `VISUAL`,
+   `GIT_SEQUENCE_EDITOR`, `GIT_EXTERNAL_DIFF`, and
+   `GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE`; Git command helpers
+   `GIT_SSH_COMMAND`, `GIT_SSH`, `GIT_ASKPASS`, `SSH_ASKPASS`, and
+   `SSH_ASKPASS_REQUIRE`; Git repository and metadata overrides `GIT_DIR`,
+   `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`,
+   `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
+   `GIT_TEMPLATE_DIR`, and `GIT_CEILING_DIRECTORIES`; and
+   `RIPGREP_CONFIG_PATH`. An inherited non-empty `RIPGREP_CONFIG_PATH`
+   also makes `rg` opaque. Shell-startup or loader assignments are also
+   opaque: `BASH_ENV`, `ENV`, `ZDOTDIR`, `SHELLOPTS`, `BASHOPTS`,
+   `PROMPT_COMMAND`, `LD_PRELOAD`, `LD_AUDIT`, `DYLD_INSERT_LIBRARIES`,
+   `DYLD_LIBRARY_PATH`, `PYTHONPATH`, `PYTHONHOME`, `PYTHONSTARTUP`,
+   `PERL5OPT`, `PERL5LIB`, `RUBYOPT`, `RUBYLIB`, `NODE_OPTIONS`, and
+   `NODE_PATH`. `set -a` and `set -o allexport` forms are opaque because
+   later assignments become exported. Imported Bash-function assignments
+   named `BASH_FUNC_<name>%%` are refused too. These are targeted checks: an
+   unrelated assignment such as `FOO=value` is not refused for that
+   reason, and this is not a general-purpose shell sandbox.
+   The guard also refuses unrecognized command prefixes when their argv
+   contains a literal `ears-manager` write form, and inspects transparent
+   wrappers recursively when their child argv can be determined safely.
+   Shell expansions, command substitutions, backticks, line continuations,
+   brace groups, unquoted word-start shell comments (whose bodies the
+   scanners do not model), here-documents, and input redirections fail
+   closed in the other-role path.
+
+   Opaque classes include ordinary development checks such as `go test`
+   in other-role shell sessions; run maintenance checks from a terminal
+   outside the guarded session. These are guard refusals, not a
+   general-purpose shell sandbox. Some ordinary interpreter source-file
+   invocations (for example, `python helper.py`), renamed executables,
+   and direct writers outside the recognized inventory remain residual
+   routes; an indirect `ears-manager` write through them has no later
+   registry-integrity control. This boundary is an accepted limitation
+   of the local MVP, not a claim that every shell execution is contained.
    Inside the role, only the tools that the manifest lists for a governed
    server are allowed; every other tool of that server, a lifecycle
    transition among them, and every tool of any other server is refused.
@@ -752,26 +897,114 @@ document names them, and guard rules 5 and 6 treat them as reads.
    fields from `project.yaml`, and the change sets through `ears-manager`,
    and refuses a registration whose `<nnnnn>` is not the change set of
    `<branch>`.
-7. **Other roles' shell commands.** Output redirection to a guarded path,
-   resolved from the project root, such as `> docs/vision.md` or
-   `> .agents/drafting-table.yaml`, is refused. A redirection after a
-   working-directory change is refused as ambiguous, and a redirection
-   whose target cannot be inspected safely is refused. A direct shell
-   writer with a relative target after a working-directory change is
-   also refused as ambiguous. Direct shell writers recognized by the
-   guard, including `tee`, `cp`, `mv`, `dd`, `install`, `ln`,
-   `truncate`, `rm`, `rsync`, `patch`, `ed`, and `find` file-output
-   actions, are refused when their target is Git metadata or the
-   adapter manifest path selected by the guard. The inventory is
-   targeted, not exhaustive: an unrecognized
-   writer to those paths is not guaranteed to be stopped. Rule 4
-   separately refuses recognized opaque execution forms that could hide
-   an indirect governed write. A quoted path is ordinary text, not a
-   write, so `echo "see docs/vision.md" > notes.txt` is allowed. A direct
-   shell writer such as `sed -i`, `cp`, `tee`, or `truncate` targeting an
-   ordinary registered artifact is not generally stopped; registered-
-   path integrity checks remain the later control when the registry is
-   unchanged.
+   7. **Other roles' shell commands.** Output redirection to the
+   `.protobot/` project-control namespace, Git metadata, reserved harness
+   binding paths/files (`.agents/`, `.claude/`, `.codex/`, `.opencode/`,
+   `.github/`, `opencode.json`, `AGENTS.md`, or `CLAUDE.md`), the selected
+   adapter manifest path and its containing directory/`skills/` subtree,
+   configured store paths (including defaults) resolved safely, or registered
+   artifact paths known from successful project inspection is refused after
+   path resolution. A redirection target that cannot be inspected safely is
+   refused. Any shell command that contains both an output redirection and
+   any working-directory change is refused, regardless of order. A target
+   outside those guarded paths is not refused solely because it is a
+   redirection target; for example, `> notes.txt` is allowed when there is
+   no working-directory change. A direct shell writer with a relative target
+   after a working-directory change is also refused as ambiguous.
+
+   Recognized direct shell writers, including `sed -i`, `tee`, `touch`,
+   `cp`, `mv`, `dd`, `install`, `mkdir`, `ln`, `truncate`, `rm`, `rsync`,
+   and `find` file-output actions have their write destinations checked
+   against the `.protobot/` project-control namespace, Git metadata, reserved
+   harness binding paths/files, safely resolved configured store paths
+   (including defaults), and the selected adapter manifest path and its
+   containing directory/`skills/` subtree. The selected
+   manifest is protected whether or not it exists. The parser also recognizes
+   `sort -o`/`--output` and `-T`/`--temporary-directory` targets, `uniq`'s
+   second positional output, and `--output`/`--output=...` on Git output
+   commands including `diff`, `show`, `log`, `diff-tree`, `diff-index`,
+   `diff-files`, and `range-diff`; `git config` writes are checked at their
+   resolved local, worktree, or explicit `--file` destination. `patch` and
+   `ed` are refused because their target forms are not parsed. These are
+   targeted writer rules, not a complete Git command inventory.
+   `mkdir` checks every operand, accepts `-p`/`--parents` and
+   `-v`/`--verbose`, consumes `-m`/`--mode` values in attached or separate
+   form, accepts `-Z` and optional `--context[=CTX]` without consuming the
+   next argument, and stops option parsing at `--`.
+
+   The parser also checks source operands whose move or link effects can act
+   on protected state. Recursive `rm` operations, and `mv` operations whose
+   source is a directory, are refused when they contain protected Git
+   metadata, `.protobot/`, the selected adapter manifest subtree, or safely
+   resolved configured store paths. A `cp` content-copy source such as `dir/.`
+   or `.` is refused when its resolved destination directory is an ancestor
+   of or equal to Git metadata, `.protobot/`, the selected manifest/`skills/`,
+   `.agents/drafting-table.yaml`, `.agents/skills`, or safely resolved
+   configured store paths. A plain directory copy such as `cp -r dir .`
+   instead checks its mapped `./dir` destination. For `cp`, `mv`, and
+   `install`, an existing or trailing-slash directory destination, or `-t`/
+   `--target-directory`, also checks each source's mapped
+    `destination/basename(source)` target. `cp --parents`,
+    `rsync --relative`/`-R`, and `rsync --files-from` fail closed because they
+    change that mapping (`-R` is recursive for `cp` and relative for `rsync`;
+    `--files-from` uses uninspected file-list entries to map output beneath
+    the destination). `rsync --backup-dir`, `--partial-dir`, `--temp-dir`, and
+    `--write-batch` fail closed because they can name write locations outside
+    modeled destinations. `rsync --rsh`/`-e` and `--rsync-path` fail closed
+    because they carry remote-side commands. `rsync --link-dest` fails closed
+    because it can create a hard link from an alternate base into a mapped
+    destination, allowing a later in-place update to change the base.
+    `rsync --remove-source-files` fails closed because it deletes source
+    operands, making the sources write locations. `ln` applies the same
+    mapping for a
+   directory destination, including a trailing slash; the implicit
+   `basename(target)` destination is checked for single-operand `ln target`
+   and `ln -s target`. `ln` and `cp -l`/`--link` or `-s`/`--symbolic-link`
+   modes inspect source paths, existing symlink chains, and relative
+   symbolic-link targets from the destination's parent, refusing
+   same-command link-source chains that would expose protected state.
+   Symlink-preserving copies and moves are inspected at analysis time: tree
+   members for recursive `cp -r`/`-R`/`-a`/`--recursive` unless
+   `-L`/`--dereference` is present without `-H` or an explicit
+   symlink-preserving flag; `-H` dereferences command-line links but
+   tree-member links remain covered;
+   `mv` directory trees; `rsync -a`/`--archive`; or `rsync -r`/`--recursive`
+   with `-l`/`--links`. Top-level source links are preserved for `cp -a`/
+   `--archive`/`-d`/`-P`/`--no-dereference` and recursive `cp` without
+   `-H`/`-L`/`--dereference`, as well as for `mv` and `rsync -a`/`--archive`/
+   `-l`/`--links`. `cp --preserve=links` preserves hard links only, not
+   symlink operands. The guard walks trees without following symlinks,
+   re-anchors each relative link text at its mapped destination, checks
+   absolute link text unchanged, and refuses if inspection fails or a walk
+   exceeds 10,000 entries. For recursive `cp`, `-H` combined with
+   `-L`/`--dereference` makes the guard scan tree-member links conservatively.
+   If `-H`, `-L`, or `--dereference` is combined with an explicit
+   symlink-preserving flag (`-a`, `-d`, `-P`, or `--no-dereference`), the
+   guard also checks top-level source links.
+
+   Recognized file writers fail closed when their required operands are
+   missing: `cp`, `mv`, regular `install`, and `rsync` require source and
+   destination operands; `-t`/`--target-directory` forms require at least one
+   source; `install -d`, `mkdir`, `ln`, `touch`, `truncate`, `rm`, and
+   in-place `sed` require at least one path. `touch` consumes required values
+   for `-d`/`--date`, `-r`/`--reference`, `-t`, and `--time`. Optional long
+   values for `cp --context[=CTX]`, `cp --reflink[=WHEN]`,
+   `mv --context[=CTX]`, `install --context[=CTX]`, and
+   `mkdir --context[=CTX]` do not consume the next argument. The short `-Z`
+   flag for `cp`, `install`, and `mkdir` also leaves the next argument as an
+   operand. The `install --preserve-context`
+   and `rsync --delete-missing-args` options are flags.
+
+   The inventory is
+   targeted, not exhaustive: an
+   unrecognized writer to these paths is not guaranteed to be stopped. Rule 4
+   separately refuses recognized opaque execution forms that could hide an
+   indirect governed write. A quoted path is ordinary text, not a write, so
+   `echo "see docs/vision.md" > notes.txt` is allowed. A direct shell writer's
+   argv target is not generally stopped solely because it names an ordinary
+   registered artifact; output redirection to a registered artifact is
+   separately refused above, and registered-path integrity checks remain the
+   later control when the registry is unchanged.
 
 The guard runs no Git command that writes, opens no network connection,
 writes no file, and does nothing when a session is idle or ends.
@@ -868,11 +1101,11 @@ specific and are not refusals.
 
 | Route to guarded state | Drafting Table role | Every other role | Caught later by |
 | --- | --- | --- | --- |
-| File-writing tool targeting `.protobot/`, `.git/` or Git metadata directories, the adapter manifest path selected by the guard, a registered artifact, or a configured store | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | None for Git metadata or the manifest; registered-path checks catch other persistent specification edits only when the registry remains intact |
-| Recognized shell writer to Git metadata or the adapter manifest path selected by the guard, such as `tee`, `cp`, `mv`, `dd`, `install`, `ln`, `truncate`, `rm`, `rsync`, `patch`, `ed`, or `find -fprintf` | Refused by the guard | Refused by the guard when it returns a decision | None; no later layer detects these writes |
-| Shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, or `truncate` | Refused by the guard | Not stopped; a relative target after a working-directory change is refused as ambiguous | Pre-stage digest comparison, `ears-manager check`, and CI path ownership, for persistent registered-path edits that leave the registry intact |
-| Output redirection in a shell command | Refused by the guard | Refused for a guarded target resolved from the project root; also refused when a working-directory change makes the target ambiguous or the target cannot be inspected safely | Same, for persistent registered-path edits that leave the registry intact |
-| Recognized opaque execution forms or literal governed-write argv sequences that could hide an indirect governed write | Refused by rule 6's shell grammar | Refused by rule 4 when the guard recognizes the form | None for an indirect `ears-manager` write: the CLI can update registry digests, so later integrity checks cannot identify the unauthorized caller |
+| File-writing tool targeting the `.protobot/` project-control namespace, Git metadata, reserved harness binding paths/files, the selected adapter manifest path and its containing directory/`skills/` subtree, configured store paths (including defaults) resolved safely, or registered artifact paths known from successful project inspection | Refused by the guard; hidden by native rules where the harness can hide tools | Refused by the guard | No provenance control for Git metadata, reserved harness binding paths/files, the selected adapter manifest, or `.protobot/` control files; registered artifact/store digest checks catch persistent content changes only while their recorded digests remain intact |
+| Recognized direct shell writers to the `.protobot/` project-control namespace, Git metadata, reserved harness binding paths/files, configured store paths (including defaults) resolved safely, or the selected adapter manifest path and its containing directory/`skills/` subtree—including `sed -i`, `tee`, `touch`, `cp`, `mv`, `dd`, `install`, `mkdir`, `ln`, `truncate`, `rm`, `rsync`, `find` file-output actions, `sort -o`/`--output` and `-T`/`--temporary-directory` targets, `uniq`'s second positional output, Git `--output` targets for `diff`, `show`, `log`, `diff-tree`, `diff-index`, `diff-files`, and `range-diff`, and Git `config` writes with a resolved local, worktree, or explicit `--file` target. `patch` and `ed` are refused because their target forms are not parsed | Refused by Rule 6's exact shell grammar | Refused by Rule 7 when the guard returns a decision. The parser also checks move/removal source operands and `ln` or `cp` hard-/symbolic-link sources, including existing symlink chains and destination-relative symbolic-link targets. A recognized directory-content `cp` (source `.` or ending in `/.`) is refused when its resolved destination directory is an ancestor of or equal to Git metadata, `.protobot/`, the selected manifest/`skills/`, `.agents/drafting-table.yaml`, `.agents/skills`, or safely resolved configured store paths; a plain directory copy such as `cp -r dir .` checks its mapped `destination/basename(source)` target instead; `rm`/`mv` source directories containing protected state are refused too. For `cp`, `mv`, and `install`, existing or trailing-slash directory destinations and `-t`/`--target-directory` check each source's mapped `destination/basename(source)` target. `cp --parents`, `rsync --relative`/`-R`, and `rsync --files-from` fail closed because they change destination mapping (`-R` is recursive for `cp` and relative for `rsync`; `--files-from` uses uninspected file-list entries to map output beneath the destination). `rsync --backup-dir`, `--partial-dir`, `--temp-dir`, and `--write-batch` fail closed because they can name write locations outside modeled destinations. `rsync --rsh`/`-e` and `--rsync-path` fail closed because they carry remote-side commands. `rsync --link-dest` fails closed because it can create a hard link from an alternate base into a mapped destination, allowing a later in-place update to change the base. `rsync --remove-source-files` fails closed because it deletes source operands, making the sources write locations. `ln` checks directory destinations, including trailing slash, and the implicit `basename(target)` destination for the single-operand forms `ln target` and `ln -s target`. Symlink-preserving analysis covers tree members for recursive `cp -r`/`-R`/`-a`/`--recursive` unless `-L`/`--dereference` is present without `-H` or an explicit symlink-preserving flag; `-H` dereferences command-line links but tree-member links remain covered; `mv` directory trees; `rsync -a`/`--archive`; or `rsync -r`/`--recursive` with `-l`/`--links`. Top-level source links are preserved for `cp -a`/`--archive`/`-d`/`-P`/`--no-dereference` and for recursive `cp` without `-H`/`-L`/`--dereference`; `mv` and `rsync -a`/`--archive`/`-l`/`--links` also preserve top-level links. `cp --preserve=links` preserves hard links only, not symlink operands. Tree walks do not follow symlinks, re-anchor relative symbolic-link text at the mapped destination, check absolute link text unchanged, and fail closed on inspection errors or more than 10,000 entries. For recursive `cp`, `-H` combined with `-L`/`--dereference` makes the guard scan tree-member links conservatively; if `-H`, `-L`, or `--dereference` is combined with an explicit symlink-preserving flag (`-a`, `-d`, `-P`, or `--no-dereference`), it also checks top-level source links. The targeted inventory is not exhaustive | On a fail-open direct write, intact artifact/store digests can catch changed registered content, but do not establish writer provenance or catch coordinated digest edits; control files and Git metadata have no general path-provenance control |
+| Direct shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, `truncate`, `sort -o`/`--output`, `uniq input output`, or Git `diff`/`diff-tree`/`diff-index`/`diff-files`/`range-diff`/`show`/`log --output` | Refused by Rule 6's exact shell grammar | Not generally stopped solely because the target is an ordinary registered file; a relative target after a working-directory change is refused as ambiguous | Pre-stage digest comparison and `ears-manager check` catch persistent registered-path edits that leave the registry intact; CI path ownership is not a control for edits inside the owning path |
+| Output redirection in a shell command | Refused by the guard | Refused for the `.protobot/` project-control namespace, Git metadata, reserved harness binding paths/files, the selected adapter manifest path and its containing directory/`skills/` subtree, configured store paths read from `project.yaml` and resolved safely, and registered artifact paths known from successful project inspection; any shell command that contains both an output redirection and any working-directory change is refused, regardless of order; an uninspectable target is refused too | Intact artifact/store digests may catch a fail-open persistent edit; they do not establish the writer or catch a coordinated registry/digest edit |
+| Recognized opaque execution forms that could hide an indirect governed write, including inline or standard-input interpreters, command-string wrappers, Git aliases and metadata-writing Git commands, recipe/build/test runners, execution-changing `find` placeholders, `rg` preprocessor/pager forms except data-only `--paging=never` and `--paging never`, and Git `grep -O`. Rule 4 gives the exact targeted environment keys, including Git SSH/askpass and repository/index/object/template/ceiling overrides, shell-startup/loader assignments, ripgrep configuration, and imported `BASH_FUNC_*%%` assignments; this is not a blanket block on environment variables. Git output/effect examples include unconditional `archive` (including `-o`, `--output`, and stdout forms), `bundle create`, unconditional `format-patch` (because `format.outputDirectory` can redirect output), `mailsplit`, `checkout-index`, `fast-import`, and `instaweb`; these are examples, not a complete Git command inventory. Rule 4 defines exactly `xargs --help` and `xargs --version` as the informational forms, as well as the exact `xargs` append-safe list and replacement-mode behavior; it does not refuse every invocation | Refused by Rule 6's exact shell grammar | Refused by Rule 4 when the guard recognizes the form | No later check detects an indirect `ears-manager` write: the CLI can update registry digests, so later integrity checks cannot identify the unauthorized caller |
 | Some interpreter source-file invocations, such as `python helper.py`, renamed executables, or unrecognized shell writers/executors | Refused by rule 6's exact shell grammar | Not generally stopped by this targeted guard | None for an indirect `ears-manager` write or a protected-path write; these remain accepted residual limits, not sandbox guarantees |
 | `ears-manager --content-file` or `--impact-file` with a value other than `-`, or with `-` or `--content-stdin` and input redirection | Refused when the guard runs; binding-specific hook failures may pass the call through | Same | None: integrity and CI cannot establish whether the bytes came from standard input or an external file |
 | Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | No tool-call check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
@@ -1199,7 +1432,7 @@ under [File-source arguments](#file-source-arguments).
 
 | Harness | Binding | Status |
 | --- | --- | --- |
-| OpenCode | [OpenCode Harness Binding](opencode.md) | Fixture ran in #77 against OpenCode 1.18.30 with real governed tools and recording WMS/`gh` stubs; H1 to H12 are met, with the plugin-absent fail-open path and deferred steps recorded as gaps in the binding document; H13 not checked |
+| OpenCode | [OpenCode Harness Binding](opencode.md) | The #77 fixture ran against OpenCode 1.18.30 with real governed tools and recording WMS/`gh` stubs. It predates PR #273's Rule 4/7 changes and does not verify their new cases; H1 to H12 describe that original run, with the plugin-absent fail-open path and deferred steps recorded as gaps; H13 not checked. No post-change full fixture result is recorded here |
 | Claude Code | [Claude Code Harness Binding](claude-code.md) | Designed against Claude Code 2.1.273; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met |
 | Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met. The Codex sandbox stays on, so the user runs a branch-cutting `change-set create`, which writes `.git/`, and registration, which needs the network. Git and the Git host go through the `scm` server, which runs outside the sandbox |
 
@@ -1229,9 +1462,10 @@ status names it.
 
 The table records what each harness offers for each obligation. The
 OpenCode column is bound in [OpenCode Harness Binding](opencode.md)
-and its fixture ran in #77 against the pinned binary; H1 to H12 are met
-with the plugin-absent fail-open path and deferred steps recorded as
-gaps, and H13 was not checked. The Claude Code column is bound
+and its fixture ran in #77 against the pinned binary; that run predates
+PR #273's Rule 4/7 changes and does not verify their new cases. H1 to H12
+record the original run, with the plugin-absent fail-open path and deferred
+steps recorded as gaps, and H13 was not checked. The Claude Code column is bound
 in [Claude Code Harness Binding](claude-code.md) from the published
 documentation and CLI help of Claude Code 2.1.273, read on 2026-09-16,
 and not yet checked by the fixture. The Codex column is bound in

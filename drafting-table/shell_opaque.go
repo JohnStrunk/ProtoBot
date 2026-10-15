@@ -162,67 +162,118 @@ func inlineInterpreterOption(family, arg string) bool {
 	name, _, _ := strings.Cut(arg, "=")
 	switch family {
 	case "python":
-		if strings.HasPrefix(arg, "-m") && len(arg) > 2 {
+		return inlinePythonOption(name, arg)
+	case "perl":
+		return perlOptionExecutesCode(arg)
+	case "ruby":
+		return inlineRubyOption(name, arg)
+	case "node":
+		return inlineNodeOption(name, arg)
+	}
+	return inlineOtherInterpreterOption(family, name, arg)
+}
+
+func inlinePythonOption(name, arg string) bool {
+	if strings.HasPrefix(arg, "-m") && len(arg) > 2 {
+		return true
+	}
+	if strings.HasPrefix(arg, "--") {
+		return name == "--command"
+	}
+	if !strings.HasPrefix(arg, "-") {
+		return false
+	}
+	for _, flag := range strings.TrimPrefix(arg, "-") {
+		if flag == 'c' {
 			return true
 		}
-		if strings.HasPrefix(arg, "--") {
-			return name == "--command"
-		}
-		if !strings.HasPrefix(arg, "-") {
+		if flag == 'W' || flag == 'X' {
 			return false
 		}
-		flags := strings.TrimPrefix(arg, "-")
-		for _, flag := range flags {
-			if flag == 'c' {
-				return true
-			}
-			if flag == 'W' || flag == 'X' {
-				return false
-			}
-		}
-	case "perl":
-		return perlOptionHasEval(arg)
-	case "ruby":
-		if name == "--eval" {
+	}
+	return false
+}
+
+func inlineRubyOption(name, arg string) bool {
+	if name == "--eval" {
+		return true
+	}
+	if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
+		return false
+	}
+	for _, flag := range strings.TrimPrefix(arg, "-") {
+		if flag == 'e' || flag == 'r' {
 			return true
 		}
-		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") {
-			for _, flag := range strings.TrimPrefix(arg, "-") {
-				if flag == 'e' {
-					return true
-				}
-				if strings.ContainsRune("IErFKC", flag) {
-					return false
-				}
-			}
+		if strings.ContainsRune("IEFKC", flag) {
+			return false
 		}
-	case "node":
-		return name == "--eval" || name == "--print" || arg == "-e" || arg == "-p" || strings.HasPrefix(arg, "-e") || strings.HasPrefix(arg, "-p")
+	}
+	return false
+}
+
+func inlineNodeOption(name, arg string) bool {
+	return name == "--eval" || name == "--print" ||
+		contains([]string{"--run", "--test", "--require", "--import", "--loader", "--experimental-loader"}, name) ||
+		strings.HasPrefix(arg, "-e") || strings.HasPrefix(arg, "-p") || strings.HasPrefix(arg, "-r")
+}
+
+func inlineOtherInterpreterOption(family, name, arg string) bool {
+	switch family {
 	case "osascript":
 		return strings.HasPrefix(arg, "-e")
 	case "awk":
-		return strings.HasPrefix(arg, "-e") || arg == "--source" || strings.HasPrefix(arg, "--source=")
+		return strings.HasPrefix(arg, "-e") || name == "--source" || strings.HasPrefix(arg, "--source=")
 	case "php":
-		return arg == "-r" || strings.HasPrefix(arg, "-r") || arg == "-R" || strings.HasPrefix(arg, "-R") || arg == "-B" || strings.HasPrefix(arg, "-B")
-	case "lua":
-		return arg == "-e" || strings.HasPrefix(arg, "-e") || name == "--execute"
-	case "rscript":
-		return arg == "-e" || strings.HasPrefix(arg, "-e") || name == "--expression"
+		return strings.HasPrefix(arg, "-r") || strings.HasPrefix(arg, "-R") || strings.HasPrefix(arg, "-B")
+	case "lua", "rscript":
+		return inlineLuaOrRscriptOption(family, name, arg)
+	default:
+		return inlineRuntimeInterpreterOption(family, arg)
+	}
+}
+
+func inlineRuntimeInterpreterOption(family, arg string) bool {
+	switch family {
 	case "gdb":
-		return strings.HasPrefix(arg, "-ex") || strings.HasPrefix(arg, "--ex=") || arg == "--ex" || arg == "-eval-command" || strings.HasPrefix(arg, "--eval-command")
+		return inlineGDBOption(arg)
 	case "expect":
-		return arg == "-c" || strings.HasPrefix(arg, "-c")
+		return strings.HasPrefix(arg, "-c")
 	case "powershell":
-		lower := strings.ToLower(arg)
-		return lower == "-c" || strings.HasPrefix(lower, "-command") || strings.HasPrefix(lower, "-c:")
+		return inlinePowerShellOption(arg)
 	case "guile":
-		return strings.HasPrefix(arg, "-c") || strings.HasPrefix(arg, "-e") || arg == "--command" || arg == "--eval" || strings.HasPrefix(arg, "--command=") || strings.HasPrefix(arg, "--eval=")
+		return inlineGuileOption(arg)
 	case "clisp":
-		return arg == "-x" || strings.HasPrefix(arg, "-x") || arg == "-eval" || arg == "-execute" || strings.HasPrefix(arg, "-eval=") || strings.HasPrefix(arg, "-execute=")
-	case "sed":
+		return inlineCLISPOption(arg)
+	default:
 		return false
 	}
-	return false
+}
+
+func inlineGDBOption(arg string) bool {
+	return strings.HasPrefix(arg, "-ex") || strings.HasPrefix(arg, "--ex=") || arg == "--ex" ||
+		arg == "-eval-command" || strings.HasPrefix(arg, "--eval-command")
+}
+
+func inlineGuileOption(arg string) bool {
+	return strings.HasPrefix(arg, "-c") || strings.HasPrefix(arg, "-e") ||
+		arg == "--command" || arg == "--eval" || strings.HasPrefix(arg, "--command=") ||
+		strings.HasPrefix(arg, "--eval=")
+}
+
+func inlineCLISPOption(arg string) bool {
+	return strings.HasPrefix(arg, "-x") || arg == "-eval" || arg == "-execute" ||
+		strings.HasPrefix(arg, "-eval=") || strings.HasPrefix(arg, "-execute=")
+}
+
+func inlineLuaOrRscriptOption(family, name, arg string) bool {
+	return strings.HasPrefix(arg, "-e") ||
+		(family == "lua" && name == "--execute") || (family == "rscript" && name == "--expression")
+}
+
+func inlinePowerShellOption(arg string) bool {
+	lower := strings.ToLower(arg)
+	return lower == "-c" || strings.HasPrefix(lower, "-command") || strings.HasPrefix(lower, "-c:")
 }
 
 // interpreterOption returns (takes following argv, recognized, is script file).
@@ -433,7 +484,7 @@ func isPythonLongOption(arg string) bool {
 	return contains([]string{"--help", "--help-env", "--help-xoptions", "--help-all", "--version", "--check-hash-based-pycs"}, arg)
 }
 
-func perlOptionHasEval(arg string) bool {
+func perlOptionExecutesCode(arg string) bool {
 	if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") {
 		return false
 	}
@@ -441,6 +492,9 @@ func perlOptionHasEval(arg string) bool {
 	for i := 0; i < len(flags); i++ {
 		flag := flags[i]
 		if flag == 'e' || flag == 'E' {
+			return true
+		}
+		if flag == 'M' || flag == 'm' {
 			return true
 		}
 		if flag == '0' {
@@ -664,21 +718,20 @@ func containsAny(values []string, wanted ...string) bool {
 	return false
 }
 
-func hasGitExecutionEnvironmentOverride(words []string) bool {
-	// An assignment of a Git execution key anywhere in the segment makes the
-	// child's behavior uninspectable, including when a wrapper such as
-	// timeout, stdbuf, or env precedes the assignment.
+func hasCommandExecutionEnvironmentOverride(words []string) bool {
+	// Execution-related assignments anywhere in the segment make a wrapped
+	// child's behavior uninspectable.
 	for _, word := range words {
-		if gitConfigAssignment(word) {
+		if commandExecutionEnvironmentAssignment(word) {
 			return true
 		}
 	}
 	return false
 }
 
-func gitConfigAssignment(word string) bool {
+func commandExecutionEnvironmentAssignment(word string) bool {
 	key, _, assignment := strings.Cut(word, "=")
-	return assignment && gitExecutionEnvironmentKey(key)
+	return assignment && commandExecutionEnvironmentKey(key)
 }
 
 func gitInvocationOpaque(args []string) bool {
@@ -705,10 +758,20 @@ func gitSubcommandCanExecuteCommands(command string, args []string) bool {
 	switch command {
 	case "bisect":
 		return contains(args, "run")
+	case "archive":
+		return true
+	case "bundle":
+		return gitBundleCreates(args)
+	case "grep":
+		return gitGrepOpensFilesInPager(args)
+	case "checkout-index", "fast-import", "format-patch", "instaweb", "mailsplit":
+		return true
 	case "difftool", "mergetool", "credential":
 		return true
-	case "branch", "remote", "tag", "worktree", "stash", "reflog", "submodule":
+	case "branch", "remote", "tag", "worktree", "stash", "submodule":
 		return !gitReadOnlyMetadataCommand(command, args)
+	case "reflog":
+		return !gitReflogShowCommand(args)
 	case "add", "am", "apply", "checkout", "cherry-pick", "clean", "clone", "commit", "fetch", "filter-branch", "init", "merge", "mv", "notes", "pull", "push", "rebase", "reset", "restore", "revert", "rm", "switch", "update-index", "update-ref", "gc", "maintenance", "repack", "prune", "symbolic-ref":
 		return true
 	default:
@@ -716,25 +779,110 @@ func gitSubcommandCanExecuteCommands(command string, args []string) bool {
 	}
 }
 
+func gitBundleCreates(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if !strings.HasPrefix(arg, "-") {
+			return arg == "create"
+		}
+	}
+	return false
+}
+
+func gitGrepOpensFilesInPager(args []string) bool {
+	for _, arg := range args {
+		if arg == "--" {
+			return false
+		}
+		if arg == "--open-files-in-pager" || strings.HasPrefix(arg, "--open-files-in-pager=") {
+			return true
+		}
+		if strings.HasPrefix(arg, "-") && !strings.HasPrefix(arg, "--") && strings.Contains(arg[1:], "O") {
+			return true
+		}
+	}
+	return false
+}
+
+func ripgrepCanExecuteCommands(args []string) bool {
+	for index := 1; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			return false
+		}
+		if optionSet(arg, "--pre") || optionSet(arg, "--pager") || ripgrepPagingUsesPager(arg) {
+			return true
+		}
+		if arg == "--paging" {
+			if index+1 >= len(args) {
+				return true
+			}
+			index++
+			if args[index] != "never" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ripgrepPagingUsesPager(arg string) bool {
+	if !strings.HasPrefix(arg, "--paging=") {
+		return false
+	}
+	return strings.TrimPrefix(arg, "--paging=") != "never"
+}
+
+func optionSet(arg, option string) bool {
+	return arg == option || strings.HasPrefix(arg, option+"=")
+}
+
 func gitReadOnlyMetadataCommand(command string, args []string) bool {
 	switch command {
 	case "branch":
-		return len(args) == 0 || len(args) == 1 && contains([]string{"--list", "-l", "--show-current", "--show-ref"}, args[0])
+		return gitBranchReadOnlyCommand(args)
 	case "remote":
-		return len(args) == 0 || len(args) == 1 && contains([]string{"-v", "--verbose"}, args[0]) || len(args) == 2 && args[0] == "get-url"
+		return gitRemoteReadOnlyCommand(args)
 	case "tag":
-		return len(args) == 0 || len(args) == 1 && contains([]string{"-l", "--list"}, args[0])
+		return gitTagReadOnlyCommand(args)
 	case "worktree":
 		return len(args) == 1 && args[0] == "list"
 	case "stash":
 		return len(args) == 1 && args[0] == "list"
-	case "reflog":
-		return len(args) == 0 || len(args) == 1 && args[0] == "show"
 	case "submodule":
 		return len(args) > 0 && args[0] == "status"
 	default:
 		return false
 	}
+}
+
+func gitBranchReadOnlyCommand(args []string) bool {
+	return len(args) == 0 || len(args) == 1 && contains([]string{"--list", "-l", "--show-current", "--show-ref"}, args[0])
+}
+
+func gitRemoteReadOnlyCommand(args []string) bool {
+	return len(args) == 0 || len(args) == 1 && contains([]string{"-v", "--verbose"}, args[0]) || len(args) == 2 && args[0] == "get-url"
+}
+
+func gitTagReadOnlyCommand(args []string) bool {
+	return len(args) == 0 || len(args) == 1 && contains([]string{"-l", "--list"}, args[0])
+}
+
+func gitReflogShowCommand(args []string) bool {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--output" {
+			index++
+			continue
+		}
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg == "show"
+	}
+	return true
 }
 
 func gitSubcommand(args []string) (string, int, bool) {
@@ -797,80 +945,175 @@ func gitConfiguresExecutableConfig(args []string, commandIndex int) bool {
 	return false
 }
 
+type gitConfigWriteState struct {
+	positionals     []string
+	write           bool
+	readOnly        bool
+	sectionMutation bool
+}
+
 func gitConfigCommandWritesExecutableConfig(args []string) bool {
-	var positionals []string
-	write, readOnly := false, false
-	for i := 0; i < len(args); i++ {
-		arg := args[i]
-		if !strings.HasPrefix(arg, "-") || arg == "-" {
-			positionals = append(positionals, arg)
-			continue
-		}
-		option, _, hasValue := strings.Cut(arg, "=")
-		switch option {
-		case "--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l", "--name-only", "--show-origin", "--show-scope":
-			readOnly = true
-		case "--unset-regexp":
-			if i+1 < len(args) && gitExecutionConfigPattern(args[i+1]) {
-				return true
-			}
-			write = true
-		case "--add", "--replace-all", "--unset", "--unset-all", "--rename-section", "--remove-section", "--edit", "-e":
-			if option == "--edit" || option == "-e" {
-				return true
-			}
-			if hasValue && strings.Contains(strings.ToLower(arg), "alias") {
-				return true
-			}
-			write = true
-		case "--file", "-f", "--type", "--bool", "--int", "--bool-or-int", "--path", "--expiry-date":
-			if !hasValue {
-				i++
-			}
-		case "--fixed-value", "--local", "--global", "--system", "--worktree", "--includes", "--no-includes", "--null", "-z":
-		default:
-			// Unknown config options that mention an execution key are not safe to infer.
-			if gitExecutionConfigPattern(arg) {
-				return true
-			}
-		}
+	state, safe := scanGitConfigWriteOptions(args)
+	if !safe {
+		return true
 	}
-	for _, value := range positionals {
-		if gitExecutionConfigSection(value) {
-			return true // Section removal/rename can change executable settings.
+	for _, value := range state.positionals {
+		// Key names can resemble subsection names (for example alias.run).
+		if state.sectionMutation && gitExecutionConfigSection(value) {
+			return true
 		}
-		if gitExecutionConfigKey(value) {
-			if write || (!readOnly && len(positionals) > 1) {
-				return true
-			}
+		if gitExecutionConfigKey(value) && (state.write || !state.readOnly && len(state.positionals) > 1) {
+			return true
 		}
 	}
 	return false
 }
 
+func scanGitConfigWriteOptions(args []string) (gitConfigWriteState, bool) {
+	var state gitConfigWriteState
+	for index := 0; index < len(args); {
+		arg := args[index]
+		if arg == "--" {
+			state.positionals = append(state.positionals, args[index+1:]...)
+			break
+		}
+		if strings.HasPrefix(arg, "-") && arg != "-" {
+			next, safe := inspectGitConfigWriteOption(args, index, &state)
+			if !safe {
+				return state, false
+			}
+			index = next
+			continue
+		}
+		state.positionals = append(state.positionals, arg)
+		index++
+	}
+	return state, true
+}
+
+func inspectGitConfigWriteOption(args []string, index int, state *gitConfigWriteState) (int, bool) {
+	arg := args[index]
+	option, value, hasValue := strings.Cut(arg, "=")
+	switch option {
+	case "--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l", "--name-only", "--show-origin", "--show-scope":
+		state.readOnly = true
+	case "--unset-regexp":
+		return inspectGitConfigUnsetRegexp(args, index, value, hasValue, state)
+	case "--rename-section", "--remove-section":
+		state.write, state.sectionMutation = true, true
+		if hasValue {
+			state.positionals = append(state.positionals, value)
+		}
+	case "--add", "--replace-all", "--unset", "--unset-all", "--edit", "-e":
+		return inspectGitConfigMutation(index, arg, option, hasValue, state)
+	case "--file", "-f", "--type":
+		return consumeGitConfigOptionValue(args, index, hasValue)
+	case "--bool", "--int", "--bool-or-int", "--path", "--expiry-date":
+		return parseGitConfigFlagOption(index, hasValue)
+	case "--fixed-value", "--local", "--global", "--system", "--worktree", "--includes", "--no-includes", "--null", "-z":
+	default:
+		// Unknown config options that mention an execution key are not safe to infer.
+		if gitExecutionConfigPattern(arg) {
+			return index, false
+		}
+	}
+	return index + 1, true
+}
+
+func inspectGitConfigUnsetRegexp(args []string, index int, value string, hasValue bool, state *gitConfigWriteState) (int, bool) {
+	pattern, next, safe := gitConfigOptionValue(args, index, value, hasValue)
+	if !safe || gitExecutionConfigPattern(pattern) {
+		return index, false
+	}
+	state.write = true
+	return next, true
+}
+
+func inspectGitConfigMutation(index int, arg, option string, hasValue bool, state *gitConfigWriteState) (int, bool) {
+	if option == "--edit" || option == "-e" || hasValue && strings.Contains(strings.ToLower(arg), "alias") {
+		return index, false
+	}
+	state.write = true
+	return index + 1, true
+}
+
+func consumeGitConfigOptionValue(args []string, index int, hasValue bool) (int, bool) {
+	if hasValue {
+		return index + 1, true
+	}
+	if index+1 < len(args) {
+		return index + 2, true
+	}
+	return index, false
+}
+
+func gitConfigOptionValue(args []string, index int, value string, hasValue bool) (string, int, bool) {
+	if hasValue {
+		return value, index + 1, true
+	}
+	if index+1 >= len(args) {
+		return "", index, false
+	}
+	return args[index+1], index + 2, true
+}
+
+var gitExecutionConfigPrefixes = []string{
+	"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "man.", "browser.",
+}
+
+var gitExecutionConfigExactKeys = []string{
+	"core.pager", "core.editor", "core.hookspath", "core.fsmonitor", "core.sshcommand", "core.askpass", "core.gitproxy",
+	"sequence.editor", "interactive.difffilter", "uploadpack.packobjectshook", "include.path", "help.browser",
+	"web.browser", "instaweb.httpd",
+}
+
 func gitExecutionConfigKey(key string) bool {
 	key = strings.ToLower(key)
-	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff."} {
+	return gitExecutionConfigHasPrefix(key) || gitExecutionConfigParameterizedKey(key) || contains(gitExecutionConfigExactKeys, key)
+}
+
+func gitExecutionConfigHasPrefix(key string) bool {
+	for _, prefix := range gitExecutionConfigPrefixes {
 		if strings.HasPrefix(key, prefix) {
 			return true
 		}
 	}
-	switch key {
-	case "core.pager", "core.editor", "core.hookspath", "core.fsmonitor", "core.sshcommand", "core.askpass", "core.gitproxy", "sequence.editor", "interactive.difffilter":
-		return true
-	default:
-		return false
-	}
+	return false
+}
+
+func gitExecutionConfigParameterizedKey(key string) bool {
+	return gitConfigKeyHasPrefixAndSuffix(key, "merge.", ".driver") ||
+		gitConfigKeyHasPrefixAndSuffix(key, "gpg.", ".program") || gitRemoteExecutionConfigKey(key) ||
+		gitConfigKeyHasPrefixAndSuffix(key, "includeif.", ".path") ||
+		gitConfigKeyHasPrefixAndSuffix(key, "sendemail.", ".smtpserver") ||
+		gitConfigKeyHasPrefixAndSuffix(key, "submodule.", ".update")
+}
+
+func gitConfigKeyHasPrefixAndSuffix(key, prefix, suffix string) bool {
+	return strings.HasPrefix(key, prefix) && strings.HasSuffix(key, suffix)
+}
+
+func gitRemoteExecutionConfigKey(key string) bool {
+	return strings.HasPrefix(key, "remote.") &&
+		(strings.HasSuffix(key, ".uploadpack") || strings.HasSuffix(key, ".receivepack"))
 }
 
 func gitExecutionConfigSection(section string) bool {
 	section = strings.ToLower(section)
-	return contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "core", "sequence", "interactive"}, section)
+	if contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "include", "includeif", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb"}, section) {
+		return true
+	}
+	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "merge.", "gpg.", "remote.", "includeif.", "sendemail.", "submodule.", "man.", "browser.", "web.", "instaweb."} {
+		if strings.HasPrefix(section, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func gitExecutionConfigPattern(pattern string) bool {
 	pattern = strings.ToLower(pattern)
-	for _, name := range []string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "core", "sequence", "interactive"} {
+	for _, name := range []string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "receivepack", "include", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb"} {
 		if strings.Contains(pattern, name) {
 			return true
 		}
@@ -878,7 +1121,7 @@ func gitExecutionConfigPattern(pattern string) bool {
 	return false
 }
 
-func shellExportsGitExecutionEnvironment(words []string) bool {
+func shellExportsCommandExecutionEnvironment(words []string) bool {
 	if len(words) == 0 {
 		return false
 	}
@@ -889,16 +1132,24 @@ func shellExportsGitExecutionEnvironment(words []string) bool {
 	}
 	for _, word := range words[1:] {
 		key, _, _ := strings.Cut(strings.TrimLeft(word, "-"), "=")
-		if gitExecutionEnvironmentKey(key) {
+		if commandExecutionEnvironmentKey(key) {
 			return true
 		}
 	}
 	return false
 }
 
-func gitExecutionEnvironmentKey(key string) bool {
+func commandExecutionEnvironmentKey(key string) bool {
 	key = strings.ToUpper(key)
-	return strings.HasPrefix(key, "GIT_CONFIG_") || contains([]string{"GIT_PAGER", "PAGER", "GIT_EDITOR", "EDITOR", "VISUAL", "GIT_SEQUENCE_EDITOR", "GIT_EXTERNAL_DIFF", "GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE"}, key)
+	return strings.HasPrefix(key, "GIT_CONFIG_") ||
+		(strings.HasPrefix(key, "BASH_FUNC_") && strings.HasSuffix(key, "%%")) ||
+		contains([]string{
+			"GIT_PAGER", "PAGER", "GIT_EDITOR", "EDITOR", "VISUAL", "GIT_SEQUENCE_EDITOR",
+			"GIT_EXTERNAL_DIFF", "GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE", "RIPGREP_CONFIG_PATH",
+			"GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE",
+			"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+			"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_TEMPLATE_DIR", "GIT_CEILING_DIRECTORIES",
+		}, key)
 }
 
 var gitBuiltins = func() map[string]bool {

@@ -3,6 +3,7 @@ package guard
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,16 +12,19 @@ import (
 )
 
 type guardVector struct {
-	Name      string         `json:"name"`
-	Role      string         `json:"role"`
-	ToolName  string         `json:"tool_name"`
-	ToolInput map[string]any `json:"tool_input"`
-	Allow     bool           `json:"allow"`
-	Reason    string         `json:"reason"`
-	NoProject bool           `json:"no_project"`
+	Name                  string         `json:"name"`
+	Role                  string         `json:"role"`
+	ToolName              string         `json:"tool_name"`
+	ToolInput             map[string]any `json:"tool_input"`
+	Allow                 bool           `json:"allow"`
+	Reason                string         `json:"reason"`
+	NoProject             bool           `json:"no_project"`
+	RequirementsStore     string         `json:"requirements_store"`
+	FilesFromStoreSymlink bool           `json:"files_from_store_symlink"`
 }
 
 func TestGuardVectors(t *testing.T) {
+	t.Setenv("RIPGREP_CONFIG_PATH", "")
 	data, err := os.ReadFile("testdata/guard-vectors.json")
 	if err != nil {
 		t.Fatal(err)
@@ -31,17 +35,95 @@ func TestGuardVectors(t *testing.T) {
 	}
 	for _, vector := range vectors {
 		t.Run(vector.Name, func(t *testing.T) {
-			result := newFixture(t, !vector.NoProject, false).call(vector.Role, vector.ToolName, vector.ToolInput)
+			fixture := newFixture(t, !vector.NoProject, false)
+			setupShellWriterVectorFiles(t, fixture)
+			if vector.RequirementsStore != "" {
+				setRequirementsStore(t, fixture, vector.RequirementsStore)
+			}
+			if vector.FilesFromStoreSymlink {
+				setupRsyncFilesFromStoreSymlink(t, fixture, vector.RequirementsStore)
+			}
+			result := fixture.call(vector.Role, vector.ToolName, vector.ToolInput)
 			if result.allow != vector.Allow {
 				t.Fatalf("decision = %+v; allow=%v", result, vector.Allow)
 			}
 			if vector.Reason != "" && !strings.Contains(result.reason, vector.Reason) {
-				if vector.Reason == "output redirection target could not be inspected safely" && strings.Contains(result.reason, "command class is refused because execution cannot be inspected") {
-					return // The fail-closed syntax refusal now precedes redirection inspection.
-				}
 				t.Fatalf("reason %q does not contain %q", result.reason, vector.Reason)
 			}
 		})
+	}
+}
+
+func setupShellWriterVectorFiles(t *testing.T, fixture fixture) {
+	t.Helper()
+	for _, directory := range []string{"out", "dir", "src/nested", "hlink-tree/nested"} {
+		if err := os.MkdirAll(filepath.Join(fixture.root, directory), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{"dir/payload", "src/nested/payload"} {
+		if err := os.WriteFile(filepath.Join(fixture.root, path), []byte("payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink("../../../.git/HEAD", filepath.Join(fixture.root, "hlink-tree", "nested", "protected-link")); err != nil {
+		t.Fatal(err)
+	}
+	for link, target := range map[string]string{
+		"dirlink":            "docs",
+		"flink":              "docs/vision.md",
+		"protected-dirlink":  "../.git",
+		"protected-filelink": "../.git/HEAD",
+		"file-dest-link":     ".git/HEAD",
+	} {
+		if err := os.Symlink(target, filepath.Join(fixture.root, link)); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func setRequirementsStore(t *testing.T, fixture fixture, path string) {
+	t.Helper()
+	projectPath := filepath.Join(fixture.root, ".protobot", "project.yaml")
+	project, err := os.ReadFile(projectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project = []byte(strings.Replace(string(project), "requirements: .protobot/requirements", "requirements: "+path, 1))
+	if err := os.MkdirAll(filepath.Join(fixture.root, filepath.Dir(path)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(projectPath, project, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func setupRsyncFilesFromStoreSymlink(t *testing.T, fixture fixture, storePath string) {
+	t.Helper()
+	store := filepath.Join(fixture.root, storePath)
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store, "member.yaml"), []byte("protected"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	source := filepath.Join(fixture.root, "src", "requirements")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "member.yaml"), []byte("overwrite"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(fixture.root, "out", "requirements")
+	target, err := filepath.Rel(filepath.Dir(destination), store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, destination); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.root, "entries"), []byte("requirements/member.yaml\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -358,18 +440,141 @@ func TestMultilineStorePathAndUserManifestFallback(t *testing.T) {
 	project := strings.Join([]string{
 		"project:", "  id: fixture-project", "repository:", "  canonical_remote: https://example.invalid/repo.git",
 		"  default_branch: main", "  branch_prefix: cs/", "  review_mode: single-player", "stores:",
-		"    requirements: >-", "      .protobot/records/requirements", "    interfaces: .protobot/records/interfaces",
-		"    change_sets: .protobot/records/changes", "artifacts:", "  - id: vision", "    path: docs/vision.md", "",
+		"    requirements: >-", "      records/requirements", "    interfaces: records/interfaces",
+		"    change_sets: records/changes", "artifacts:", "  - id: vision", "    path: docs/vision.md", "",
 	}, "\n")
-	if err := os.MkdirAll(filepath.Join(fixture.root, ".protobot", "records", "requirements"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(fixture.root, "records"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(fixture.root, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"requirements", "notes"} {
+		if err := os.WriteFile(filepath.Join(fixture.root, "x", name), []byte("payload"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(fixture.root, "ordinary"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fixture.root, "ordinary", "requirements"), []byte("payload"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(fixture.root, ".protobot", "project.yaml"), []byte(project), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	result := fixture.call(roleOther, "write", map[string]any{"filePath": ".protobot/records/requirements/new.yaml"})
+	result := fixture.call(roleOther, "write", map[string]any{"filePath": "records/requirements/new.yaml"})
 	if result.allow || !strings.Contains(result.reason, "configured store") {
 		t.Fatalf("store write = %+v", result)
+	}
+	for _, command := range []string{
+		"cp payload records/requirements/new.yaml",
+		"tee records/requirements/new.yaml",
+		"sort -o records/requirements/new.yaml input",
+		"uniq input records/requirements/new.yaml",
+		"git config --file records/requirements/new.yaml color.ui always",
+		"rm -r records/requirements",
+		"echo x > records/requirements/new.yaml",
+	} {
+		result := fixture.call(roleOther, "bash", map[string]any{"command": command})
+		if result.allow {
+			t.Errorf("shell writer allowed configured store target for %q: %+v", command, result)
+		}
+	}
+	ordinaryDirectory := filepath.Join(fixture.root, "ordinary")
+	ordinaryOutputDirectory := filepath.Join(fixture.root, "ordinary-output")
+	if err := os.MkdirAll(ordinaryDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(ordinaryOutputDirectory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ordinaryDirectory, "requirements"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, command := range []string{
+		"ln -s ordinary/requirements records",
+		"ln -s ordinary/requirements records/",
+		"ln --symbolic --target-directory records ordinary/requirements",
+		"cp -s ordinary/requirements records",
+		"cp --symbolic-link --target-directory records ordinary/requirements",
+		"cp -l ordinary/requirements records",
+		"cp --link --target-directory=records ordinary/requirements",
+	} {
+		result := fixture.call(roleOther, "bash", map[string]any{"command": command})
+		if result.allow {
+			t.Errorf("link writer allowed mapped destination in a configured store for %q: %+v", command, result)
+		}
+	}
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": "ln -s ordinary/requirements records/"}); result.allow {
+		t.Fatalf("trailing-slash link destination was allowed to overwrite a configured store member: %+v", result)
+	}
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": "ln -s ordinary/notes records/"}); !result.allow {
+		t.Fatalf("trailing-slash link destination refused a benign mapped name: %+v", result)
+	}
+	for _, command := range []string{
+		"cp x/requirements records",
+		"cp -d x/requirements records",
+		"cp -t records x/requirements",
+		"cp --target-directory=records x/requirements",
+		"mv x/requirements records",
+		"mv -t records x/requirements",
+		"mv --target-directory=records x/requirements",
+		"install x/requirements records",
+		"install -t records x/requirements",
+		"install --target-directory=records x/requirements",
+	} {
+		if result := fixture.call(roleOther, "bash", map[string]any{"command": command}); result.allow {
+			t.Errorf("copy writer allowed mapped configured store destination for %q: %+v", command, result)
+		}
+	}
+	for _, command := range []string{
+		"cp x/notes records",
+		"cp -d x/notes records",
+		"cp -t records x/notes",
+		"cp --target-directory=records x/notes",
+		"mv x/notes records",
+		"mv -t records x/notes",
+		"mv --target-directory=records x/notes",
+		"install x/notes records",
+		"install -t records x/notes",
+		"install --target-directory=records x/notes",
+	} {
+		if result := fixture.call(roleOther, "bash", map[string]any{"command": command}); !result.allow {
+			t.Errorf("copy writer refused benign mapped destination for %q: %+v", command, result)
+		}
+	}
+	for _, command := range []string{
+		"ln -s ordinary/requirements ordinary-output",
+		"ln --symbolic --target-directory=ordinary-output ordinary/requirements",
+		"cp -s ordinary/requirements ordinary-output",
+		"cp --symbolic-link --target-directory=ordinary-output ordinary/requirements",
+		"cp -l ordinary/requirements ordinary-output",
+		"cp --link --target-directory ordinary-output ordinary/requirements",
+	} {
+		result := fixture.call(roleOther, "bash", map[string]any{"command": command})
+		if !result.allow {
+			t.Errorf("link writer refused ordinary mapped destination for %q: %+v", command, result)
+		}
+	}
+	for _, command := range []string{
+		"cp -s --parents ordinary/requirements ordinary-output",
+		"cp -l --parents ordinary/requirements ordinary-output",
+	} {
+		result := fixture.call(roleOther, "bash", map[string]any{"command": command})
+		if result.allow {
+			t.Errorf("link writer allowed ambiguous --parents output mapping for %q: %+v", command, result)
+		}
+	}
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": "cp -r ordinary/. records"}); result.allow {
+		t.Fatalf("directory copy into a configured store ancestor was allowed: %+v", result)
+	}
+	for _, command := range []string{"rm -r records", "mv records /tmp/backup", "rm -r ordinary", "mv ordinary /tmp/backup"} {
+		result := fixture.call(roleOther, "bash", map[string]any{"command": command})
+		blocked := strings.Contains(command, "records")
+		if result.allow == blocked {
+			t.Errorf("recursive directory writer decision for %q = %+v; blocked=%v", command, result, blocked)
+		}
 	}
 
 	userFixture := newFixture(t, false, false)
@@ -397,6 +602,206 @@ func TestMultilineStorePathAndUserManifestFallback(t *testing.T) {
 	result = userFixture.call(roleDraftingTable, "glob", map[string]any{"path": skillRoot, "pattern": "**/*"})
 	if !result.allow {
 		t.Fatalf("user-scope Toolkit skill search = %+v", result)
+	}
+}
+
+func TestPreservedSymlinksAreCheckedAtTheirCopyOrMoveDestination(t *testing.T) {
+	fixture := newFixture(t, true, false)
+	sourceParent := t.TempDir()
+	dangerousTree := filepath.Join(sourceParent, "evil")
+	if err := os.MkdirAll(dangerousTree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(sourceParent, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceParent, ".git", "config"), []byte("ordinary source target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../.git/config", filepath.Join(dangerousTree, "tree-link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../../.git/config", filepath.Join(dangerousTree, "rsync-link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dangerousTree, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dangerousTree, ".git", "config"), []byte("ordinary source target"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	singleLink := filepath.Join(dangerousTree, "single-link")
+	if err := os.Symlink(".git/config", singleLink); err != nil {
+		t.Fatal(err)
+	}
+	absoluteProtectedLink := filepath.Join(dangerousTree, "absolute-protected-link")
+	if err := os.Symlink(filepath.Join(fixture.root, ".git", "config"), absoluteProtectedLink); err != nil {
+		t.Fatal(err)
+	}
+	directory := shellSingleQuote(dangerousTree)
+	link := shellSingleQuote(singleLink)
+	absLink := shellSingleQuote(absoluteProtectedLink)
+	for _, command := range []string{
+		"cp -r " + directory + " copied-recursive",
+		"cp -R " + directory + " copied-uppercase-recursive",
+		"cp -R -L -H " + directory + " copied-conflicting-dereference",
+		"cp -a " + directory + " copied-archive",
+		"cp -d " + link + " copied-no-dereference",
+		"cp -P " + link + " copied-preserved",
+		"cp -P " + absLink + " copied-absolute-protected",
+		"mv " + directory + " moved-tree",
+		"mv " + link + " moved-link",
+		"rsync -a " + directory + " copied-rsync",
+		"rsync -a " + shellSingleQuote(dangerousTree+string(filepath.Separator)) + " copied-rsync-contents",
+	} {
+		if result := fixture.call(roleOther, "bash", map[string]any{"command": command}); result.allow {
+			t.Errorf("writer allowed a preserved symlink re-anchored into Git metadata for %q: %+v", command, result)
+		}
+	}
+	missing := shellSingleQuote(filepath.Join(t.TempDir(), "missing-link"))
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": "cp -P " + missing + " missing-copy"}); result.allow {
+		t.Fatalf("copy with an uninspectable preserved source was allowed: %+v", result)
+	}
+
+	plainTree := filepath.Join(t.TempDir(), "plain")
+	if err := os.MkdirAll(plainTree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(plainTree, "payload"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": "cp -r " + shellSingleQuote(plainTree) + " copied-plain"}); !result.allow {
+		t.Fatalf("recursive copy without symlinks was refused: %+v", result)
+	}
+
+	safeTree := filepath.Join(t.TempDir(), "safe")
+	if err := os.MkdirAll(safeTree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(safeTree, "target"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(safeTree, "relative-link")); err != nil {
+		t.Fatal(err)
+	}
+	absoluteTarget := filepath.Join(t.TempDir(), "ordinary-target")
+	if err := os.WriteFile(absoluteTarget, []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(absoluteTarget, filepath.Join(safeTree, "absolute-link")); err != nil {
+		t.Fatal(err)
+	}
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": "cp -r " + shellSingleQuote(safeTree) + " copied-safe"}); !result.allow {
+		t.Fatalf("relative symlink to an ordinary path was refused: %+v", result)
+	}
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": "cp --preserve=links " + shellSingleQuote(filepath.Join(safeTree, "relative-link")) + " copied-preserve-links"}); !result.allow {
+		t.Fatalf("hard-link preservation mode refused a benign symlink operand: %+v", result)
+	}
+}
+
+func TestPreservedSymlinkWalkFailsClosedAtEntryLimit(t *testing.T) {
+	fixture := newFixture(t, true, false)
+	tree := filepath.Join(t.TempDir(), "large")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for index := 0; index < maxSymlinkWalkEntries; index++ {
+		path := filepath.Join(tree, fmt.Sprintf("entry-%05d", index))
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	command := "cp -r " + shellSingleQuote(tree) + " copied-large"
+	if result := fixture.call(roleOther, "bash", map[string]any{"command": command}); result.allow {
+		t.Fatalf("copy tree exceeding the symlink-inspection limit was allowed: %+v", result)
+	}
+}
+
+func TestDirectoryCopyToProtectedAncestorAndOrdinaryTargets(t *testing.T) {
+	fixture := newFixture(t, true, false)
+	notes := filepath.Join(fixture.root, "notes.md")
+	if err := os.WriteFile(notes, []byte("notes"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	externalPayload := filepath.Join(t.TempDir(), "payload")
+	if err := os.MkdirAll(externalPayload, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(externalPayload, "payload.txt"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	projectPayload := filepath.Join(fixture.root, "payload")
+	outputDir := filepath.Join(fixture.root, "output-dir")
+	for _, directory := range []string{projectPayload, outputDir} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(projectPayload, "payload.txt"), []byte("payload"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	payloadContents := externalPayload + string(filepath.Separator) + "."
+	for _, test := range []struct {
+		command   string
+		wantAllow bool
+	}{
+		{command: "cp -r " + shellSingleQuote(payloadContents) + " ."},
+		{command: "cp -t . " + shellSingleQuote(payloadContents)},
+		{command: "cp -r payload .", wantAllow: true},
+		{command: "cp notes.md .", wantAllow: true},
+		{command: "cp -r payload/. output-dir", wantAllow: true},
+	} {
+		command := test.command
+		result := fixture.call(roleOther, "bash", map[string]any{"command": command})
+		if result.allow != test.wantAllow {
+			t.Errorf("directory copy decision for %q = %+v; want allow=%v", command, result, test.wantAllow)
+		}
+	}
+}
+
+func TestReservedHarnessBindingPathCannotEscapeThroughSymlink(t *testing.T) {
+	fixture := newFixture(t, true, false)
+	if err := os.Symlink(t.TempDir(), filepath.Join(fixture.root, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	for _, test := range []struct {
+		tool  string
+		input map[string]any
+	}{
+		{tool: "write", input: map[string]any{"filePath": ".claude/settings.json"}},
+		{tool: "bash", input: map[string]any{"command": "cp payload .claude/settings.json"}},
+		{tool: "bash", input: map[string]any{"command": "echo x > .claude/settings.json"}},
+	} {
+		if result := fixture.call(roleOther, test.tool, test.input); result.allow {
+			t.Errorf("symlinked harness path was writable with %s: %+v", test.tool, result)
+		}
+	}
+}
+
+func TestDirectorySourceContainsConfiguredStoresAndFailsClosed(t *testing.T) {
+	root := t.TempDir()
+	for _, path := range []string{"records/requirements", "ordinary"} {
+		if err := os.MkdirAll(filepath.Join(root, path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := projectState{root: root, storePaths: []string{"records/requirements"}}
+	if !directorySourceContainsProtectedMetadata(state, root, "records") {
+		t.Fatal("directory containing a configured store was not protected")
+	}
+	if directorySourceContainsProtectedMetadata(state, root, "ordinary") {
+		t.Fatal("ordinary directory was incorrectly protected")
+	}
+
+	state.storePaths = []string{"missing/../records/requirements"}
+	if !directorySourceContainsProtectedMetadata(state, root, "ordinary") {
+		t.Fatal("unresolvable configured store path did not fail closed")
+	}
+	if err := os.Symlink(filepath.Join(root, "missing"), filepath.Join(root, "broken")); err != nil {
+		t.Fatal(err)
+	}
+	if !directorySourceContainsProtectedMetadata(state, root, "broken") {
+		t.Fatal("unresolvable source path did not fail closed")
 	}
 }
 

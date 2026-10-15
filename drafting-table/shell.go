@@ -18,7 +18,7 @@ const (
 	maxShellAnalysisDepth = 8
 )
 
-var assignmentWord = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+var assignmentWord = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*|BASH_FUNC_[^=]*%%)=`)
 
 func parseSimpleShell(command string) (parsedShell, error) {
 	if len(command) > maxShellCommandBytes {
@@ -445,6 +445,10 @@ func otherShellSyntaxInspectableAtDepth(command string, depth int) bool {
 			}
 			i++
 			wordStart = false
+		case '#':
+			if wordStart {
+				return false
+			}
 		case '$', '`', '*', '?', '[', '(', ')':
 			return false
 		case '{', '}':
@@ -466,12 +470,6 @@ func otherShellSyntaxInspectableAtDepth(command string, depth int) bool {
 		case ' ', '\t', '\r', '\n', ';', '|', '&', '>':
 			wordStart = true
 		default:
-			if char == '#' && wordStart {
-				for i+1 < len(command) && command[i+1] != '\n' {
-					i++
-				}
-				continue
-			}
 			wordStart = false
 		}
 	}

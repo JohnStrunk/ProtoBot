@@ -187,7 +187,10 @@ func protectedProjectPath(root, target string) bool {
 	if relative == "" {
 		return false
 	}
-	if relative == filepath.ToSlash(filepath.Join(".agents", "drafting-table.yaml")) {
+	// The project manifest and loadable Toolkit skills are control inputs.
+	if relative == filepath.ToSlash(filepath.Join(".agents", "drafting-table.yaml")) ||
+		relative == filepath.ToSlash(filepath.Join(".agents", "skills")) ||
+		strings.HasPrefix(relative, filepath.ToSlash(filepath.Join(".agents", "skills"))+"/") {
 		return true
 	}
 	for _, part := range strings.Split(relative, "/") {
@@ -199,10 +202,22 @@ func protectedProjectPath(root, target string) bool {
 }
 
 func protectedStatePath(state projectState, target string) bool {
-	if protectedProjectPath(state.root, target) || withinOrEqual(state.gitDir, target) || withinOrEqual(state.gitCommonDir, target) {
+	if reservedBindingPath(state.root, state.root, target) || isControlPath(state.root, target) ||
+		protectedProjectPath(state.root, target) ||
+		withinOrEqual(state.gitDir, target) || withinOrEqual(state.gitCommonDir, target) {
 		return true
 	}
-	return state.manifestPath != "" && filepath.Clean(target) == filepath.Clean(state.manifestPath)
+	// Protect the selected manifest's directory: directory writers can replace its contents indirectly.
+	if state.manifestPath != "" && withinOrEqual(filepath.Dir(state.manifestPath), target) {
+		return true
+	}
+	for _, store := range state.storePaths {
+		resolved, err := resolveProjectPath(state.root, state.root, store)
+		if err != nil || withinOrEqual(resolved, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func withinOrEqual(root, target string) bool {
@@ -210,7 +225,7 @@ func withinOrEqual(root, target string) bool {
 }
 
 func guardedWritePath(state projectState, target string) bool {
-	if isControlPath(state.root, target) || protectedStatePath(state, target) {
+	if protectedStatePath(state, target) {
 		return true
 	}
 	for _, registered := range state.artifacts {
@@ -218,21 +233,21 @@ func guardedWritePath(state projectState, target string) bool {
 			return true
 		}
 	}
-	for _, store := range state.storePaths {
-		resolved, err := resolveProjectPath(state.root, state.root, store)
-		if err == nil && within(resolved, target) {
-			return true
-		}
-	}
 	return false
 }
 
 func reservedBindingPath(root, cwd, value string) bool {
-	resolved, err := resolveProjectPath(root, cwd, value)
-	if err != nil {
+	// Check before following symlinks so a reserved binding cannot be escaped through an outside link.
+	lexical, err := lexicalProjectPath(root, cwd, value)
+	if err != nil || reservedBindingProjectPath(root, lexical) {
 		return true
 	}
-	relative := relativeTo(root, resolved)
+	resolved, err := resolveProjectPath(root, cwd, value)
+	return err != nil || reservedBindingProjectPath(root, resolved)
+}
+
+func reservedBindingProjectPath(root, target string) bool {
+	relative := relativeTo(root, target)
 	if relative == "" {
 		return false
 	}

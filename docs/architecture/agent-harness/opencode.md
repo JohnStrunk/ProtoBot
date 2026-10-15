@@ -35,9 +35,11 @@ OpenCode behavior named here was observed on OpenCode 1.18.30 with a
 replayed model ([Observed OpenCode behaviors](#observed-opencode-behaviors)).
 The fixture ran in #77 against the pinned OpenCode 1.18.30 binary, with
 real skills, permissions, plugin, MCP clients, shell, `ears-manager`, the
-Source Control Manager, and the guard, plus recording WMS and `gh` stubs;
-each status below records what it showed, and the gaps it left open stay
-recorded ([Running the fixture on OpenCode](#running-the-fixture-on-opencode)).
+Source Control Manager, and the guard, plus recording WMS and `gh` stubs.
+That run predates PR #273's Rule 4/7 guard changes and does not verify their
+new cases; the statuses below record the original fixture evidence and the
+gaps it left open. See
+[Running the fixture on OpenCode](#running-the-fixture-on-opencode).
 
 ---
 
@@ -108,8 +110,9 @@ needs the `external_directory` rule in
   shell operation.
 - **`edit` is denied under `.protobot/` for every agent.** The `edit`
   rule covers every OpenCode file tool: `edit`, `write`, and the patch
-  tool. It is a static copy of the guard's guarded-path rule that holds
-  even when plugins do not load.
+  tool. It is the native `.protobot/` slice of guard rule 3 and holds
+  even when plugins do not load; the other protected-path checks remain
+  the guard's responsibility.
 - **`apply_patch` is denied globally**, so file patches reach the guard
   only through direct hook fixtures; the native tool is not offered in
   the resolved OpenCode tool set.
@@ -419,22 +422,27 @@ row that depends on the guard:
 
 | Write route to a guarded path | `drafting-table` agent | Every other agent |
 | --- | --- | --- |
-| File tool under `.protobot/` | Tool not offered | Refused by the project rule and the guard |
-| File tool under `.git/` or Git metadata, or on the adapter manifest path selected by the guard | Tool not offered | Refused by the active guard |
-| File tool on a registered path elsewhere | Tool not offered | Refused by the guard |
-| Shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, or `truncate` | Refused by the native copy and the active guard | Not stopped; a relative target after a working-directory change is refused as ambiguous |
-| Recognized shell writer to Git metadata or the adapter manifest path selected by the guard | Refused by the role's exact shell grammar | Refused by the active guard when it returns a decision; no later control catches these writes |
-| Output redirection in a shell command | Refused by the active guard; not checked inside an allowed native command pattern | Refused for a guarded target resolved from the project root; also refused when the target is ambiguous after a working-directory change or cannot be inspected safely |
-| Recognized opaque execution forms that could hide an indirect governed write | Refused by the role's exact shell grammar | Refused by the active guard; no native rule covers it if the plugin is absent |
+| File tool under `.protobot/` project controls | Tool not offered | Refused by the project rule and the guard |
+| File tool under Git metadata or reserved harness binding paths/files (`.agents/`, `.claude/`, `.codex/`, `.opencode/`, `.github/`, `opencode.json`, `AGENTS.md`, or `CLAUDE.md`) | Tool not offered | Refused by the active guard |
+| File tool under the selected adapter manifest path and its containing directory/`skills/` subtree | Tool not offered | Refused by the active guard, whether or not the selected manifest exists |
+| File tool under configured store paths read from `project.yaml` and resolved safely | Tool not offered | Refused by the active guard |
+| File tool on a registered path elsewhere, when known from successful project inspection | Tool not offered | Refused by the guard |
+| Direct shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, `truncate`, `sort -o`/`--output`, `uniq input output`, or Git `diff`/`diff-tree`/`diff-index`/`diff-files`/`range-diff`/`show`/`log --output` | Refused by the native copy and the role's exact shell grammar | Not generally stopped solely because the target is an ordinary registered file; a relative target after a working-directory change is refused as ambiguous |
+| Recognized direct shell writers to the `.protobot/` project-control namespace, Git metadata, reserved harness binding paths/files (`.agents/`, `.claude/`, `.codex/`, `.opencode/`, `.github/`, `opencode.json`, `AGENTS.md`, or `CLAUDE.md`), configured store paths read from `project.yaml` and resolved safely, or the selected adapter manifest path and its containing directory/`skills/` subtree, as detailed in [Rule 7](adapter-contract.md#guard-rules) | Refused by the role's exact shell grammar | Refused by the active guard when it returns a decision. Rule 7 also checks move/removal and link-mode source operands, including existing symlink chains and destination-relative symbolic-link targets; a recognized directory-content `cp` (source `.` or ending in `/.`) is refused when its resolved destination directory is an ancestor of or equal to Git metadata, `.protobot/`, the selected manifest/`skills/`, `.agents/drafting-table.yaml`, `.agents/skills`, or safely resolved configured store paths; a plain directory copy such as `cp -r dir .` checks its mapped `destination/basename(source)` target instead. For `cp`, `mv`, and `install`, existing or trailing-slash directory destinations and `-t`/`--target-directory` check each source's mapped `destination/basename(source)` target. `cp --parents`, `rsync --relative`/`-R`, and `rsync --files-from` fail closed because they change destination mapping (`-R` is recursive for `cp` and relative for `rsync`; `--files-from` uses uninspected file-list entries to map output beneath the destination). `rsync --backup-dir`, `--partial-dir`, `--temp-dir`, and `--write-batch` fail closed because they can name write locations outside modeled destinations. `rsync --rsh`/`-e` and `--rsync-path` fail closed because they carry remote-side commands. `rsync --link-dest` fails closed because it can create a hard link from an alternate base into a mapped destination, allowing a later in-place update to change the base. `rsync --remove-source-files` fails closed because it deletes source operands, making the sources write locations. `ln` checks directory destinations, including trailing slash, and the implicit `basename(target)` destination for single-operand `ln target` and `ln -s target`. The writer inventory includes `mkdir` and `touch`. Recognized file writers fail closed when required operands are missing. Optional long values for `cp --context[=CTX]`, `cp --reflink[=WHEN]`, `mv --context[=CTX]`, and `install`/`mkdir --context[=CTX]` do not consume the next argument. The short `-Z` flag for `cp`, `install`, and `mkdir` also leaves the next argument as an operand; `install --preserve-context` and `rsync --delete-missing-args` are flags. Symlink-preserving analysis covers tree members for recursive `cp -r`/`-R`/`-a`/`--recursive` unless `-L`/`--dereference` is present without `-H` or an explicit symlink-preserving flag; `-H` dereferences command-line links but tree-member links remain covered; `mv` directory trees; `rsync -a`/`--archive`; or `rsync -r`/`--recursive` with `-l`/`--links`. Top-level source links are preserved for `cp -a`/`--archive`/`-d`/`-P`/`--no-dereference` and for recursive `cp` without `-H`/`-L`/`--dereference`; `mv` and `rsync -a`/`--archive`/`-l`/`--links` also preserve top-level links. `cp --preserve=links` preserves hard links only, not symlink operands. Tree walks do not follow symlinks, re-anchor relative symbolic-link text at the mapped destination, check absolute link text unchanged, and fail closed on inspection errors or more than 10,000 entries. For recursive `cp`, `-H` combined with `-L`/`--dereference` makes the guard scan tree-member links conservatively; if `-H`, `-L`, or `--dereference` is combined with an explicit symlink-preserving flag (`-a`, `-d`, `-P`, or `--no-dereference`), it also checks top-level source links. The targeted inventory is not exhaustive; on a fail-open direct write, intact artifact/store digests can catch changed registered content but not coordinated digest edits or provide general writer provenance |
+| Output redirection in a shell command | Refused by the active guard; not checked inside an allowed native command pattern | Refused for the `.protobot/` project-control namespace, Git metadata, reserved harness binding paths/files, the selected adapter manifest path and its containing directory/`skills/` subtree, configured store paths read from `project.yaml` and resolved safely, and registered artifact paths known from successful project inspection; any shell command that contains both an output redirection and any working-directory change is refused, regardless of order; an uninspectable target is refused too |
+| Recognized opaque execution forms that could hide an indirect governed write, including inline or standard-input interpreters, command-string wrappers, Git aliases and metadata-writing Git commands, recipe/build/test runners, execution-changing `find` placeholders, `rg` preprocessor/pager forms except data-only `--paging=never` and `--paging never`, and Git `grep -O`. Rule 4 defines the exact targeted environment keys (including Git SSH/askpass and repository/index/object/template/ceiling overrides, shell-startup/loader assignments, ripgrep configuration, and imported `BASH_FUNC_*%%` assignments), the `xargs --help`/`--version` informational forms, and the `xargs` append/replacement rules. Git effect examples include unconditional `archive` (including `-o`, `--output`, and stdout forms), `bundle create`, unconditional `format-patch` (because `format.outputDirectory` can redirect output), `mailsplit`, `checkout-index`, `fast-import`, and `instaweb`; these are examples, not a complete Git command inventory. The guard does not refuse every environment assignment or every `xargs` invocation. | Refused by the role's exact shell grammar | Refused by the active guard; no native rule covers these forms if the plugin is absent |
 | Some interpreter source-file invocations, such as `python helper.py`, renamed executables, or unrecognized shell writers/executors | Refused by the role's exact shell grammar | Not generally stopped; an indirect `ears-manager` write has no later control |
 | Tool of another MCP server | Not offered | The user's own configuration |
 | Subagent | `task` not offered | Not applicable |
 
 Later integrity and CI layers catch unauthorized persistent edits to
-registered paths; they do not enforce shell grammar, argument values,
-variable expansion, or file-source provenance. In particular, they do
-not make an allowed shell command safe when the plugin is unavailable;
-see [What the harness layer stops][layer-stops].
+registered paths, and configured-store changes only while their recorded
+digests remain intact; they do not establish writer provenance or generally
+check `.protobot/` control files, reserved harness controls, or Git metadata.
+They also do not enforce shell grammar, argument values, variable expansion,
+or file-source provenance. In particular, they do not make an allowed shell
+command safe when the plugin is unavailable; see [What the harness layer
+stops][layer-stops].
 
 ---
 

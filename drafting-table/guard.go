@@ -253,14 +253,14 @@ func decideTool(role string, input hookInput, state projectState) decision {
 		base := writeTargetBase(tool, state, input.CWD)
 		for _, target := range targets {
 			if isLexicalControlPath(state.root, base, target) || isProtectedPathValue(state, base, target) {
-				return refuse("rule 3", "the target is under .protobot/, .git/, the adapter manifest, a registered artifact, or a configured store")
+				return refuse("rule 3", "the target is under a protected control path, registered artifact, or configured store")
 			}
 			resolved, err := resolveProjectPath(state.root, base, target)
 			if err != nil {
 				return refuse("rule 3", "write target could not be resolved safely")
 			}
 			if guardedWritePath(state, resolved) {
-				return refuse("rule 3", "the target is under .protobot/, .git/, the adapter manifest, a registered artifact, or a configured store")
+				return refuse("rule 3", "the target is under a protected control path, registered artifact, or configured store")
 			}
 		}
 		return allow()
