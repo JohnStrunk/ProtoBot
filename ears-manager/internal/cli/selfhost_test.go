@@ -2,10 +2,12 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -39,13 +41,19 @@ func TestSelfHostingFixturePassesCheck(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatalf("decode check result: %v", err)
 	}
-	if got := result.Data.RecordCounts; got.Requirements != 1 || got.Interfaces != 1 || got.ChangeSets != 1 || got.Artifacts != 2 {
-		t.Fatalf("seeded record counts = %#v, want one requirement, interface, and change set plus two artifacts", got)
+	source := selfHostingRoot(t)
+	csRels := selfHostingChangeSetRelPaths(t, source)
+	reqRels, ifaceRels := referencedRecordsForChangeSets(t, source, csRels)
+	wantChangeSets := len(csRels)
+	wantRequirements := len(reqRels)
+	wantInterfaces := len(ifaceRels)
+	if got := result.Data.RecordCounts; got.Requirements != wantRequirements || got.Interfaces != wantInterfaces || got.ChangeSets != wantChangeSets || got.Artifacts != 2 {
+		t.Fatalf("seeded record counts = %#v, want %d requirement(s), %d interface(s), %d change set(s), and two artifacts", got, wantRequirements, wantInterfaces, wantChangeSets)
 	}
 }
 
 func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	baseCommit := gitOutput(t, root, "rev-parse", "refs/heads/main")
 	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
@@ -102,6 +110,11 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 		t.Fatalf("BASE_COMMIT_STALE did not name recorded base %s and default head %s: %s", baseCommit, defaultHead, stdout)
 	}
 
+	// Additional proposed change sets copied from the seed would also be
+	// stale after the merge. Pin them so this test can exercise CS-00001's
+	// refresh workflow in isolation.
+	pinSelfHostingChangeSetsExcept(t, root, "CS-00001")
+
 	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "update", "--change-set", "CS-00001", "--base-commit", defaultHead)
 	assertSuccess(t, code, stdout, stderr)
 	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
@@ -118,7 +131,7 @@ func TestSelfHostingProposedChangeSetBehindDefaultBranchFailsCheck(t *testing.T)
 }
 
 func TestSelfHostingProposedChangeSetBaseNotOnDefaultFailsCheck(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	head := gitOutput(t, root, "rev-parse", "HEAD")
 	defaultHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
@@ -154,7 +167,7 @@ func TestSelfHostingProposedChangeSetBaseNotOnDefaultFailsCheck(t *testing.T) {
 }
 
 func TestSelfHostingProposedBaseOnCanonicalRemoteSuggestsRepoState(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
 	localHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
@@ -200,7 +213,7 @@ func TestSelfHostingProposedBaseOnCanonicalRemoteSuggestsRepoState(t *testing.T)
 }
 
 func TestSelfHostingProposedBaseOnDivergedCanonicalRemoteFailsCheck(t *testing.T) {
-	root := newSelfHostingCheckout(t)
+	root := newSelfHostingSeedProposedCheckout(t)
 	t.Chdir(root)
 	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
 	commonHead := gitOutput(t, root, "rev-parse", "refs/heads/main")
@@ -375,26 +388,25 @@ func TestSelfHostingSeedMatchesGovernedInitialization(t *testing.T) {
 	if err := storage.ReadFile(filepath.Join(source, ".protobot", "project.yaml"), &wantProject); err != nil {
 		t.Fatal(err)
 	}
-	// Store digests depend on the generated change-set manifest's base commit;
-	// all other project-init output must reproduce exactly.
-	gotProject.StoreDigests = records.StoreDigests{}
-	wantProject.StoreDigests = records.StoreDigests{}
+	// Store digests change when later proposed change sets are added to
+	// the committed seed. Differing base commits also make store digests
+	// differ: the committed seed's CS-00001 records base commits in
+	// .protobot/change-sets/cs-00001.yaml while governed initialization
+	// creates a temporary-repository base. Store digests include canonical
+	// manifest contents, so they can differ even when the store contains
+	// only the seed manifest. Governed initialization still has to reproduce
+	// CS-00001 and the rest of the project configuration.
+	gotProject = isolateSeedProject(gotProject)
+	wantProject = isolateSeedProject(wantProject)
 	if !reflect.DeepEqual(gotProject, wantProject) {
 		t.Fatalf("project configuration from governed init differs:\ngot: %#v\nwant: %#v", gotProject, wantProject)
 	}
 
-	var gotChangeSet, wantChangeSet records.ChangeSet
-	if err := storage.ReadFile(filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"), &gotChangeSet); err != nil {
-		t.Fatal(err)
-	}
-	if err := storage.ReadFile(filepath.Join(source, ".protobot", "change-sets", "cs-00001.yaml"), &wantChangeSet); err != nil {
-		t.Fatal(err)
-	}
-	gotChangeSet.BaseCommit, wantChangeSet.BaseCommit = "", ""
-	gotChangeSet.ImpactAssessmentBaseCommit, wantChangeSet.ImpactAssessmentBaseCommit = "", ""
-	if !reflect.DeepEqual(gotChangeSet, wantChangeSet) {
-		t.Fatalf("change-set record from governed writes differs:\ngot: %#v\nwant: %#v", gotChangeSet, wantChangeSet)
-	}
+	assertSeedChangeSetMatches(t,
+		filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"),
+		filepath.Join(source, ".protobot", "change-sets", "cs-00001.yaml"),
+		"change-set record from governed writes differs",
+	)
 	for _, rel := range []string{
 		"interfaces/protobot-cli.yaml",
 		"requirements/REQ-CLI-00001.yaml",
@@ -455,9 +467,288 @@ func TestSelfHostingSeedMatchesWorkflowTrustAnchor(t *testing.T) {
 	}
 }
 
+func TestSelfHostingMultipleProposedChangeSets(t *testing.T) {
+	source, extra := selfHostingSourceWithExtraChangeSet(t)
+	root := newSelfHostingCheckoutFrom(t, source)
+	t.Chdir(root)
+
+	// Approved seed manifests remain on the fixture's default branch and
+	// preserve approved historical status.
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", "CS-00001")
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+		t.Fatalf("CS-00001 status = %q, want approved", status)
+	}
+
+	var extraCS records.ChangeSet
+	if err := storage.ReadFile(filepath.Join(root, filepath.FromSlash(extra)), &extraCS); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", extraCS.ID)
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+		t.Fatalf("%s status = %q, want proposed", extraCS.ID, status)
+	}
+
+	copied := selfHostingChangeSetRelPaths(t, root)
+	if !containsString(copied, extra) {
+		t.Fatalf("newSelfHostingCheckout omitted %s from %v", extra, copied)
+	}
+	if len(copied) < 2 {
+		t.Fatalf("copied change-set manifests = %v, want at least two change sets", copied)
+	}
+
+	// Active proposals have base commits pinned to the fixture default branch head.
+	base := gitOutput(t, root, "rev-parse", "refs/heads/main")
+	if extraCS.BaseCommit != base || extraCS.ImpactAssessmentBaseCommit != base {
+		t.Fatalf("%s base_commit=%q impact_assessment_base_commit=%q, want both %q", extra, extraCS.BaseCommit, extraCS.ImpactAssessmentBaseCommit, base)
+	}
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+	var result struct {
+		Data struct {
+			RecordCounts struct {
+				Requirements int `json:"requirements"`
+				Interfaces   int `json:"interfaces"`
+				ChangeSets   int `json:"change_sets"`
+				Artifacts    int `json:"artifacts"`
+			} `json:"record_counts"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("decode check result: %v", err)
+	}
+	reqRels, ifaceRels := referencedRecordsForChangeSets(t, source, copied)
+	if got := result.Data.RecordCounts; got.Requirements != len(reqRels) || got.Interfaces != len(ifaceRels) || got.ChangeSets != len(copied) || got.Artifacts != 2 {
+		t.Fatalf("check record counts = %#v, want %d requirement(s), %d interface(s), %d change set(s), and two artifacts", got, len(reqRels), len(ifaceRels), len(copied))
+	}
+
+	assertSeedChangeSetMatches(t,
+		filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml"),
+		filepath.Join(selfHostingRoot(t), ".protobot", "change-sets", "cs-00001.yaml"),
+		"CS-00001 from a multi-change-set checkout differs from the committed seed",
+	)
+}
+
+func TestSelfHostingCheckoutWithoutDefaultBranchRefs(t *testing.T) {
+	// Simulate an environment where default-branch refs are absent in the source checkout.
+	// When default-branch refs cannot be resolved, approval cannot be inferred
+	// from branch refs, so the fallback preserves the full approved set from
+	// source git tracking while explicit partitioning remains supported.
+	source, approvedRels, proposedRels, approvedSyntheticID, proposedSyntheticID := selfHostingSourceWithApprovedAndProposedChangeSets(t)
+
+	// Use environment-isolated Git runner for destructive ref deletion.
+	isolatedGit(t, source, "update-ref", "-d", "refs/heads/main")
+	if hasAnyRef(source, "refs/heads/main", "refs/remotes/origin/main") {
+		t.Fatal("source still has default branch refs")
+	}
+
+	// Dynamic resolution on this source must fail loudly rather than guessing.
+	if _, err := resolveSourceDefaultBranchRef(source); err == nil {
+		t.Fatal("resolveSourceDefaultBranchRef succeeded on a source without default-branch refs")
+	}
+
+	// Without explicit partition, building a checkout from a ref-less source
+	// falls back to preserving the full tracked approved history rather than
+	// fataling or demoting later approved history to proposed.
+	fallbackRoot := newSelfHostingCheckoutFrom(t, source)
+	t.Chdir(fallbackRoot)
+	assertSelfHostingProposalBasesPinned(t, fallbackRoot, proposedRels)
+
+	for _, rel := range approvedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+			t.Fatalf("fallback %s status = %q, want approved", id, status)
+		}
+	}
+	code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", approvedSyntheticID)
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+		t.Fatalf("fallback %s status = %q, want approved", approvedSyntheticID, status)
+	}
+
+	for _, rel := range proposedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr := runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+			t.Fatalf("fallback %s status = %q, want proposed", id, status)
+		}
+	}
+	code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", proposedSyntheticID)
+	assertSuccess(t, code, stdout, stderr)
+	if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+		t.Fatalf("fallback %s status = %q, want proposed", proposedSyntheticID, status)
+	}
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+
+	// Explicit partition with the derived approved/proposed lists also works.
+	root := buildSelfHostingCheckoutWithPartition(t, source, approvedRels, proposedRels)
+	t.Chdir(root)
+	assertSelfHostingProposalBasesPinned(t, root, proposedRels)
+
+	for _, rel := range approvedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "approved" {
+			t.Fatalf("explicit partition %s status = %q, want approved", id, status)
+		}
+	}
+
+	for _, rel := range proposedRels {
+		id := changeSetIDFromRelPath(t, source, rel)
+		code, stdout, stderr = runCLI(nil, "--output", "json", "change-set", "show", "--change-set", id)
+		assertSuccess(t, code, stdout, stderr)
+		if status := jsonString(t, stdout, "data", "status"); status != "proposed" {
+			t.Fatalf("explicit partition %s status = %q, want proposed", id, status)
+		}
+	}
+
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check")
+	assertSuccess(t, code, stdout, stderr)
+}
+
+func changeSetIDFromRelPath(t *testing.T, root, rel string) string {
+	t.Helper()
+	var cs records.ChangeSet
+	if err := storage.ReadFile(filepath.Join(root, filepath.FromSlash(rel)), &cs); err != nil {
+		t.Fatal(err)
+	}
+	return cs.ID
+}
+
+func assertSelfHostingProposalBasesPinned(t *testing.T, root string, proposedRels []string) {
+	t.Helper()
+	base := isolatedGitOutput(t, root, "rev-parse", "refs/heads/main")
+	for _, rel := range proposedRels {
+		var cs records.ChangeSet
+		if err := storage.ReadFile(filepath.Join(root, filepath.FromSlash(rel)), &cs); err != nil {
+			t.Fatal(err)
+		}
+		if cs.BaseCommit != base || cs.ImpactAssessmentBaseCommit != base {
+			t.Fatalf("%s base_commit=%q impact_assessment_base_commit=%q, want both %q", rel, cs.BaseCommit, cs.ImpactAssessmentBaseCommit, base)
+		}
+	}
+}
+
+func isolatedGit(t *testing.T, root string, args ...string) {
+	t.Helper()
+	cmd := gitCommand(append([]string{"-C", root}, args...)...)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %v failed: %v\n%s", args, err, output)
+	}
+}
+
+func isolatedGitOutput(t *testing.T, root string, args ...string) string {
+	t.Helper()
+	cmd := gitCommand(append([]string{"-C", root}, args...)...)
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("git %v failed: %v", args, err)
+	}
+	return strings.TrimSpace(string(output))
+}
+
 func newSelfHostingCheckout(t *testing.T) string {
 	t.Helper()
-	source := selfHostingRoot(t)
+	return newSelfHostingCheckoutFrom(t, hermeticSelfHostingSource(t))
+}
+
+func newSelfHostingCheckoutFrom(t *testing.T, source string) string {
+	t.Helper()
+	return buildSelfHostingCheckout(t, source, selfHostingChangeSetRelPaths(t, source), true)
+}
+
+func newSelfHostingSeedProposedCheckout(t *testing.T) string {
+	t.Helper()
+	return buildSelfHostingCheckout(t, selfHostingRoot(t), []string{".protobot/change-sets/cs-00001.yaml"}, false)
+}
+
+func hermeticSelfHostingSource(t *testing.T) string {
+	t.Helper()
+	origin := selfHostingRoot(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	isolatedGit(t, root, "init", "-b", "main")
+	isolatedGit(t, root, "config", "user.email", "test@example.invalid")
+	isolatedGit(t, root, "config", "user.name", "Test User")
+
+	for _, rel := range []string{"docs/vision.md", "docs/architecture.md"} {
+		writeTestFile(t, root, rel, readTestFile(t, origin, rel))
+	}
+	writeTestFile(t, root, ".protobot/project.yaml", readTestFile(t, origin, ".protobot/project.yaml"))
+	writeTestFile(t, root, ".protobot/projection.yaml", readTestFile(t, origin, ".protobot/projection.yaml"))
+
+	allManifests := selfHostingChangeSetRelPaths(t, origin)
+	approvedManifests, proposedManifests := partitionChangeSets(origin, allManifests)
+
+	if len(approvedManifests) > 0 {
+		appReqs, appIfaces := referencedRecordsForChangeSets(t, origin, approvedManifests)
+		for _, rel := range append(append(approvedManifests, appReqs...), appIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, origin, rel))
+		}
+		refreshProjectDigests(t, root)
+		isolatedGit(t, root, "add", ".")
+		isolatedGit(t, root, "commit", "-m", "approved specification records")
+	}
+
+	if len(proposedManifests) > 0 {
+		propReqs, propIfaces := referencedRecordsForChangeSets(t, origin, proposedManifests)
+		for _, rel := range append(append(proposedManifests, propReqs...), propIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, origin, rel))
+		}
+		refreshProjectDigests(t, root)
+	}
+	return root
+}
+
+func buildSelfHostingCheckout(t *testing.T, source string, manifests []string, splitApproved bool) string {
+	t.Helper()
+	var approvedManifests, proposedManifests []string
+	if splitApproved {
+		approvedManifests, proposedManifests = partitionChangeSets(source, manifests)
+	} else {
+		// Keep requested change sets on the proposed PR branch so lifecycle
+		// tests can exercise their proposal workflow.
+		proposedManifests = manifests
+	}
+	return buildSelfHostingCheckoutWithPartition(t, source, approvedManifests, proposedManifests)
+}
+
+func partitionChangeSets(source string, manifests []string) ([]string, []string) {
+	ref, err := resolveSourceDefaultBranchRef(source)
+	var approved, proposed []string
+	if err == nil {
+		for _, rel := range manifests {
+			if isChangeSetApprovedInTree(source, ref, rel) {
+				approved = append(approved, rel)
+			} else {
+				proposed = append(proposed, rel)
+			}
+		}
+	} else {
+		for _, rel := range manifests {
+			if isChangeSetTracked(source, rel) {
+				approved = append(approved, rel)
+			} else {
+				proposed = append(proposed, rel)
+			}
+		}
+	}
+	return approved, proposed
+}
+
+func buildSelfHostingCheckoutWithPartition(t *testing.T, source string, approvedManifests, proposedManifests []string) string {
+	t.Helper()
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -465,47 +756,480 @@ func newSelfHostingCheckout(t *testing.T) string {
 	for _, rel := range []string{"docs/vision.md", "docs/architecture.md"} {
 		writeTestFile(t, root, rel, readTestFile(t, source, rel))
 	}
-	git(t, root, "init", "-b", "main")
-	git(t, root, "config", "user.email", "test@example.invalid")
-	git(t, root, "config", "user.name", "Test User")
-	git(t, root, "add", ".")
-	git(t, root, "commit", "-m", "registered artifacts")
-	git(t, root, "checkout", "-b", "pr/self-hosting-seed")
-	for _, rel := range []string{
-		".protobot/project.yaml",
-		".protobot/projection.yaml",
-		".protobot/change-sets/cs-00001.yaml",
-		".protobot/interfaces/protobot-cli.yaml",
-		".protobot/requirements/REQ-CLI-00001.yaml",
-	} {
+	isolatedGit(t, root, "init", "-b", "main")
+	isolatedGit(t, root, "config", "user.email", "test@example.invalid")
+	isolatedGit(t, root, "config", "user.name", "Test User")
+	isolatedGit(t, root, "add", ".")
+	isolatedGit(t, root, "commit", "-m", "registered artifacts")
+
+	// Write project and projection configs
+	for _, rel := range []string{".protobot/project.yaml", ".protobot/projection.yaml"} {
 		writeTestFile(t, root, rel, readTestFile(t, source, rel))
 	}
-	pinSelfHostingSeedBase(t, root)
-	git(t, root, "add", ".protobot")
-	git(t, root, "commit", "-m", "propose self-hosting seed")
+
+	if len(approvedManifests) > 0 {
+		appReqs, appIfaces := referencedRecordsForChangeSets(t, source, approvedManifests)
+		for _, rel := range append(append(approvedManifests, appReqs...), appIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, source, rel))
+		}
+		refreshProjectDigests(t, root)
+		isolatedGit(t, root, "add", ".protobot")
+		isolatedGit(t, root, "commit", "-m", "approved specification records")
+	}
+
+	isolatedGit(t, root, "checkout", "-b", "pr/self-hosting-seed")
+	if len(proposedManifests) > 0 {
+		propReqs, propIfaces := referencedRecordsForChangeSets(t, source, proposedManifests)
+		for _, rel := range append(append(proposedManifests, propReqs...), propIfaces...) {
+			writeTestFile(t, root, rel, readTestFile(t, source, rel))
+		}
+		pinSelfHostingSeedBase(t, root)
+		isolatedGit(t, root, "add", ".protobot")
+		isolatedGit(t, root, "commit", "-m", "propose self-hosting change sets")
+	}
 	return root
 }
 
-// pinSelfHostingSeedBase rewrites the copied seed's base_commit to the local
+func resolveSourceDefaultBranchRef(source string) (string, error) {
+	if hasAnyRef(source, "refs/heads/main") {
+		return "refs/heads/main", nil
+	}
+	if hasAnyRef(source, "refs/remotes/origin/main") {
+		return "refs/remotes/origin/main", nil
+	}
+	// Check canonical remote tracking branch if configured in project.yaml
+	var config records.ProjectConfig
+	if err := storage.ReadFile(filepath.Join(source, ".protobot", "project.yaml"), &config); err == nil {
+		if branch := strings.TrimSpace(config.Repository.DefaultBranch); branch != "" {
+			if remotes, err := canonicalRemoteNames(source, config.Repository.CanonicalRemote); err == nil {
+				for _, remote := range remotes {
+					ref := "refs/remotes/" + remote + "/" + branch
+					if hasAnyRef(source, ref) {
+						return ref, nil
+					}
+				}
+			}
+		}
+	}
+	return "", fmt.Errorf("repository default branch could not be resolved in %s", source)
+}
+
+func hasAnyRef(root string, refs ...string) bool {
+	for _, ref := range refs {
+		cmd := gitCommand("-C", root, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+		if cmd.Run() == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func referencedRecordsForChangeSets(t *testing.T, source string, changeSetRels []string) ([]string, []string) {
+	t.Helper()
+	seenReqs := make(map[string]bool)
+	seenIfaces := make(map[string]bool)
+	reqRels := make([]string, 0)
+	ifaceRels := make([]string, 0)
+
+	for _, rel := range changeSetRels {
+		manifestPath := filepath.Join(source, filepath.FromSlash(rel))
+		var cs records.ChangeSet
+		if err := storage.ReadFile(manifestPath, &cs); err != nil {
+			t.Fatal(err)
+		}
+		for _, op := range cs.Operations {
+			if op.RequirementID != "" && !seenReqs[op.RequirementID] {
+				seenReqs[op.RequirementID] = true
+				filename, err := records.FilenameFor(records.RequirementStore, op.RequirementID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := filepath.ToSlash(filepath.Join(".protobot", "requirements", filename))
+				if _, err := os.Stat(filepath.Join(source, filepath.FromSlash(p))); err == nil {
+					reqRels = append(reqRels, p)
+				}
+			}
+		}
+		for _, op := range cs.InterfaceOperations {
+			if op.InterfaceID != "" && !seenIfaces[op.InterfaceID] {
+				seenIfaces[op.InterfaceID] = true
+				filename, err := records.FilenameFor(records.InterfaceStore, op.InterfaceID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := filepath.ToSlash(filepath.Join(".protobot", "interfaces", filename))
+				if _, err := os.Stat(filepath.Join(source, filepath.FromSlash(p))); err == nil {
+					ifaceRels = append(ifaceRels, p)
+				}
+			}
+		}
+		for _, ifaceID := range cs.AffectedInterfaces {
+			if ifaceID != "" && !seenIfaces[ifaceID] {
+				seenIfaces[ifaceID] = true
+				filename, err := records.FilenameFor(records.InterfaceStore, ifaceID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				p := filepath.ToSlash(filepath.Join(".protobot", "interfaces", filename))
+				if _, err := os.Stat(filepath.Join(source, filepath.FromSlash(p))); err == nil {
+					ifaceRels = append(ifaceRels, p)
+				}
+			}
+		}
+	}
+	sort.Strings(reqRels)
+	sort.Strings(ifaceRels)
+	return reqRels, ifaceRels
+}
+
+func assertSeedChangeSetMatches(t *testing.T, gotPath, wantPath, failureContext string) {
+	t.Helper()
+	var gotChangeSet, wantChangeSet records.ChangeSet
+	if err := storage.ReadFile(gotPath, &gotChangeSet); err != nil {
+		t.Fatal(err)
+	}
+	if err := storage.ReadFile(wantPath, &wantChangeSet); err != nil {
+		t.Fatal(err)
+	}
+	gotChangeSet.BaseCommit, wantChangeSet.BaseCommit = "", ""
+	gotChangeSet.ImpactAssessmentBaseCommit, wantChangeSet.ImpactAssessmentBaseCommit = "", ""
+	if !reflect.DeepEqual(gotChangeSet, wantChangeSet) {
+		t.Fatalf("%s:\ngot: %#v\nwant: %#v", failureContext, gotChangeSet, wantChangeSet)
+	}
+}
+
+func selfHostingChangeSetRelPaths(t *testing.T, root string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(filepath.Join(root, ".protobot", "change-sets"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	relPaths := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || strings.HasPrefix(name, ".") || filepath.Ext(name) != ".yaml" {
+			continue
+		}
+		relPaths = append(relPaths, filepath.ToSlash(filepath.Join(".protobot", "change-sets", name)))
+	}
+	if len(relPaths) == 0 {
+		t.Fatal("no change-set manifests matching .protobot/change-sets/*.yaml")
+	}
+	sort.Strings(relPaths)
+	return relPaths
+}
+
+// pinSelfHostingSeedBase rewrites every copied proposed change-set
+// base_commit and impact_assessment_base_commit to the local
 // default-branch head so check can evaluate Git freshness in the temp repo.
 func pinSelfHostingSeedBase(t *testing.T, root string) {
 	t.Helper()
-	base := gitOutput(t, root, "rev-parse", "refs/heads/main")
-	path := filepath.Join(root, ".protobot", "change-sets", "cs-00001.yaml")
-	var changeSet records.ChangeSet
-	if err := storage.ReadFile(path, &changeSet); err != nil {
+	pinSelfHostingChangeSetsExcept(t, root)
+}
+
+func pinSelfHostingChangeSetsExcept(t *testing.T, root string, skipIDs ...string) {
+	t.Helper()
+	base := isolatedGitOutput(t, root, "rev-parse", "refs/heads/main")
+	skip := make(map[string]bool, len(skipIDs))
+	for _, id := range skipIDs {
+		skip[id] = true
+	}
+	pinned := false
+	for _, rel := range selfHostingChangeSetRelPaths(t, root) {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		var changeSet records.ChangeSet
+		if err := storage.ReadFile(path, &changeSet); err != nil {
+			t.Fatal(err)
+		}
+		if skip[changeSet.ID] {
+			continue
+		}
+		if isChangeSetApprovedInTree(root, "refs/heads/main", rel) {
+			continue
+		}
+		changeSet.BaseCommit = base
+		changeSet.ImpactAssessmentBaseCommit = base
+		data, err := storage.Encode(changeSet)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pinned = true
+	}
+	if pinned {
+		refreshProjectDigests(t, root)
+	}
+}
+
+func isChangeSetApprovedInTree(root, ref, relPath string) bool {
+	cmd := gitCommand("-C", root, "cat-file", "-e", ref+":"+filepath.ToSlash(relPath))
+	return cmd.Run() == nil
+}
+
+func isChangeSetTracked(root, relPath string) bool {
+	slashRel := filepath.ToSlash(relPath)
+	cmd := gitCommand("-C", root, "ls-files", "--error-unmatch", slashRel)
+	if cmd.Run() == nil {
+		return true
+	}
+	cmd = gitCommand("-C", root, "cat-file", "-e", "HEAD:"+slashRel)
+	return cmd.Run() == nil
+}
+
+func selfHostingSourceWithExtraChangeSet(t *testing.T) (string, string) {
+	t.Helper()
+	root := hermeticSelfHostingSource(t)
+
+	id, rel := nextSelfHostingChangeSetRel(t, root)
+	reqID, reqRel := nextSelfHostingRequirementRel(t, root)
+	req := records.Requirement{
+		ID:   reqID,
+		Type: "event-driven",
+		Text: "When an engineer runs the self-hosting test suite, the CLI shall support multiple proposed change sets.",
+		AppliesTo: records.Applicability{
+			Interfaces: []string{},
+			Scopes:     []string{"ears-manager"},
+		},
+		Verification: records.Verification{
+			Mode: "isolated-interface",
+		},
+		Provenance: "user-authored",
+		Created:    "2026-10-13T16:01:00Z",
+		Status:     records.StatusActive,
+	}
+	reqData, err := storage.Encode(req)
+	if err != nil {
 		t.Fatal(err)
 	}
-	changeSet.BaseCommit = base
-	changeSet.ImpactAssessmentBaseCommit = base
+	writeTestFile(t, root, reqRel, string(reqData))
+
+	changeSet := records.ChangeSet{
+		ID:         id,
+		BaseCommit: strings.Repeat("a", 40),
+		Intent:     "Document an additional proposed change set",
+		Operations: []records.RequirementOperation{
+			{
+				Action:        "add",
+				RequirementID: reqID,
+			},
+		},
+		AffectedInterfaces:         []string{},
+		AffectedScopes:             []string{},
+		ImplementationRequired:     false,
+		ImplementationRationale:    "The additional change set exists only to exercise self-hosting fixtures.",
+		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
+		Created:                    "2026-10-13T16:00:00Z",
+	}
 	data, err := storage.Encode(changeSet)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
+	writeTestFile(t, root, rel, string(data))
+	refreshProjectDigests(t, root)
+
+	return root, rel
+}
+
+func selfHostingSourceWithApprovedAndProposedChangeSets(t *testing.T) (string, []string, []string, string, string) {
+	t.Helper()
+	root, preexistingProposal := selfHostingSourceWithExtraChangeSet(t)
+	approvedRels, proposedRels := partitionChangeSets(root, selfHostingChangeSetRelPaths(t, root))
+	if !containsString(proposedRels, preexistingProposal) {
+		t.Fatalf("pre-existing proposal %s was not partitioned as proposed: %v", preexistingProposal, proposedRels)
+	}
+	if isChangeSetApprovedInTree(root, "refs/heads/main", preexistingProposal) || isChangeSetTracked(root, preexistingProposal) {
+		t.Fatalf("pre-existing proposal %s is not an untracked proposal on the source", preexistingProposal)
+	}
+
+	// Add a synthetic change set as later approved history on main.
+	approvedID, approvedRel := nextSelfHostingChangeSetRel(t, root)
+	approvedRequirementID, approvedRequirementRel := nextSelfHostingRequirementRel(t, root)
+	proposalReqs, proposalIfaces := referencedRecordsForChangeSets(t, root, proposedRels)
+	proposalFiles := append(append(append([]string{}, proposedRels...), proposalReqs...), proposalIfaces...)
+	// Keep existing untracked proposals out of the approved commit and its store digests.
+	type hiddenFile struct {
+		rel  string
+		data []byte
+	}
+	var hiddenProposals []hiddenFile
+	for _, rel := range proposalFiles {
+		if isChangeSetTracked(root, rel) {
+			continue
+		}
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(path); err != nil {
+			t.Fatal(err)
+		}
+		hiddenProposals = append(hiddenProposals, hiddenFile{rel: rel, data: data})
+	}
+
+	approvedRequirement := records.Requirement{
+		ID:   approvedRequirementID,
+		Type: "event-driven",
+		Text: "When an engineer inspects specification status, the CLI shall report approved change sets.",
+		AppliesTo: records.Applicability{
+			Interfaces: []string{},
+			Scopes:     []string{"ears-manager"},
+		},
+		Verification: records.Verification{
+			Mode: "isolated-interface",
+		},
+		Provenance: "user-authored",
+		Created:    "2026-10-13T16:01:00Z",
+		Status:     records.StatusActive,
+	}
+	approvedRequirementData, err := storage.Encode(approvedRequirement)
+	if err != nil {
 		t.Fatal(err)
 	}
+	writeTestFile(t, root, approvedRequirementRel, string(approvedRequirementData))
+
+	approvedChangeSet := records.ChangeSet{
+		ID:         approvedID,
+		BaseCommit: strings.Repeat("a", 40),
+		Intent:     "Document a previously approved historical change set",
+		Operations: []records.RequirementOperation{
+			{
+				Action:        "add",
+				RequirementID: approvedRequirementID,
+			},
+		},
+		AffectedInterfaces:         []string{},
+		AffectedScopes:             []string{},
+		ImplementationRequired:     false,
+		ImplementationRationale:    "This change set exercises later approved history in self-hosting fixtures.",
+		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
+		Created:                    "2026-10-13T16:00:00Z",
+	}
+	approvedChangeSetData, err := storage.Encode(approvedChangeSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, approvedRel, string(approvedChangeSetData))
 	refreshProjectDigests(t, root)
+
+	// Commit the synthetic set to main so it becomes approved history.
+	isolatedGit(t, root, "add", ".protobot")
+	isolatedGit(t, root, "commit", "-m", "approved specification records for "+approvedID)
+	approvedRels = append(approvedRels, approvedRel)
+	for _, file := range hiddenProposals {
+		path := filepath.Join(root, filepath.FromSlash(file.rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, file.data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refreshProjectDigests(t, root)
+
+	// Add a synthetic active proposed change set in the working tree.
+	proposedID, proposedRel := nextSelfHostingChangeSetRel(t, root)
+	proposedRequirementID, proposedRequirementRel := nextSelfHostingRequirementRel(t, root)
+	proposedRequirement := records.Requirement{
+		ID:   proposedRequirementID,
+		Type: "event-driven",
+		Text: "When an engineer adds a proposed change set, the CLI shall support multiple proposed change sets.",
+		AppliesTo: records.Applicability{
+			Interfaces: []string{},
+			Scopes:     []string{"ears-manager"},
+		},
+		Verification: records.Verification{
+			Mode: "isolated-interface",
+		},
+		Provenance: "user-authored",
+		Created:    "2026-10-13T16:03:00Z",
+		Status:     records.StatusActive,
+	}
+	proposedRequirementData, err := storage.Encode(proposedRequirement)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, proposedRequirementRel, string(proposedRequirementData))
+
+	proposedChangeSet := records.ChangeSet{
+		ID:         proposedID,
+		BaseCommit: strings.Repeat("a", 40),
+		Intent:     "Document an active proposed change set",
+		Operations: []records.RequirementOperation{
+			{
+				Action:        "add",
+				RequirementID: proposedRequirementID,
+			},
+		},
+		AffectedInterfaces:         []string{},
+		AffectedScopes:             []string{},
+		ImplementationRequired:     false,
+		ImplementationRationale:    "This change set exercises active proposals in self-hosting fixtures.",
+		ImpactAssessmentBaseCommit: strings.Repeat("a", 40),
+		Created:                    "2026-10-13T16:02:00Z",
+	}
+	proposedChangeSetData, err := storage.Encode(proposedChangeSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, root, proposedRel, string(proposedChangeSetData))
+	refreshProjectDigests(t, root)
+	proposedRels = append(proposedRels, proposedRel)
+	pinSelfHostingChangeSetsExcept(t, root)
+
+	return root, approvedRels, proposedRels, approvedID, proposedID
+}
+
+func nextSelfHostingRequirementRel(t *testing.T, root string) (string, string) {
+	t.Helper()
+	used := make(map[string]bool)
+	matches, err := filepath.Glob(filepath.Join(root, ".protobot", "requirements", "REQ-CLI-*.yaml"))
+	if err == nil {
+		for _, match := range matches {
+			used[filepath.Base(match)] = true
+		}
+	}
+	for number := 2; number <= lastChangeSetNumber; number++ {
+		id := fmt.Sprintf("REQ-CLI-%05d", number)
+		filename, err := records.FilenameFor(records.RequirementStore, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if used[filename] {
+			continue
+		}
+		return id, filepath.ToSlash(filepath.Join(".protobot", "requirements", filename))
+	}
+	t.Fatal("no requirement sequence number is available")
+	return "", ""
+}
+
+func nextSelfHostingChangeSetRel(t *testing.T, root string) (string, string) {
+	t.Helper()
+	used := make(map[string]bool)
+	for _, rel := range selfHostingChangeSetRelPaths(t, root) {
+		used[filepath.Base(rel)] = true
+	}
+	for number := 2; number <= lastChangeSetNumber; number++ {
+		id := fmt.Sprintf("CS-%05d", number)
+		filename, err := records.FilenameFor(records.ChangeSetStore, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if used[filename] {
+			continue
+		}
+		return id, filepath.ToSlash(filepath.Join(".protobot", "change-sets", filename))
+	}
+	t.Fatal("no change-set sequence number is available")
+	return "", ""
+}
+
+func isolateSeedProject(config records.ProjectConfig) records.ProjectConfig {
+	config.StoreDigests = records.StoreDigests{}
+	return config
 }
 
 func initializeSelfHostingProject(t *testing.T) {
