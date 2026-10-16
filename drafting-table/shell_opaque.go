@@ -758,6 +758,8 @@ func gitInvocationOpaque(args []string) bool {
 
 func gitSubcommandCanExecuteCommands(command string, args []string) bool {
 	switch command {
+	case "ls-remote":
+		return gitLsRemoteInvocationIsOpaque(args)
 	case "bisect":
 		return slices.Contains(args, "run")
 	case "archive":
@@ -774,11 +776,82 @@ func gitSubcommandCanExecuteCommands(command string, args []string) bool {
 		return !gitReadOnlyMetadataCommand(command, args)
 	case "reflog":
 		return !gitReflogShowCommand(args)
-	case "add", "am", "apply", "checkout", "cherry-pick", "clean", "clone", "commit", "fetch", "filter-branch", "init", "merge", "mv", "notes", "pull", "push", "rebase", "reset", "restore", "revert", "rm", "switch", "update-index", "update-ref", "gc", "maintenance", "repack", "prune", "symbolic-ref":
+	case "add", "am", "apply", "checkout", "cherry-pick", "clean", "clone", "commit", "fetch", "fetch-pack", "filter-branch", "init", "merge", "mv", "notes", "pull", "push", "rebase", "reset", "restore", "revert", "rm", "send-pack", "switch", "update-index", "update-ref", "gc", "maintenance", "repack", "prune", "symbolic-ref":
 		return true
 	default:
 		return false
 	}
+}
+
+func gitLsRemoteInvocationIsOpaque(args []string) bool {
+	// Upload-pack command overrides can execute an arbitrary program even when
+	// the selected remote uses an otherwise ordinary transport. Skip values of
+	// the other value-taking options while checking the whole option list.
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			break
+		}
+		switch {
+		case arg == "--upload-pack", arg == "--exec",
+			strings.HasPrefix(arg, "--upload-pack="), strings.HasPrefix(arg, "--exec="):
+			return true
+		case arg == "--server-option", arg == "-o", arg == "--sort":
+			index++
+		}
+	}
+	return gitLsRemoteHasHelperRemote(args)
+}
+
+func gitLsRemoteHasHelperRemote(args []string) bool {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		switch {
+		case arg == "--":
+			return index+1 < len(args) && gitRemoteHelperURL(args[index+1])
+		case arg == "--server-option", arg == "-o", arg == "--sort":
+			if index+1 >= len(args) {
+				return true
+			}
+			index++
+		case strings.HasPrefix(arg, "--server-option="), strings.HasPrefix(arg, "--sort="):
+			continue
+		case slices.Contains([]string{"-q", "--quiet", "--exit-code", "--get-url", "--symref", "--heads", "--branches", "-b", "-h", "-t", "--tags", "--refs"}, arg):
+			continue
+		case gitLsRemoteShortOptionCluster(arg):
+			continue
+		case strings.HasPrefix(arg, "-"):
+			// shortcut: unknown ls-remote options are denied; add newly supported
+			// value-taking forms when the CLI contract requires them.
+			return true
+		default:
+			return gitRemoteHelperURL(arg)
+		}
+	}
+	return false
+}
+
+func gitLsRemoteShortOptionCluster(arg string) bool {
+	if len(arg) < 3 || arg[0] != '-' || arg[1] == '-' {
+		return false
+	}
+	for _, flag := range arg[1:] {
+		if !strings.ContainsRune("qbht", flag) {
+			return false
+		}
+	}
+	return true
+}
+
+func gitRemoteHelperURL(value string) bool {
+	separator := strings.Index(value, "::")
+	if separator <= 0 {
+		return false
+	}
+	// A standard URL may contain a double colon in an IPv6 address. It is a
+	// helper URL only when the helper separator comes before any URL scheme.
+	scheme := strings.Index(value, "://")
+	return scheme < 0 || scheme > separator
 }
 
 func gitBundleCreates(args []string) bool {
@@ -927,8 +1000,10 @@ func gitConfiguresExecutableConfig(args []string, commandIndex int) bool {
 	for i := 1; i < commandIndex; i++ {
 		arg := args[i]
 		var config string
+		configEnv := false
 		switch {
 		case arg == "-c" || arg == "--config-env":
+			configEnv = arg == "--config-env"
 			i++
 			if i >= commandIndex {
 				return true
@@ -937,10 +1012,11 @@ func gitConfiguresExecutableConfig(args []string, commandIndex int) bool {
 		case strings.HasPrefix(arg, "-c") && len(arg) > 2:
 			config = arg[2:]
 		case strings.HasPrefix(arg, "--config-env="):
+			configEnv = true
 			config = strings.TrimPrefix(arg, "--config-env=")
 		}
-		key, _, _ := strings.Cut(config, "=")
-		if gitExecutionConfigKey(key) {
+		key, value, hasValue := strings.Cut(config, "=")
+		if gitExecutionConfigKey(key) || gitRemoteHelperURLConfig(key, value, hasValue, configEnv) {
 			return true
 		}
 	}
@@ -952,6 +1028,8 @@ type gitConfigWriteState struct {
 	write           bool
 	readOnly        bool
 	sectionMutation bool
+	setsValue       bool
+	deletesValue    bool
 }
 
 func gitConfigCommandWritesExecutableConfig(args []string) bool {
@@ -962,8 +1040,10 @@ func gitConfigCommandWritesExecutableConfig(args []string) bool {
 	switch gitConfigActionSubcommand(state.positionals) {
 	case "get", "list":
 		state.readOnly = true
-	case "set", "unset":
-		state.write = true
+	case "set":
+		state.write, state.setsValue = true, true
+	case "unset":
+		state.write, state.deletesValue = true, true
 	case "rename-section", "remove-section", "edit":
 		// Modern section-mutation actions can touch arbitrary config, and edit
 		// launches an editor. Fail closed rather than infer their full effect.
@@ -978,7 +1058,22 @@ func gitConfigCommandWritesExecutableConfig(args []string) bool {
 			return true
 		}
 	}
-	return false
+	return gitConfigWritesRemoteHelperURL(state)
+}
+
+func gitConfigWritesRemoteHelperURL(state gitConfigWriteState) bool {
+	if state.readOnly || state.deletesValue && !state.setsValue || !state.write && len(state.positionals) < 2 {
+		return false
+	}
+	keyIndex, valueIndex := 0, 1
+	switch gitConfigActionSubcommand(state.positionals) {
+	case "set", "unset":
+		keyIndex, valueIndex = 1, 2
+	}
+	if valueIndex >= len(state.positionals) {
+		return false
+	}
+	return gitRemoteHelperURLConfig(state.positionals[keyIndex], state.positionals[valueIndex], true, false)
 }
 
 func scanGitConfigWriteOptions(args []string) (gitConfigWriteState, bool) {
@@ -1039,6 +1134,12 @@ func inspectGitConfigMutation(index int, arg, option string, hasValue bool, stat
 		return index, false
 	}
 	state.write = true
+	switch option {
+	case "--add", "--replace-all":
+		state.setsValue = true
+	case "--unset", "--unset-all":
+		state.deletesValue = true
+	}
 	return index + 1, true
 }
 
@@ -1070,6 +1171,7 @@ var gitExecutionConfigExactKeys = []string{
 	"core.pager", "core.editor", "core.hookspath", "core.fsmonitor", "core.sshcommand", "core.askpass", "core.gitproxy",
 	"sequence.editor", "interactive.difffilter", "uploadpack.packobjectshook", "include.path", "help.browser",
 	"web.browser", "instaweb.httpd", "core.alternaterefscommand", "http.extraheader", "http.proxy",
+	"protocol.allow",
 }
 
 func gitExecutionConfigKey(key string) bool {
@@ -1089,6 +1191,7 @@ func gitExecutionConfigHasPrefix(key string) bool {
 func gitExecutionConfigParameterizedKey(key string) bool {
 	return gitConfigKeyHasPrefixAndSuffix(key, "merge.", ".driver") ||
 		gitConfigKeyHasPrefixAndSuffix(key, "gpg.", ".program") || gitRemoteExecutionConfigKey(key) ||
+		gitConfigKeyHasPrefixAndSuffix(key, "protocol.", ".allow") ||
 		gitConfigKeyHasPrefixAndSuffix(key, "includeif.", ".path") ||
 		gitConfigKeyHasPrefixAndSuffix(key, "sendemail.", ".smtpserver") ||
 		gitConfigKeyHasPrefixAndSuffix(key, "submodule.", ".update") ||
@@ -1104,17 +1207,27 @@ func gitConfigKeyHasPrefixAndSuffix(key, prefix, suffix string) bool {
 
 func gitRemoteExecutionConfigKey(key string) bool {
 	return strings.HasPrefix(key, "remote.") &&
-		(strings.HasSuffix(key, ".uploadpack") || strings.HasSuffix(key, ".receivepack"))
+		(strings.HasSuffix(key, ".uploadpack") || strings.HasSuffix(key, ".receivepack") ||
+			strings.HasSuffix(key, ".vcs"))
+}
+
+func gitRemoteHelperURLConfig(key, value string, hasValue, configEnv bool) bool {
+	key = strings.ToLower(key)
+	if !strings.HasPrefix(key, "remote.") || !strings.HasSuffix(key, ".url") {
+		return false
+	}
+	return configEnv || hasValue && gitRemoteHelperURL(value)
 }
 
 func gitExecutionConfigSection(section string) bool {
 	section = strings.ToLower(section)
-	if slices.Contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "include", "includeif", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb", "trailer", "url", "http"}, section) {
+	if slices.Contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "include", "includeif", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb", "trailer", "url", "http", "protocol"}, section) {
 		return true
 	}
-	// Section mutations cannot select individual keys; an HTTP subsection may
-	// contain the execution-sensitive .extraHeader or .proxy setting.
-	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "merge.", "gpg.", "remote.", "includeif.", "sendemail.", "submodule.", "man.", "browser.", "web.", "instaweb.", "trailer.", "url.", "http."} {
+	// Section mutations cannot select individual keys. HTTP subsections may
+	// contain proxy or credential-bearing settings, and protocol subsections
+	// control which transports Git may invoke.
+	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "merge.", "gpg.", "remote.", "includeif.", "sendemail.", "submodule.", "man.", "browser.", "web.", "instaweb.", "trailer.", "url.", "http.", "protocol."} {
 		if strings.HasPrefix(section, prefix) {
 			return true
 		}
@@ -1132,7 +1245,7 @@ func gitExecutionConfigPattern(pattern string) bool {
 	if strings.Contains(pattern, "trailer") {
 		return true
 	}
-	for _, name := range []string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "receivepack", "include", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb"} {
+	for _, name := range []string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "receivepack", "include", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb", "protocol"} {
 		if strings.Contains(pattern, name) {
 			return true
 		}
@@ -1258,6 +1371,7 @@ func commandExecutionEnvironmentKey(key string) bool {
 			"GIT_PAGER", "PAGER", "GIT_EDITOR", "EDITOR", "VISUAL", "GIT_SEQUENCE_EDITOR",
 			"GIT_EXTERNAL_DIFF", "GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE", "RIPGREP_CONFIG_PATH",
 			"GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE",
+			"GIT_ALLOW_PROTOCOL", "GIT_PROXY_COMMAND",
 			"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
 			"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_TEMPLATE_DIR", "GIT_CEILING_DIRECTORIES",
 		}, key)

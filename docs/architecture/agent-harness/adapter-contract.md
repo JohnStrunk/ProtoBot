@@ -815,9 +815,24 @@ is `echo`. In stdin-append mode, only these unwrapped children are allowed:
    ambiguous; read-only `--get-regexp` remains available. Examples include
    `alias.*`, `pager.*`, `diff.*`, `merge.*.driver`, `gpg.*.program`,
    `man.*`, `browser.*`, `help.browser`, `web.browser`, `instaweb.httpd`,
-   `sendemail.<identity>.smtpserver`, and `submodule.<name>.update`; this
-   is not a complete key inventory. The guard also rejects targeted
-   execution-related environment forms that can redirect Git or ripgrep.
+   `sendemail.<identity>.smtpserver`, `submodule.<name>.update`,
+   `protocol.allow`, `protocol.<name>.allow`, and `remote.<name>.vcs`;
+   helper-form values of `remote.<name>.url` are also opaque. A
+   `remote.<name>.url` via `--config-env` is opaque because the value is
+   uninspected. An ordinary remote URL remains available to this targeted
+   check. These examples are illustrative, not a complete key inventory.
+
+   For `git ls-remote`, helper-form remote operands such as `ext::...` or
+   `hg::...` are opaque, including after `--`. The `--upload-pack` and
+   `--exec` options are opaque in separate-value and `=value` forms, even
+   with an ordinary remote. Unrecognized options and options missing
+   required values also fail closed. Rule 4 treats `git fetch-pack` and
+   `git send-pack` as recognized opaque execution forms and fails closed
+   on every form: for `git fetch-pack`, `--exec` and `--upload-pack`
+   select commands; for `git send-pack`, `--exec` and `--receive-pack`
+   select commands. The guard also rejects targeted execution-related
+   environment forms that can redirect Git or ripgrep.
+
    Command-scoped assignments to these keys, and these keys in
    recognized `export`, `declare`, `typeset`, or `readonly` forms, make
    the command opaque:
@@ -825,7 +840,8 @@ is `echo`. In stdin-append mode, only these unwrapped children are allowed:
    `GIT_SEQUENCE_EDITOR`, `GIT_EXTERNAL_DIFF`, and
    `GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE`; Git command helpers
    `GIT_SSH_COMMAND`, `GIT_SSH`, `GIT_ASKPASS`, `SSH_ASKPASS`, and
-   `SSH_ASKPASS_REQUIRE`; Git repository and metadata overrides `GIT_DIR`,
+   `SSH_ASKPASS_REQUIRE`; Git transport controls `GIT_ALLOW_PROTOCOL` and
+   `GIT_PROXY_COMMAND`; Git repository and metadata overrides `GIT_DIR`,
    `GIT_WORK_TREE`, `GIT_COMMON_DIR`, `GIT_INDEX_FILE`,
    `GIT_OBJECT_DIRECTORY`, `GIT_ALTERNATE_OBJECT_DIRECTORIES`,
    `GIT_TEMPLATE_DIR`, and `GIT_CEILING_DIRECTORIES`; and
@@ -1015,13 +1031,15 @@ writes no file, and does nothing when a session is idle or ends.
 
 The adapter core ships test vectors: a JSON input, a harness, a role,
 the expected exit status, and a fragment of the expected reason. The
-vectors run against the guard directly, and again through each
-binding's hook, in [the fixture](#guard-vectors). Two vectors expect
-an allow in a clone without `.protobot/`: the `scm` tool `branch_init`
-under the role, and `sed -i` on a file outside the role, because the
-directory is not yet a ProtoBot project. A third expects a refusal
-there: `true` under the role, so the Codex probe holds before
-initialization too.
+Go unit tests run the full vector set directly against the guard. The
+recorded #77 OpenCode fixture exercises only its recorded subset through
+the OpenCode binding; it does not replay the full set. Its `apply_patch`
+hook shape is checked directly against the guard because OpenCode
+1.18.30 offers no native `apply_patch` tool. The full set includes two
+expected allows in a clone without `.protobot/`: the `scm` tool
+`branch_init` under the role, and `sed -i` on a file outside the role,
+because the directory is not yet a ProtoBot project. A third expects
+the guard to refuse `true` under the role before project initialization.
 
 ---
 
@@ -1107,7 +1125,7 @@ specific and are not refusals.
 | Recognized direct shell writers to the `.protobot/` project-control namespace, Git metadata, reserved harness binding paths/files, configured store paths (including defaults) resolved safely, or the selected adapter manifest path and its containing directory/`skills/` subtree—including `sed -i`, `tee`, `touch`, `cp`, `mv`, `dd`, `install`, `mkdir`, `ln`, `truncate`, `rm`, `rsync`, `find` file-output actions, `sort -o`/`--output` and `-T`/`--temporary-directory` targets, `uniq`'s second positional output, Git `--output` targets for `diff`, `show`, `log`, `diff-tree`, `diff-index`, `diff-files`, and `range-diff`, and Git `config` writes with a resolved local, worktree, or explicit `--file` target. `patch` and `ed` are refused because their target forms are not parsed | Refused by Rule 6's exact shell grammar | Refused by Rule 7 when the guard returns a decision. The parser also checks move/removal source operands and `ln` or `cp` hard-/symbolic-link sources, including existing symlink chains and destination-relative symbolic-link targets. A recognized directory-content `cp` (source `.` or ending in `/.`) is refused when its resolved destination directory is an ancestor of or equal to Git metadata, `.protobot/`, the selected manifest/`skills/`, `.agents/drafting-table.yaml`, `.agents/skills`, or safely resolved configured store paths; a plain directory copy such as `cp -r dir .` checks its mapped `destination/basename(source)` target instead; `rm`/`mv` source directories containing protected state are refused too. For `cp`, `mv`, and `install`, existing or trailing-slash directory destinations and `-t`/`--target-directory` check each source's mapped `destination/basename(source)` target. `cp --parents`, `rsync --relative`/`-R`, and `rsync --files-from` fail closed because they change destination mapping (`-R` is recursive for `cp` and relative for `rsync`; `--files-from` uses uninspected file-list entries to map output beneath the destination). `rsync --backup-dir`, `--partial-dir`, `--temp-dir`, and `--write-batch` fail closed because they can name write locations outside modeled destinations. `rsync --rsh`/`-e` and `--rsync-path` fail closed because they carry remote-side commands. `rsync --link-dest` fails closed because it can create a hard link from an alternate base into a mapped destination, allowing a later in-place update to change the base. `rsync --remove-source-files` fails closed because it deletes source operands, making the sources write locations. `ln` checks directory destinations, including trailing slash, and the implicit `basename(target)` destination for the single-operand forms `ln target` and `ln -s target`. Symlink-preserving analysis covers tree members for recursive `cp -r`/`-R`/`-a`/`--recursive` unless `-L`/`--dereference` is present without `-H` or an explicit symlink-preserving flag; `-H` dereferences command-line links but tree-member links remain covered; `mv` directory trees; `rsync -a`/`--archive`; or `rsync -r`/`--recursive` with `-l`/`--links`. Top-level source links are preserved for `cp -a`/`--archive`/`-d`/`-P`/`--no-dereference` and for recursive `cp` without `-H`/`-L`/`--dereference`; `mv` and `rsync -a`/`--archive`/`-l`/`--links` also preserve top-level links. `cp --preserve=links` preserves hard links only, not symlink operands. Tree walks do not follow symlinks, re-anchor relative symbolic-link text at the mapped destination, check absolute link text unchanged, and fail closed on inspection errors or more than 10,000 entries. For recursive `cp`, `-H` combined with `-L`/`--dereference` makes the guard scan tree-member links conservatively; if `-H`, `-L`, or `--dereference` is combined with an explicit symlink-preserving flag (`-a`, `-d`, `-P`, or `--no-dereference`), it also checks top-level source links. The targeted inventory is not exhaustive | On a fail-open direct write, intact artifact/store digests can catch changed registered content, but do not establish writer provenance or catch coordinated digest edits; control files and Git metadata have no general path-provenance control |
 | Direct shell writer to an ordinary registered artifact from the project root or by absolute path, such as `sed -i`, `cp`, `tee`, `truncate`, `sort -o`/`--output`, `uniq input output`, or Git `diff`/`diff-tree`/`diff-index`/`diff-files`/`range-diff`/`show`/`log --output` | Refused by Rule 6's exact shell grammar | Not generally stopped solely because the target is an ordinary registered file; a relative target after a working-directory change is refused as ambiguous | Pre-stage digest comparison and `ears-manager check` catch persistent registered-path edits that leave the registry intact; CI path ownership is not a control for edits inside the owning path |
 | Output redirection in a shell command | Refused by the guard | Refused for the `.protobot/` project-control namespace, Git metadata, reserved harness binding paths/files, the selected adapter manifest path and its containing directory/`skills/` subtree, configured store paths read from `project.yaml` and resolved safely, and registered artifact paths known from successful project inspection; any shell command that contains both an output redirection and any working-directory change is refused, regardless of order; an uninspectable target is refused too | Intact artifact/store digests may catch a fail-open persistent edit; they do not establish the writer or catch a coordinated registry/digest edit |
-| Recognized opaque execution forms that could hide an indirect governed write, including inline or standard-input interpreters, command-string wrappers, Git aliases and metadata-writing Git commands, recipe/build/test runners, execution-changing `find` placeholders, `rg` preprocessor/pager forms except data-only `--paging=never` and `--paging never`, and Git `grep -O`. Rule 4 gives the exact targeted environment keys, including Git SSH/askpass and repository/index/object/template/ceiling overrides, shell-startup/loader assignments, ripgrep configuration, and imported `BASH_FUNC_*%%` assignments; this is not a blanket block on environment variables. Git output/effect examples include unconditional `archive` (including `-o`, `--output`, and stdout forms), `bundle create`, unconditional `format-patch` (because `format.outputDirectory` can redirect output), `mailsplit`, `checkout-index`, `fast-import`, and `instaweb`; these are examples, not a complete Git command inventory. Rule 4 defines exactly `xargs --help` and `xargs --version` as the informational forms, as well as the exact `xargs` append-safe list and replacement-mode behavior; it does not refuse every invocation | Refused by Rule 6's exact shell grammar | Refused by Rule 4 when the guard recognizes the form | No later check detects an indirect `ears-manager` write: the CLI can update registry digests, so later integrity checks cannot identify the unauthorized caller |
+| Recognized opaque execution forms that could hide an indirect governed write, including inline or standard-input interpreters, command-string wrappers, Git aliases and metadata-writing Git commands, transport plumbing commands `git fetch-pack` and `git send-pack`, recipe/build/test runners, execution-changing `find` placeholders, `rg` preprocessor/pager forms except data-only `--paging=never` and `--paging never`, and Git `grep -O`. Rule 4 gives the exact targeted environment keys, including Git SSH/askpass and repository/index/object/template/ceiling overrides, shell-startup/loader assignments, ripgrep configuration, and imported `BASH_FUNC_*%%` assignments; this is not a blanket block on environment variables. Git output/effect examples include unconditional `archive` (including `-o`, `--output`, and stdout forms), `bundle create`, unconditional `format-patch` (because `format.outputDirectory` can redirect output), `mailsplit`, `checkout-index`, `fast-import`, and `instaweb`; these are examples, not a complete Git command inventory. Rule 4 defines exactly `xargs --help` and `xargs --version` as the informational forms, as well as the exact `xargs` append-safe list and replacement-mode behavior; it does not refuse every invocation | Refused by Rule 6's exact shell grammar | Refused by Rule 4 when the guard recognizes the form | No later check detects an indirect `ears-manager` write: the CLI can update registry digests, so later integrity checks cannot identify the unauthorized caller |
 | Some interpreter source-file invocations, such as `python helper.py`, renamed executables, or unrecognized shell writers/executors | Refused by rule 6's exact shell grammar | Not generally stopped by this targeted guard | None for an indirect `ears-manager` write or a protected-path write; these remain accepted residual limits, not sandbox guarantees |
 | `ears-manager --content-file` or `--impact-file` with a value other than `-`, or with `-` or `--content-stdin` and input redirection | Refused when the guard runs; binding-specific hook failures may pass the call through | Same | None: integrity and CI cannot establish whether the bytes came from standard input or an external file |
 | Tool of a non-governed MCP server | Refused by the guard | The user's own configuration | No tool-call check; only unauthorized persistent edits to registered paths are caught if they reach SCM or CI |
@@ -1627,8 +1645,11 @@ A session started in one bound harness and resumed in another, at step
 
 ### Guard vectors
 
-Each vector runs against the guard directly and through the binding's
-normal, active hook path, and must be refused before it runs. Hook-
+Go unit tests run all JSON vectors directly against the guard. The
+recorded #77 OpenCode fixture exercises only its recorded subset through
+the OpenCode binding's active hook path; it does not run all JSON vectors
+through that path. Claude Code and Codex fixtures have not run. The rows
+below summarize guard scenarios and expected outcomes. Hook-
 unavailable cases are recorded separately as explicit gaps in
 [File-source arguments](#file-source-arguments); a call
 that passes through without a guard decision is not a successful refusal.

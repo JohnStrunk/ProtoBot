@@ -3223,6 +3223,300 @@
     "allow": true
   },
   {
+    "name": "Git protocol ext allow inline config blocks ls-remote",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c protocol.ext.allow=always ls-remote ext::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git protocol ext allow inline config-env blocks ls-remote",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git --config-env protocol.ext.allow=GIT_PROTOCOL_ALLOW ls-remote ext::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git protocol ext allow global config write is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global protocol.ext.allow always"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git protocol default allow global config write is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global protocol.allow always"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git protocol version inline config remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c protocol.version=2 status"},
+    "allow": true
+  },
+  {
+    "name": "Git protocol version persistent config remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global protocol.version 2"},
+    "allow": true
+  },
+  {
+    "name": "Git remote VCS inline config selects helper and is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c remote.pwn.vcs=ext status"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git remote VCS config-env selects helper and is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git --config-env remote.pwn.vcs=REMOTE_VCS status"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git remote VCS persistent config selects helper and is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global remote.pwn.vcs ext"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git helper URL inline config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c remote.pwn.url=ext::helper status"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git non-ext helper URL inline config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c remote.pwn.url=hg::helper status"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git helper URL persistent config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global remote.pwn.url ext::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git non-ext helper URL persistent config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global remote.pwn.url hg::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git helper URL modern set config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config set --global remote.pwn.url ext::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git helper URL add config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --add remote.pwn.url ext::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git helper URL replace-all system config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system --replace-all remote.pwn.url hg::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git helper URL config-env cannot be inspected",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git --config-env=remote.pwn.url=REMOTE_URL status"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git helper URL unset-all value pattern is allowed",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-all remote.pwn.url '^ext::'"},
+    "allow": true
+  },
+  {
+    "name": "Git ls-remote ext helper operand is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote ext::helper refs/heads/main"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote ext helper operand after separator is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote -- ext::helper refs/heads/main"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote ext helper operand after upload-pack value is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote --upload-pack git-upload-pack ext::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote non-ext helper operand is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote hg::helper"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote upload-pack command override with origin is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote --upload-pack git-upload-pack origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote attached upload-pack command override with origin is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote --upload-pack=git-upload-pack origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote exec command override with origin is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote --exec git-upload-pack origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote attached exec command override with origin is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote --exec=git-upload-pack origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "Git ls-remote origin remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote origin"},
+    "allow": true
+  },
+  {
+    "name": "Git ls-remote HTTPS URL remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote https://example.invalid/repository.git"},
+    "allow": true
+  },
+  {
+    "name": "Git ls-remote tags short option remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote -t origin"},
+    "allow": true
+  },
+  {
+    "name": "Git ls-remote clustered quiet tags options remain available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git ls-remote -qt origin"},
+    "allow": true
+  },
+  {
+    "name": "Git fetch-pack attached exec override is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git fetch-pack --exec=/tmp/guard-upload-pack origin"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git fetch-pack separate upload-pack override is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git fetch-pack --upload-pack /tmp/guard-upload-pack origin"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git send-pack attached receive-pack override is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git send-pack --receive-pack=/tmp/guard-receive-pack origin"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git send-pack attached exec override is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git send-pack --exec=/tmp/guard-receive-pack origin"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "GIT_ALLOW_PROTOCOL command prefix is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "GIT_ALLOW_PROTOCOL=ext git ls-remote origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "GIT_PROXY_COMMAND command prefix is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "GIT_PROXY_COMMAND=git-proxy git ls-remote origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "env GIT_ALLOW_PROTOCOL assignment is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "env GIT_ALLOW_PROTOCOL=ext git ls-remote origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "env GIT_PROXY_COMMAND assignment is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "env GIT_PROXY_COMMAND=git-proxy git ls-remote origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "timeout-wrapped GIT_ALLOW_PROTOCOL assignment is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "timeout 5 env GIT_ALLOW_PROTOCOL=ext git ls-remote origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "timeout-wrapped GIT_PROXY_COMMAND assignment is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "timeout 5 env GIT_PROXY_COMMAND=git-proxy git ls-remote origin"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "export GIT_ALLOW_PROTOCOL override is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "export GIT_ALLOW_PROTOCOL=ext"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
+    "name": "export GIT_PROXY_COMMAND override is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "export GIT_PROXY_COMMAND=git-proxy"},
+    "reason": "command class is refused because execution cannot be inspected for governed writes"
+  },
+  {
     "name": "Git alternate refs command inline config refuses upload-pack",
     "role": "other",
     "tool_name": "bash",
@@ -5382,5 +5676,33 @@
     "role": "other",
     "tool_name": "bash",
     "tool_input": {"command": "sed -i -e 's/a/b/'"}
+  },
+  {
+    "name": "Git fetch-pack remote invocation is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git fetch-pack origin"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git send-pack remote invocation is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git send-pack origin"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git fetch-pack separate exec helper is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git fetch-pack --exec git-upload-pack origin"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git send-pack separate receive-pack helper is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git send-pack --receive-pack git-receive-pack origin"},
+    "reason": "execution cannot be inspected"
   }
 ]

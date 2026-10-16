@@ -13,6 +13,8 @@ func TestGitExecutionConfigDetection(t *testing.T) {
 			"man.viewer", "man.probe.cmd", "man.probe.path",
 			"browser.probe.cmd", "browser.probe.path", "help.browser", "web.browser", "instaweb.httpd",
 			"Core.alternateRefsCommand", "TRAILER.X.CMD", "trailer.x.command", "TRAILER..CMD", "trailer..command",
+			"remote.pwn.vcs", "remote..vcs",
+			"protocol.allow", "protocol.ext.allow", "protocol..allow",
 			"url.https://example.com/.insteadOf", "url.https://example.com/.pushInsteadOf",
 			"http.extraHeader", "http.proxy", "http..extraHeader", "http..proxy",
 			"http.https://example.com/.extraHeader", "http.https://example.com/.proxy",
@@ -23,7 +25,8 @@ func TestGitExecutionConfigDetection(t *testing.T) {
 		}
 		for _, key := range []string{
 			"remote.origin.url", "help.autocorrect", "web.autocorrect", "instaweb.local",
-			"trailer.x.key", "http.sslVerify", "http.https://example.com/.sslVerify", "http.proxyAuthMethod",
+			"protocol.version", "trailer.x.key", "http.sslVerify",
+			"http.https://example.com/.sslVerify", "http.proxyAuthMethod",
 		} {
 			if gitExecutionConfigKey(key) {
 				t.Errorf("gitExecutionConfigKey(%q) = true", key)
@@ -38,6 +41,7 @@ func TestGitExecutionConfigDetection(t *testing.T) {
 			"sendemail", "sendemail.work", "submodule", "submodule.example",
 			"man", "man.probe", "browser", "browser.probe", "help", "web", "web.browser", "instaweb", "instaweb.httpd",
 			"core", "trailer", "trailer.x", "url", "url.https://example.com", "http", "http.https://example.com",
+			"protocol", "protocol.ext",
 		} {
 			if !gitExecutionConfigSection(section) {
 				t.Errorf("gitExecutionConfigSection(%q) = false", section)
@@ -49,12 +53,13 @@ func TestGitExecutionConfigDetection(t *testing.T) {
 		for _, pattern := range []string{
 			`^diff\.external$`, `^diff\..*\.textconv$`, `^diff\..*\.command$`,
 			`^merge\..*\.driver$`, `^gpg(\..*)?\.program$`,
-			`^remote\..*\.(uploadpack|receivepack)$`, `^uploadpack\.packobjectshook$`,
+			`^remote\..*\.(uploadpack|receivepack|vcs)$`, `^uploadpack\.packobjectshook$`,
 			`^include\.path$`, `^includeIf\..*\.path$`,
 			`^sendemail\.smtpserver$`, `^sendemail\..*\.smtpserver$`, `^help\..*$`, `^submodule\..*\.update$`,
 			`^man\.viewer$`, `^man\..*\.(cmd|path)$`,
 			`^browser\..*\.(cmd|path)$`, `^help\.browser$`, `^web\.browser$`, `^instaweb\.httpd$`,
 			`^core\.alternateRefsCommand$`, `^trailer\..*\.(cmd|command)$`,
+			`^protocol\.allow$`, `^protocol\..*\.allow$`, `^protocol\.version$`,
 			`^url\..*\.(insteadOf|pushInsteadOf)$`, `^http\.extraHeader$`, `^http\.proxy$`,
 			`^http\..*\.extraHeader$`, `^http\..*\.proxy$`, `^http\..*$`,
 		} {
@@ -92,6 +97,15 @@ func TestGitInlineExecutionConfigForms(t *testing.T) {
 		{"git", "-c", "http..proxy=http://proxy.invalid", "status"},
 		{"git", "-c", "http.https://example.invalid/.extraHeader=Authorization: token", "status"},
 		{"git", "--config-env=http.https://example.invalid/.proxy=GIT_HTTP_PROXY", "status"},
+		{"git", "-c", "remote.pwn.vcs=ext", "status"},
+		{"git", "--config-env", "remote.pwn.vcs=REMOTE_VCS", "status"},
+		{"git", "-c", "remote.pwn.url=ext::helper", "status"},
+		{"git", "-c", "remote.pwn.url=hg::helper", "status"},
+		{"git", "--config-env", "remote.pwn.url=REMOTE_URL", "status"},
+		{"git", "--config-env=remote.pwn.url=REMOTE_URL", "status"},
+		{"git", "-c", "protocol.ext.allow=always", "ls-remote", "ext::helper"},
+		{"git", "--config-env", "protocol.ext.allow=GIT_PROTOCOL_ALLOW", "ls-remote", "ext::helper"},
+		{"git", "--config-env=protocol.allow=GIT_PROTOCOL_ALLOW", "ls-remote", "origin"},
 	} {
 		if !gitInvocationOpaque(args) {
 			t.Errorf("gitInvocationOpaque(%q) = false", args)
@@ -102,9 +116,68 @@ func TestGitInlineExecutionConfigForms(t *testing.T) {
 		{"git", "interpret-trailers", "--trailer", "x=y"},
 		{"git", "-c", "color.ui=always", "status"},
 		{"git", "--config-env=color.ui=COLOR", "status"},
+		{"git", "-c", "protocol.version=2", "status"},
+		{"git", "-c", "remote.origin.url=https://example.invalid/repository.git", "status"},
+		{"git", "-c", "remote.origin.url=ssh://[::1]/repository.git", "status"},
 	} {
 		if gitInvocationOpaque(args) {
 			t.Errorf("gitInvocationOpaque(%q) = true", args)
+		}
+	}
+}
+
+func TestGitLsRemoteHelperTransportDetection(t *testing.T) {
+	for _, args := range [][]string{
+		{"git", "ls-remote", "ext::helper", "refs/heads/main"},
+		{"git", "ls-remote", "--", "ext::helper"},
+		{"git", "ls-remote", "hg::helper"},
+		{"git", "ls-remote", "--", "hg::helper"},
+		{"git", "ls-remote", "--heads", "--upload-pack", "git-upload-pack", "ext::helper"},
+		{"git", "ls-remote", "--upload-pack=git-upload-pack", "ext::helper"},
+		{"git", "ls-remote", "--upload-pack", "git-upload-pack", "origin"},
+		{"git", "ls-remote", "--upload-pack=git-upload-pack", "origin"},
+		{"git", "ls-remote", "--exec", "git-upload-pack", "origin"},
+		{"git", "ls-remote", "--exec=git-upload-pack", "origin"},
+		{"git", "ls-remote", "--server-option", "agent=one", "ext::helper"},
+		{"git", "ls-remote", "--server-option=agent=one", "ext::helper"},
+		{"git", "ls-remote", "-o", "agent=one", "ext::helper"},
+		{"git", "ls-remote", "--sort", "version:refname", "ext::helper"},
+		{"git", "ls-remote", "--unknown-option", "ext::helper"},
+	} {
+		if !gitInvocationOpaque(args) {
+			t.Errorf("gitInvocationOpaque(%q) = false", args)
+		}
+	}
+
+	for _, args := range [][]string{
+		{"git", "ls-remote", "origin"},
+		{"git", "ls-remote", "https://example.invalid/repository.git"},
+		{"git", "ls-remote", "ssh://[::1]/repository.git"},
+		{"git", "ls-remote", "--branches", "--sort=version:refname", "origin"},
+		{"git", "ls-remote", "-t", "origin"},
+		{"git", "ls-remote", "-qt", "origin"},
+		{"git", "ls-remote", "-b", "https://example.invalid/repository.git"},
+		{"git", "ls-remote", "--", "https://example.invalid/repository.git"},
+	} {
+		if gitInvocationOpaque(args) {
+			t.Errorf("gitInvocationOpaque(%q) = true", args)
+		}
+	}
+}
+
+func TestGitFetchPackAndSendPackAreOpaque(t *testing.T) {
+	for _, args := range [][]string{
+		{"git", "fetch-pack", "origin"},
+		{"git", "send-pack", "origin"},
+		{"git", "fetch-pack", "--exec", "git-upload-pack", "origin"},
+		{"git", "send-pack", "--receive-pack", "git-receive-pack", "origin"},
+		{"git", "fetch-pack", "--exec=/tmp/guard-upload-pack", "origin"},
+		{"git", "fetch-pack", "--upload-pack", "/tmp/guard-upload-pack", "origin"},
+		{"git", "send-pack", "--receive-pack=/tmp/guard-receive-pack", "origin"},
+		{"git", "send-pack", "--exec=/tmp/guard-receive-pack", "origin"},
+	} {
+		if !gitInvocationOpaque(args) {
+			t.Errorf("gitInvocationOpaque(%q) = false", args)
 		}
 	}
 }
@@ -126,19 +199,40 @@ func TestGitPersistentExecutionConfigMutations(t *testing.T) {
 		{"--system", "http..proxy", "http://proxy.invalid"},
 		{"--global", "http.https://example.invalid/.extraHeader", "Authorization: token"},
 		{"--system", "http.https://example.invalid/.proxy", "http://proxy.invalid"},
+		{"--global", "protocol.ext.allow", "always"},
+		{"--global", "protocol.allow", "always"},
+		{"--system", "protocol.ext.allow", "always"},
+		{"--local", "protocol.ext.allow", "always"},
+		{"--worktree", "protocol.ext.allow", "always"},
+		{"--file", "/tmp/guard.gitconfig", "protocol.ext.allow", "always"},
+		{"remote.pwn.vcs", "ext"},
+		{"--global", "remote.pwn.vcs", "ext"},
+		{"--system", "remote.pwn.vcs", "ext"},
+		{"--local", "remote.pwn.vcs", "ext"},
+		{"--worktree", "remote.pwn.vcs", "ext"},
+		{"--file", "/tmp/guard.gitconfig", "remote.pwn.vcs", "ext"},
+		{"--global", "remote.pwn.url", "ext::helper"},
+		{"--local", "remote.pwn.url", "hg::helper"},
+		{"--system", "remote.pwn.url", "hg::helper"},
+		{"--global", "--add", "remote.pwn.url", "ext::helper"},
+		{"--global", "--replace-all", "remote.pwn.url", "hg::helper"},
+		{"set", "--global", "remote.pwn.url", "ext::helper"},
 		{"--unset", "core.alternateRefsCommand"},
 		{"--unset-all", "trailer.x.cmd"},
 		{"--global", "--unset", "url.https://mirror.invalid/.insteadOf"},
 		{"--global", "--unset", "http.extraHeader"},
 		{"--global", "--unset-regexp", `^trailer\..*\.(cmd|command)$`},
 		{"--system", "--unset-regexp", `^url\..*\.(insteadOf|pushInsteadOf)$`},
+		{"--global", "--unset-regexp", `^protocol\..*\.allow$`},
 		{"--global", "--unset-regexp", `^http\..*\.extraHeader$`},
 		{"--system", "--unset-regexp", `^http\..*\.proxy$`},
 		{"--rename-section", "trailer.x", "trailer.y"},
 		{"--rename-section", "url.https://origin.invalid", "url.https://mirror.invalid"},
 		{"--rename-section", "http.https://service.invalid/", "http.https://mirror.invalid/"},
+		{"--rename-section", "protocol.ext", "protocol.file"},
 		{"--remove-section", "core"},
 		{"--global", "--remove-section", "http.https://example.invalid"},
+		{"--remove-section", "protocol"},
 		{"rename-section", "--global", "trailer.x", "trailer.y"},
 		{"remove-section", "--global", "http.https://example.invalid/"},
 		{"remove-section", "--global", "url"},
@@ -157,6 +251,8 @@ func TestGitPersistentExecutionConfigMutations(t *testing.T) {
 	for _, configArgs := range [][]string{
 		{"--global", "http.sslVerify", "true"},
 		{"--global", "color.ui", "always"},
+		{"--global", "protocol.version", "2"},
+		{"--global", "remote.origin.url", "https://example.invalid/repository.git"},
 		{"set", "--global", "color.ui", "always"},
 		{"unset", "--global", "color.ui"},
 	} {
@@ -181,11 +277,65 @@ func TestGitPersistentExecutionConfigMutations(t *testing.T) {
 	}
 }
 
+func TestGitRemoteHelperURLSetAndUnsetActions(t *testing.T) {
+	tests := []struct {
+		name       string
+		configArgs []string
+		opaque     bool
+	}{
+		{
+			name:       "legacy unset-all value pattern",
+			configArgs: []string{"--global", "--unset-all", "remote.pwn.url", `^ext::`},
+		},
+		{
+			name:       "modern unset value pattern",
+			configArgs: []string{"unset", "--global", "remote.pwn.url", `^ext::`},
+		},
+		{
+			name:       "legacy helper URL assignment",
+			configArgs: []string{"--global", "remote.pwn.url", "ext::helper"},
+			opaque:     true,
+		},
+		{
+			name:       "add helper URL",
+			configArgs: []string{"--global", "--add", "remote.pwn.url", "ext::helper"},
+			opaque:     true,
+		},
+		{
+			name:       "replace-all helper URL",
+			configArgs: []string{"--global", "--replace-all", "remote.pwn.url", "ext::helper"},
+			opaque:     true,
+		},
+		{
+			name:       "modern set helper URL",
+			configArgs: []string{"set", "--global", "remote.pwn.url", "ext::helper"},
+			opaque:     true,
+		},
+		{
+			name:       "remote VCS deletion remains protected",
+			configArgs: []string{"--global", "--unset-all", "remote.pwn.vcs", `^ext::`},
+			opaque:     true,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			command := append([]string{"git", "config"}, test.configArgs...)
+			if got := gitConfigCommandWritesExecutableConfig(test.configArgs); got != test.opaque {
+				t.Errorf("gitConfigCommandWritesExecutableConfig(%q) = %t, want %t", test.configArgs, got, test.opaque)
+			}
+			if got := gitInvocationOpaque(command); got != test.opaque {
+				t.Errorf("gitInvocationOpaque(%q) = %t, want %t", command, got, test.opaque)
+			}
+		})
+	}
+}
+
 func TestGitConfigUnsetRegexpAlwaysFailsClosed(t *testing.T) {
 	patterns := []string{
 		`^trail[e]r\..*\.cmd$`,
 		`^u.l\..*\.insteadOf$`,
 		`^http\.https://service\.invalid/\.p.*$`,
+		`^protocol\..*\.allow$`,
 		`^color\..*$`,
 		`^http\.sslVerify$`,
 	}
@@ -252,8 +402,10 @@ func TestGitEmptyExecutionConfigKeysAreRejectedBeforeBuiltinClassification(t *te
 		{[]string{"git", "config", "--global", "trailer..command", "true"}, "config"},
 		{[]string{"git", "-c", "http..extraHeader=safe", "status"}, "status"},
 		{[]string{"git", "-c", "http..proxy=safe", "status"}, "status"},
+		{[]string{"git", "-c", "protocol..allow=always", "ls-remote", "origin"}, "ls-remote"},
 		{[]string{"git", "config", "--global", "http..extraHeader", "safe"}, "config"},
 		{[]string{"git", "config", "--global", "http..proxy", "safe"}, "config"},
+		{[]string{"git", "config", "--global", "protocol..allow", "always"}, "config"},
 	}
 	for _, test := range tests {
 		if !gitBuiltins[test.builtin] {
@@ -277,6 +429,7 @@ func TestCommandExecutionEnvironmentOverrides(t *testing.T) {
 		"GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE",
 		"GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
 		"GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_TEMPLATE_DIR", "GIT_CEILING_DIRECTORIES",
+		"GIT_ALLOW_PROTOCOL", "GIT_PROXY_COMMAND",
 	} {
 		if !commandExecutionEnvironmentKey(key) {
 			t.Errorf("commandExecutionEnvironmentKey(%q) = false", key)
@@ -296,6 +449,21 @@ func TestCommandExecutionEnvironmentOverrides(t *testing.T) {
 	for _, assignment := range []string{"FOO=value", "BUILD_NUMBER=42", "GIT_COLOR=always", "BASH_FUNC_pwn=value"} {
 		if commandExecutionEnvironmentAssignment(assignment) {
 			t.Errorf("unrelated assignment %q was considered an execution override", assignment)
+		}
+	}
+
+	for _, command := range []string{
+		"GIT_ALLOW_PROTOCOL=ext git ls-remote origin",
+		"GIT_PROXY_COMMAND=/tmp/git-proxy git ls-remote origin",
+		"env GIT_ALLOW_PROTOCOL=ext git ls-remote origin",
+		"env GIT_PROXY_COMMAND=/tmp/git-proxy git ls-remote origin",
+		"timeout 5 env GIT_ALLOW_PROTOCOL=ext git ls-remote origin",
+		"timeout 5 env GIT_PROXY_COMMAND=/tmp/git-proxy git ls-remote origin",
+		"export GIT_ALLOW_PROTOCOL=ext",
+		"export GIT_PROXY_COMMAND=/tmp/git-proxy",
+	} {
+		if result := invokesGovernedWrite(command); result != governedExecutionOpaque {
+			t.Errorf("invokesGovernedWrite(%q) = %v, want opaque", command, result)
 		}
 	}
 }
