@@ -36,9 +36,10 @@ replayed model ([Observed OpenCode behaviors](#observed-opencode-behaviors)).
 The fixture ran in #77 against the pinned OpenCode 1.18.30 binary, with
 real skills, permissions, plugin, MCP clients, shell, `ears-manager`, the
 Source Control Manager, and the guard, plus recording WMS and `gh` stubs.
-That run predates PR #273's Rule 4/7 guard changes and does not verify their
-new cases; the statuses below record the original fixture evidence and the
-gaps it left open. See
+The recorded fixture covers the baseline guard vectors. Guard unit tests
+cover expanded Rule 4 and Rule 7 cases, but not all are represented in the
+fixture; the statuses below record the fixture evidence and the gaps it left
+open. See
 [Running the fixture on OpenCode](#running-the-fixture-on-opencode).
 
 ---

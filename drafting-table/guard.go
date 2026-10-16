@@ -1,3 +1,5 @@
+// Package guard evaluates Drafting Table tool calls and enforces the OpenCode
+// tool-use policy.
 package guard
 
 import (
@@ -5,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -284,7 +287,7 @@ func decideTool(role string, input hookInput, state projectState) decision {
 			return allow()
 		}
 		name, ok := stringField(input.ToolInput, "name")
-		if state.manifestErr != nil || !ok || !contains(state.manifest.ToolkitSkills, name) {
+		if state.manifestErr != nil || !ok || !slices.Contains(state.manifest.ToolkitSkills, name) {
 			return refuse("rule 5", "only skills listed in toolkit_skills may be loaded")
 		}
 		return allow()
@@ -306,10 +309,10 @@ func decideTool(role string, input hookInput, state projectState) decision {
 	if role != roleDraftingTable {
 		return allow()
 	}
-	if vocabularyHas(openCodeVocabulary.roleTools, tool) {
+	if slices.Contains(openCodeVocabulary.roleTools, tool) {
 		return allow()
 	}
-	if vocabularyHas(openCodeVocabulary.blockedTools, tool) {
+	if slices.Contains(openCodeVocabulary.blockedTools, tool) {
 		return refuse("rule 5", "subagents, web fetch, and web search are outside the drafting-table role")
 	}
 	return refuse("rule 5", "the tool is not listed in the OpenCode drafting-table vocabulary")
@@ -331,7 +334,7 @@ func refuse(rule, reason string) decision {
 }
 
 func isFileWriter(tool string) bool {
-	return vocabularyHas(openCodeVocabulary.writeTools, tool)
+	return slices.Contains(openCodeVocabulary.writeTools, tool)
 }
 
 func isGovernedTool(tool string) bool {
@@ -342,22 +345,13 @@ func governedToolDecision(tool string, manifest adapterManifest) (bool, bool) {
 	for server, definition := range manifest.GovernedMCPServers {
 		prefix := server + "_"
 		if strings.HasPrefix(tool, prefix) {
-			return true, contains(definition.Tools, strings.TrimPrefix(tool, prefix))
+			return true, slices.Contains(definition.Tools, strings.TrimPrefix(tool, prefix))
 		}
 	}
 	if isGovernedTool(tool) {
 		return true, false
 	}
 	return false, false
-}
-
-func contains(values []string, value string) bool {
-	for _, item := range values {
-		if item == value {
-			return true
-		}
-	}
-	return false
 }
 
 func stringField(input map[string]any, key string) (string, bool) {

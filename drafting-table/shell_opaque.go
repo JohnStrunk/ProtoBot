@@ -2,6 +2,8 @@ package guard
 
 import (
 	"path/filepath"
+	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -43,7 +45,7 @@ func isCodeInterpreter(name string, args []string) bool {
 		family = "clisp"
 	case name == "sed":
 		family = "sed"
-	case contains([]string{"r", "tclsh", "erl", "elixir", "octave", "jshell", "fish", "csh", "tcsh"}, name):
+	case slices.Contains([]string{"r", "tclsh", "erl", "elixir", "octave", "jshell", "fish", "csh", "tcsh"}, name):
 		family = "opaque"
 	default:
 		return false
@@ -63,11 +65,11 @@ func safeOpaqueInterpreterInfo(name string, args []string) bool {
 	}
 	switch name {
 	case "r":
-		return contains([]string{"--help", "--version", "-h", "-v", "-V"}, args[0])
+		return slices.Contains([]string{"--help", "--version", "-h", "-v", "-V"}, args[0])
 	case "erl":
-		return contains([]string{"-help", "-version"}, args[0])
+		return slices.Contains([]string{"-help", "-version"}, args[0])
 	case "elixir", "octave", "jshell", "fish":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, args[0])
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, args[0])
 	default:
 		return false
 	}
@@ -126,33 +128,33 @@ func interpreterExecutesOpaqueCode(family string, args []string) bool {
 func interpreterInfoOption(family, arg string) bool {
 	switch family {
 	case "python":
-		return contains([]string{"--help", "-h", "--version", "-V", "--help-env", "--help-xoptions", "--help-all"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-V", "--help-env", "--help-xoptions", "--help-all"}, arg)
 	case "perl":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "ruby":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "node":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "osascript":
 		return arg == "-h"
 	case "awk":
-		return contains([]string{"--help", "-h", "--version"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version"}, arg)
 	case "php":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "lua":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "rscript":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "gdb":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "expect":
-		return contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version", "-v", "-V"}, arg)
 	case "powershell":
-		return contains([]string{"-help", "-?", "-version"}, arg)
+		return slices.Contains([]string{"-help", "-?", "-version"}, arg)
 	case "guile":
-		return contains([]string{"--help", "-h", "--version"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version"}, arg)
 	case "clisp":
-		return contains([]string{"--help", "-h", "--version"}, arg)
+		return slices.Contains([]string{"--help", "-h", "--version"}, arg)
 	default:
 		return false
 	}
@@ -214,7 +216,7 @@ func inlineRubyOption(name, arg string) bool {
 
 func inlineNodeOption(name, arg string) bool {
 	return name == "--eval" || name == "--print" ||
-		contains([]string{"--run", "--test", "--require", "--import", "--loader", "--experimental-loader"}, name) ||
+		slices.Contains([]string{"--run", "--test", "--require", "--import", "--loader", "--experimental-loader"}, name) ||
 		strings.HasPrefix(arg, "-e") || strings.HasPrefix(arg, "-p") || strings.HasPrefix(arg, "-r")
 }
 
@@ -284,7 +286,7 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 	}
 	switch family {
 	case "python":
-		if contains([]string{"-W", "-X", "--check-hash-based-pycs"}, arg) {
+		if slices.Contains([]string{"-W", "-X", "--check-hash-based-pycs"}, arg) {
 			return true, true, false
 		}
 		if arg == "-m" {
@@ -294,7 +296,7 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 			return false, true, true
 		}
 		if strings.HasPrefix(arg, "--") {
-			return contains([]string{"--help", "--help-env", "--help-xoptions", "--help-all", "--version", "--check-hash-based-pycs"}, arg), isPythonLongOption(arg), false
+			return slices.Contains([]string{"--help", "--help-env", "--help-xoptions", "--help-all", "--version", "--check-hash-based-pycs"}, arg), isPythonLongOption(arg), false
 		}
 		if strings.HasPrefix(arg, "-") {
 			flags := strings.TrimPrefix(arg, "-")
@@ -309,12 +311,12 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 			return false, true, false
 		}
 	case "perl":
-		if contains([]string{"-I", "-M", "-m", "-F"}, arg) {
+		if slices.Contains([]string{"-I", "-M", "-m", "-F"}, arg) {
 			return true, true, false
 		}
 		return false, perlOptionKnown(arg), false
 	case "ruby":
-		if contains([]string{"-I", "-r", "-E", "--encoding", "-F", "-K", "-C"}, arg) {
+		if slices.Contains([]string{"-I", "-r", "-E", "--encoding", "-F", "-K", "-C"}, arg) {
 			return true, true, false
 		}
 		return false, rubyOptionKnown(arg), false
@@ -326,7 +328,7 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 	case "osascript":
 		return arg == "-l", arg == "-l" || arg == "-e", false
 	case "awk":
-		if contains([]string{"-F", "-v"}, arg) {
+		if slices.Contains([]string{"-F", "-v"}, arg) {
 			return true, true, false
 		}
 		if arg == "-f" {
@@ -337,7 +339,7 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 		}
 		return false, awkOptionKnown(arg), false
 	case "php":
-		if contains([]string{"-d", "-z", "-c"}, arg) {
+		if slices.Contains([]string{"-d", "-z", "-c"}, arg) {
 			return true, true, false
 		}
 		if arg == "-f" {
@@ -348,7 +350,7 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 		if arg == "-l" {
 			return true, true, false
 		}
-		return false, contains([]string{"-i", "-v", "--version"}, arg), false
+		return false, slices.Contains([]string{"-i", "-v", "--version"}, arg), false
 	case "rscript":
 		if arg == "-e" || arg == "--expression" {
 			return true, true, false
@@ -356,7 +358,7 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 		if arg == "-f" {
 			return true, true, true
 		}
-		return false, contains([]string{"--vanilla", "--default-packages", "--save", "--no-save", "--no-restore", "--verbose", "--quiet", "--slave", "--interactive"}, arg) || strings.HasPrefix(arg, "--default-packages="), false
+		return false, slices.Contains([]string{"--vanilla", "--default-packages", "--save", "--no-save", "--no-restore", "--verbose", "--quiet", "--slave", "--interactive"}, arg) || strings.HasPrefix(arg, "--default-packages="), false
 	case "gdb":
 		if gdbOptionTakesValue(arg) {
 			return true, true, strings.Contains(arg, "command") && arg != "-ex" && arg != "--ex" && arg != "-eval-command" && arg != "--eval-command"
@@ -366,14 +368,14 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 		if arg == "-f" {
 			return true, true, true
 		}
-		return false, contains([]string{"-c", "-d", "-i", "-n", "-N", "-v"}, arg), false
+		return false, slices.Contains([]string{"-c", "-d", "-i", "-n", "-N", "-v"}, arg), false
 	case "powershell":
 		if powershellTakesValue(arg) {
 			return true, true, strings.EqualFold(arg, "-File")
 		}
 		return false, strings.HasPrefix(arg, "-"), false
 	case "guile":
-		if contains([]string{"-l", "--load-path", "-L"}, arg) {
+		if slices.Contains([]string{"-l", "--load-path", "-L"}, arg) {
 			return true, true, false
 		}
 		if arg == "-s" {
@@ -390,7 +392,7 @@ func interpreterOption(family, arg string) (bool, bool, bool) {
 }
 
 func sedExecutionOpaque(args []string) bool {
-	if len(args) == 1 && contains([]string{"--help", "-h", "--version"}, args[0]) {
+	if len(args) == 1 && slices.Contains([]string{"--help", "-h", "--version"}, args[0]) {
 		return false
 	}
 	var scripts []string
@@ -414,7 +416,7 @@ func sedExecutionOpaque(args []string) bool {
 			scripts = append(scripts, arg[2:])
 			scriptSeen = true
 		case arg == "--in-place" || strings.HasPrefix(arg, "--in-place=") || strings.HasPrefix(arg, "-i") && !strings.HasPrefix(arg, "--"):
-		case contains([]string{"-n", "--quiet", "--silent", "-E", "-r", "--regexp-extended", "--posix", "--sandbox", "--follow-symlinks", "--debug", "-s", "--separate", "-u", "--unbuffered", "-z", "--null-data"}, arg):
+		case slices.Contains([]string{"-n", "--quiet", "--silent", "-E", "-r", "--regexp-extended", "--posix", "--sandbox", "--follow-symlinks", "--debug", "-s", "--separate", "-u", "--unbuffered", "-z", "--null-data"}, arg):
 		case arg == "--":
 			if !scriptSeen {
 				if i+1 >= len(args) {
@@ -445,7 +447,7 @@ func sedExecutionOpaque(args []string) bool {
 }
 
 func safeSedScript(script string) bool {
-	if contains([]string{"p", "q", "d"}, script) {
+	if slices.Contains([]string{"p", "q", "d"}, script) {
 		return true
 	}
 	if len(script) < 4 || script[0] != 's' {
@@ -481,7 +483,7 @@ func safeSedScript(script string) bool {
 }
 
 func isPythonLongOption(arg string) bool {
-	return contains([]string{"--help", "--help-env", "--help-xoptions", "--help-all", "--version", "--check-hash-based-pycs"}, arg)
+	return slices.Contains([]string{"--help", "--help-env", "--help-xoptions", "--help-all", "--version", "--check-hash-based-pycs"}, arg)
 }
 
 func perlOptionExecutesCode(arg string) bool {
@@ -541,26 +543,26 @@ func rubyOptionKnown(arg string) bool {
 }
 
 func nodeValueOption(option string) bool {
-	return contains([]string{"-r", "--require", "--import", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--title", "--max-old-space-size", "--max-semi-space-size", "--stack-size", "--diagnostic-dir", "--heapsnapshot-signal", "--watch-path", "--trace-event-categories", "--trace-event-file-pattern", "--experimental-policy", "--policy-integrity", "--input-type"}, option)
+	return slices.Contains([]string{"-r", "--require", "--import", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--title", "--max-old-space-size", "--max-semi-space-size", "--stack-size", "--diagnostic-dir", "--heapsnapshot-signal", "--watch-path", "--trace-event-categories", "--trace-event-file-pattern", "--experimental-policy", "--policy-integrity", "--input-type"}, option)
 }
 
 func nodeOptionKnown(option string) bool {
 	if strings.HasPrefix(option, "--") {
-		return contains([]string{"--help", "--version", "--v8-options", "--check", "--preserve-symlinks", "--preserve-symlinks-main", "--no-warnings", "--trace-warnings", "--throw-deprecation", "--no-deprecation", "--pending-deprecation", "--experimental-modules", "--input-type", "--watch", "--test", "--run", "--enable-source-maps", "--experimental-strip-types"}, option) || nodeValueOption(option)
+		return slices.Contains([]string{"--help", "--version", "--v8-options", "--check", "--preserve-symlinks", "--preserve-symlinks-main", "--no-warnings", "--trace-warnings", "--throw-deprecation", "--no-deprecation", "--pending-deprecation", "--experimental-modules", "--input-type", "--watch", "--test", "--run", "--enable-source-maps", "--experimental-strip-types"}, option) || nodeValueOption(option)
 	}
-	return contains([]string{"-h", "-v", "-V", "-p", "-i", "-r"}, option)
+	return slices.Contains([]string{"-h", "-v", "-V", "-p", "-i", "-r"}, option)
 }
 
 func awkOptionKnown(arg string) bool {
-	return contains([]string{"-b", "-c", "-d", "-g", "-h", "-L", "-M", "-o", "-p", "-s", "-t", "-V", "--help", "--version", "--lint", "--posix", "--traditional"}, arg) || strings.HasPrefix(arg, "--lint=")
+	return slices.Contains([]string{"-b", "-c", "-d", "-g", "-h", "-L", "-M", "-o", "-p", "-s", "-t", "-V", "--help", "--version", "--lint", "--posix", "--traditional"}, arg) || strings.HasPrefix(arg, "--lint=")
 }
 
 func phpOptionKnown(arg string) bool {
-	return contains([]string{"-a", "-c", "-d", "-f", "-h", "-i", "-l", "-m", "-n", "-q", "-s", "-v", "-w", "-z", "--help", "--version"}, arg)
+	return slices.Contains([]string{"-a", "-c", "-d", "-f", "-h", "-i", "-l", "-m", "-n", "-q", "-s", "-v", "-w", "-z", "--help", "--version"}, arg)
 }
 
 func gdbOptionTakesValue(arg string) bool {
-	return contains([]string{"-x", "--command", "-ex", "--ex", "-eval-command", "--eval-command", "-ix", "--init-command", "-iex", "--init-eval-command", "--directory", "-d", "--data-directory", "-cd", "--cd", "-p", "--pid", "-b", "--baud"}, arg)
+	return slices.Contains([]string{"-x", "--command", "-ex", "--ex", "-eval-command", "--eval-command", "-ix", "--init-command", "-iex", "--init-eval-command", "--directory", "-d", "--data-directory", "-cd", "--cd", "-p", "--pid", "-b", "--baud"}, arg)
 }
 
 func powershellTakesValue(arg string) bool {
@@ -605,7 +607,7 @@ func isInformationalCommand(args []string) bool {
 		return false
 	}
 	for _, arg := range args[1:] {
-		if !contains([]string{"--help", "--version", "-h", "-v", "-V"}, arg) {
+		if !slices.Contains([]string{"--help", "--version", "-h", "-v", "-V"}, arg) {
 			return false
 		}
 	}
@@ -624,7 +626,7 @@ func goExecutionOpaque(args []string) bool {
 			return true
 		}
 	}
-	return contains([]string{"test", "run", "generate", "tool"}, command)
+	return slices.Contains([]string{"test", "run", "generate", "tool"}, command)
 }
 
 func goSubcommand(args []string) (string, int, bool) {
@@ -646,7 +648,7 @@ func goSubcommand(args []string) (string, int, bool) {
 }
 
 func isOpaqueExecutionWrapper(name string) bool {
-	return contains([]string{"flock", "watch", "script", "tmux", "screen", "parallel", "su", "ssh", "strace", "valgrind", "taskset", "runuser", "doas", "ionice", "ltrace", "chrt", "unshare", "perf", "nsenter", "systemd-run", "docker", "podman", "at", "batch", "chronic", "runcon"}, name)
+	return slices.Contains([]string{"flock", "watch", "script", "tmux", "screen", "parallel", "su", "ssh", "strace", "valgrind", "taskset", "runuser", "doas", "ionice", "ltrace", "chrt", "unshare", "perf", "nsenter", "systemd-run", "docker", "podman", "at", "batch", "chronic", "runcon"}, name)
 }
 
 func isOpaqueWrapperInvocation(name string, args []string) bool {
@@ -681,7 +683,7 @@ func flockHasCommand(args []string) bool {
 			return i+2 < len(args)
 		}
 		if strings.HasPrefix(arg, "-") {
-			if contains([]string{"-w", "-E", "--wait", "--conflict-exit-code"}, arg) {
+			if slices.Contains([]string{"-w", "-E", "--wait", "--conflict-exit-code"}, arg) {
 				i++
 			}
 			continue
@@ -711,7 +713,7 @@ func straceCommandPresent(args []string) bool {
 
 func containsAny(values []string, wanted ...string) bool {
 	for _, value := range values {
-		if contains(wanted, value) {
+		if slices.Contains(wanted, value) {
 			return true
 		}
 	}
@@ -735,7 +737,7 @@ func commandExecutionEnvironmentAssignment(word string) bool {
 }
 
 func gitInvocationOpaque(args []string) bool {
-	if len(args) == 2 && contains([]string{"--help", "--version", "-h", "-v", "-V"}, args[1]) {
+	if len(args) == 2 && slices.Contains([]string{"--help", "--version", "-h", "-v", "-V"}, args[1]) {
 		return false
 	}
 	command, index, ok := gitSubcommand(args)
@@ -757,7 +759,7 @@ func gitInvocationOpaque(args []string) bool {
 func gitSubcommandCanExecuteCommands(command string, args []string) bool {
 	switch command {
 	case "bisect":
-		return contains(args, "run")
+		return slices.Contains(args, "run")
 	case "archive":
 		return true
 	case "bundle":
@@ -859,15 +861,15 @@ func gitReadOnlyMetadataCommand(command string, args []string) bool {
 }
 
 func gitBranchReadOnlyCommand(args []string) bool {
-	return len(args) == 0 || len(args) == 1 && contains([]string{"--list", "-l", "--show-current", "--show-ref"}, args[0])
+	return len(args) == 0 || len(args) == 1 && slices.Contains([]string{"--list", "-l", "--show-current", "--show-ref"}, args[0])
 }
 
 func gitRemoteReadOnlyCommand(args []string) bool {
-	return len(args) == 0 || len(args) == 1 && contains([]string{"-v", "--verbose"}, args[0]) || len(args) == 2 && args[0] == "get-url"
+	return len(args) == 0 || len(args) == 1 && slices.Contains([]string{"-v", "--verbose"}, args[0]) || len(args) == 2 && args[0] == "get-url"
 }
 
 func gitTagReadOnlyCommand(args []string) bool {
-	return len(args) == 0 || len(args) == 1 && contains([]string{"-l", "--list"}, args[0])
+	return len(args) == 0 || len(args) == 1 && slices.Contains([]string{"-l", "--list"}, args[0])
 }
 
 func gitReflogShowCommand(args []string) bool {
@@ -914,11 +916,11 @@ func gitSubcommand(args []string) (string, int, bool) {
 }
 
 func gitGlobalValueOption(option string) bool {
-	return contains([]string{"-C", "-c", "--config-env", "--exec-path", "--git-dir", "--work-tree", "--namespace", "--super-prefix"}, option)
+	return slices.Contains([]string{"-C", "-c", "--config-env", "--exec-path", "--git-dir", "--work-tree", "--namespace", "--super-prefix"}, option)
 }
 
 func gitGlobalFlag(option string) bool {
-	return contains([]string{"--no-pager", "--paginate", "--no-optional-locks", "--bare", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--no-replace-objects", "--no-lazy-fetch", "--html-path", "--man-path", "--info-path", "--help", "--version"}, option)
+	return slices.Contains([]string{"--no-pager", "--paginate", "--no-optional-locks", "--bare", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--no-replace-objects", "--no-lazy-fetch", "--html-path", "--man-path", "--info-path", "--help", "--version"}, option)
 }
 
 func gitConfiguresExecutableConfig(args []string, commandIndex int) bool {
@@ -955,6 +957,16 @@ type gitConfigWriteState struct {
 func gitConfigCommandWritesExecutableConfig(args []string) bool {
 	state, safe := scanGitConfigWriteOptions(args)
 	if !safe {
+		return true
+	}
+	switch gitConfigActionSubcommand(state.positionals) {
+	case "get", "list":
+		state.readOnly = true
+	case "set", "unset":
+		state.write = true
+	case "rename-section", "remove-section", "edit":
+		// Modern section-mutation actions can touch arbitrary config, and edit
+		// launches an editor. Fail closed rather than infer their full effect.
 		return true
 	}
 	for _, value := range state.positionals {
@@ -998,7 +1010,9 @@ func inspectGitConfigWriteOption(args []string, index int, state *gitConfigWrite
 	case "--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l", "--name-only", "--show-origin", "--show-scope":
 		state.readOnly = true
 	case "--unset-regexp":
-		return inspectGitConfigUnsetRegexp(args, index, value, hasValue, state)
+		// Git uses its own regular-expression engine for this write form. A
+		// pattern that looks benign may still match an execution-sensitive key.
+		return index, false
 	case "--rename-section", "--remove-section":
 		state.write, state.sectionMutation = true, true
 		if hasValue {
@@ -1018,15 +1032,6 @@ func inspectGitConfigWriteOption(args []string, index int, state *gitConfigWrite
 		}
 	}
 	return index + 1, true
-}
-
-func inspectGitConfigUnsetRegexp(args []string, index int, value string, hasValue bool, state *gitConfigWriteState) (int, bool) {
-	pattern, next, safe := gitConfigOptionValue(args, index, value, hasValue)
-	if !safe || gitExecutionConfigPattern(pattern) {
-		return index, false
-	}
-	state.write = true
-	return next, true
 }
 
 func inspectGitConfigMutation(index int, arg, option string, hasValue bool, state *gitConfigWriteState) (int, bool) {
@@ -1058,18 +1063,18 @@ func gitConfigOptionValue(args []string, index int, value string, hasValue bool)
 }
 
 var gitExecutionConfigPrefixes = []string{
-	"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "man.", "browser.",
+	"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "man.", "browser.", "url.",
 }
 
 var gitExecutionConfigExactKeys = []string{
 	"core.pager", "core.editor", "core.hookspath", "core.fsmonitor", "core.sshcommand", "core.askpass", "core.gitproxy",
 	"sequence.editor", "interactive.difffilter", "uploadpack.packobjectshook", "include.path", "help.browser",
-	"web.browser", "instaweb.httpd",
+	"web.browser", "instaweb.httpd", "core.alternaterefscommand", "http.extraheader", "http.proxy",
 }
 
 func gitExecutionConfigKey(key string) bool {
 	key = strings.ToLower(key)
-	return gitExecutionConfigHasPrefix(key) || gitExecutionConfigParameterizedKey(key) || contains(gitExecutionConfigExactKeys, key)
+	return gitExecutionConfigHasPrefix(key) || gitExecutionConfigParameterizedKey(key) || slices.Contains(gitExecutionConfigExactKeys, key)
 }
 
 func gitExecutionConfigHasPrefix(key string) bool {
@@ -1086,7 +1091,11 @@ func gitExecutionConfigParameterizedKey(key string) bool {
 		gitConfigKeyHasPrefixAndSuffix(key, "gpg.", ".program") || gitRemoteExecutionConfigKey(key) ||
 		gitConfigKeyHasPrefixAndSuffix(key, "includeif.", ".path") ||
 		gitConfigKeyHasPrefixAndSuffix(key, "sendemail.", ".smtpserver") ||
-		gitConfigKeyHasPrefixAndSuffix(key, "submodule.", ".update")
+		gitConfigKeyHasPrefixAndSuffix(key, "submodule.", ".update") ||
+		gitConfigKeyHasPrefixAndSuffix(key, "trailer.", ".cmd") ||
+		gitConfigKeyHasPrefixAndSuffix(key, "trailer.", ".command") ||
+		gitConfigKeyHasPrefixAndSuffix(key, "http.", ".extraheader") ||
+		gitConfigKeyHasPrefixAndSuffix(key, "http.", ".proxy")
 }
 
 func gitConfigKeyHasPrefixAndSuffix(key, prefix, suffix string) bool {
@@ -1100,10 +1109,12 @@ func gitRemoteExecutionConfigKey(key string) bool {
 
 func gitExecutionConfigSection(section string) bool {
 	section = strings.ToLower(section)
-	if contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "include", "includeif", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb"}, section) {
+	if slices.Contains([]string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "include", "includeif", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb", "trailer", "url", "http"}, section) {
 		return true
 	}
-	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "merge.", "gpg.", "remote.", "includeif.", "sendemail.", "submodule.", "man.", "browser.", "web.", "instaweb."} {
+	// Section mutations cannot select individual keys; an HTTP subsection may
+	// contain the execution-sensitive .extraHeader or .proxy setting.
+	for _, prefix := range []string{"alias.", "pager.", "difftool.", "mergetool.", "filter.", "credential.", "diff.", "merge.", "gpg.", "remote.", "includeif.", "sendemail.", "submodule.", "man.", "browser.", "web.", "instaweb.", "trailer.", "url.", "http."} {
 		if strings.HasPrefix(section, prefix) {
 			return true
 		}
@@ -1113,12 +1124,112 @@ func gitExecutionConfigSection(section string) bool {
 
 func gitExecutionConfigPattern(pattern string) bool {
 	pattern = strings.ToLower(pattern)
+	if gitURLExecutionConfigPattern(pattern) || gitHTTPExecutionConfigPattern(pattern) {
+		return true
+	}
+	// Trailer tokens are arbitrary, so a pattern naming this family can hide a
+	// cmd/command key under a token not visible to the scanner.
+	if strings.Contains(pattern, "trailer") {
+		return true
+	}
 	for _, name := range []string{"alias", "pager", "difftool", "mergetool", "filter", "credential", "diff", "merge", "gpg", "remote", "uploadpack", "receivepack", "include", "sendemail", "submodule", "core", "sequence", "interactive", "man", "browser", "help", "web", "instaweb"} {
 		if strings.Contains(pattern, name) {
 			return true
 		}
 	}
 	return false
+}
+
+func gitURLExecutionConfigPattern(pattern string) bool {
+	if gitConfigPatternMatchesAny(pattern, "url.https://example.invalid/.insteadof", "url.https://example.invalid/.pushinsteadof") {
+		return true
+	}
+	return gitConfigPatternHasSectionPrefix(strings.ReplaceAll(pattern, `\.`, "."), "url.")
+}
+
+func gitHTTPExecutionConfigPattern(pattern string) bool {
+	if gitConfigPatternMatchesAny(
+		pattern,
+		"http.extraheader",
+		"http.proxy",
+		"http.https://example.invalid/.extraheader",
+		"http.https://example.invalid/.proxy",
+	) {
+		return true
+	}
+	if !strings.Contains(pattern, "http") {
+		return false
+	}
+	pattern = strings.ReplaceAll(pattern, `\.`, ".")
+	if gitConfigPatternHasSuffix(pattern, ".extraheader") || gitConfigPatternHasSuffix(pattern, ".proxy") {
+		return true
+	}
+	// shortcut: generic regex intersection is not modeled; allow only a literal
+	// final key suffix and fail closed on other HTTP patterns until a broader
+	// regex analysis is needed.
+	return !gitConfigPatternHasLiteralKeySuffix(pattern)
+}
+
+func gitConfigPatternMatchesAny(pattern string, keys ...string) bool {
+	matcher, err := regexp.Compile(pattern)
+	if err != nil {
+		return false
+	}
+	for _, key := range keys {
+		if matcher.MatchString(key) {
+			return true
+		}
+	}
+	return false
+}
+
+func gitConfigPatternHasSuffix(pattern, suffix string) bool {
+	marker := suffix
+	for start := 0; start < len(pattern); {
+		index := strings.Index(pattern[start:], marker)
+		if index < 0 {
+			return false
+		}
+		end := start + index + len(marker)
+		if end == len(pattern) || strings.ContainsRune("$)|?*+{,]", rune(pattern[end])) {
+			return true
+		}
+		start = end
+	}
+	return false
+}
+
+func gitConfigPatternHasSectionPrefix(pattern, prefix string) bool {
+	for start := 0; start < len(pattern); {
+		index := strings.Index(pattern[start:], prefix)
+		if index < 0 {
+			return false
+		}
+		position := start + index
+		if position == 0 || strings.ContainsRune("^|([{", rune(pattern[position-1])) {
+			return true
+		}
+		start = position + len(prefix)
+	}
+	return false
+}
+
+func gitConfigPatternHasLiteralKeySuffix(pattern string) bool {
+	pattern = strings.TrimSuffix(pattern, "$")
+	separator := strings.LastIndex(pattern, ".")
+	if separator < 0 || separator == len(pattern)-1 {
+		return false
+	}
+	for _, char := range pattern[separator+1:] {
+		if !isGitConfigKeyCharacter(char) {
+			return false
+		}
+	}
+	return true
+}
+
+func isGitConfigKeyCharacter(char rune) bool {
+	return char >= 'a' && char <= 'z' || char >= '0' && char <= '9' || char == '-'
 }
 
 func shellExportsCommandExecutionEnvironment(words []string) bool {
@@ -1143,7 +1254,7 @@ func commandExecutionEnvironmentKey(key string) bool {
 	key = strings.ToUpper(key)
 	return strings.HasPrefix(key, "GIT_CONFIG_") ||
 		(strings.HasPrefix(key, "BASH_FUNC_") && strings.HasSuffix(key, "%%")) ||
-		contains([]string{
+		slices.Contains([]string{
 			"GIT_PAGER", "PAGER", "GIT_EDITOR", "EDITOR", "VISUAL", "GIT_SEQUENCE_EDITOR",
 			"GIT_EXTERNAL_DIFF", "GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE", "RIPGREP_CONFIG_PATH",
 			"GIT_SSH_COMMAND", "GIT_SSH", "GIT_ASKPASS", "SSH_ASKPASS", "SSH_ASKPASS_REQUIRE",

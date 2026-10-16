@@ -28,8 +28,6 @@ type toolVocabulary struct {
 	mcpNameFormat string
 }
 
-func vocabularyHas(values []string, name string) bool { return contains(values, name) }
-
 func isReadOrSearchTool(tool string) bool {
 	_, read := openCodeVocabulary.readTools[tool]
 	_, search := openCodeVocabulary.searchTools[tool]

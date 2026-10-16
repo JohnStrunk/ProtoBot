@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -245,7 +246,7 @@ func shellStartupEnvironmentAssignment(words []string) bool {
 	}
 	for _, word := range words {
 		key, _, assigned := strings.Cut(strings.TrimLeft(word, "-"), "=")
-		if assigned && contains(keys, key) {
+		if assigned && slices.Contains(keys, key) {
 			return true
 		}
 	}
@@ -655,7 +656,7 @@ func xargsReplacementMayChangeExecution(command []string, replacement string) bo
 		return true
 	}
 	// echo and printf do not execute substituted operands as commands or source.
-	literalOutput := contains([]string{"echo", "printf"}, filepath.Base(command[0]))
+	literalOutput := slices.Contains([]string{"echo", "printf"}, filepath.Base(command[0]))
 	for index, arg := range command {
 		if !strings.Contains(arg, replacement) {
 			continue
@@ -995,7 +996,7 @@ func governedEarsManagerCommand(args []string) governedExecution {
 	if !safe {
 		return governedExecutionOpaque
 	}
-	if len(args) == 0 || contains(args, "--help") || contains(args, "--version") {
+	if len(args) == 0 || slices.Contains(args, "--help") || slices.Contains(args, "--version") {
 		return governedExecutionNone
 	}
 	name := args[0]
@@ -1040,10 +1041,10 @@ func containsLiteralGovernedWrite(args []string) bool {
 
 func literalOutputCommand(args []string) bool {
 	name := filepath.Base(args[0])
-	if contains([]string{"echo", "printf", "cat", "grep", "rg", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "pwd", "ls", "date", "true", "false"}, name) {
+	if slices.Contains([]string{"echo", "printf", "cat", "grep", "rg", "head", "tail", "wc", "sort", "uniq", "cut", "tr", "pwd", "ls", "date", "true", "false"}, name) {
 		return true
 	}
-	return name == "git" && len(args) > 1 && contains([]string{"grep", "status", "diff", "log", "show", "rev-parse", "branch"}, args[1])
+	return name == "git" && len(args) > 1 && slices.Contains([]string{"grep", "status", "diff", "log", "show", "rev-parse", "branch"}, args[1])
 }
 
 func xargsChildSafeForInputAppend(child []string) bool {
@@ -1057,12 +1058,12 @@ func xargsChildSafeForInputAppend(child []string) bool {
 		return false
 	case "git":
 		command, _, ok := gitSubcommand(child)
-		if !ok || contains([]string{"diff", "show", "log", "branch", "grep"}, command) {
+		if !ok || slices.Contains([]string{"diff", "show", "log", "branch", "grep"}, command) {
 			return false
 		}
-		return contains([]string{"rev-parse", "status"}, command)
+		return slices.Contains([]string{"rev-parse", "status"}, command)
 	}
-	if contains(xargsAppendSafeOutputCommands, name) {
+	if slices.Contains(xargsAppendSafeOutputCommands, name) {
 		return true
 	}
 	return name == "ears-manager" && len(child) == 2 &&

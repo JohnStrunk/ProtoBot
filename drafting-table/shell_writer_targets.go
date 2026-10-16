@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -225,13 +226,13 @@ func parseWriterLongOption(args []string, index int, spec writerOptionSpec, pars
 	if spec.longTargetDir && option == "--target-directory" {
 		return parseWriterLongTarget(args, index, value, hasValue, false, parsed)
 	}
-	if contains(spec.longTargets, option) {
+	if slices.Contains(spec.longTargets, option) {
 		return parseWriterLongTarget(args, index, value, hasValue, true, parsed)
 	}
-	if contains(spec.longValues, option) {
+	if slices.Contains(spec.longValues, option) {
 		return parseWriterLongValue(args, index, option, value, hasValue, spec)
 	}
-	if contains(spec.longFlags, option) {
+	if slices.Contains(spec.longFlags, option) {
 		return parseWriterLongFlag(index, option, hasValue, spec, parsed)
 	}
 	return index, false
@@ -252,7 +253,7 @@ func parseWriterLongTarget(args []string, index int, value string, hasValue, out
 
 func parseWriterLongValue(args []string, index int, option, value string, hasValue bool, spec writerOptionSpec) (int, bool) {
 	if hasValue {
-		return index + 1, !contains(spec.nonEmptyLongValues, option) || value != ""
+		return index + 1, !slices.Contains(spec.nonEmptyLongValues, option) || value != ""
 	}
 	if index+1 < len(args) {
 		return index + 2, true
@@ -264,7 +265,7 @@ func parseWriterLongFlag(index int, option string, hasValue bool, spec writerOpt
 	if hasValue {
 		return index, false
 	}
-	if contains(spec.trackedLongFlags, option) {
+	if slices.Contains(spec.trackedLongFlags, option) {
 		parsed.tracked[option] = true
 	}
 	return index + 1, true
@@ -273,7 +274,7 @@ func parseWriterLongFlag(index int, option string, hasValue bool, spec writerOpt
 func parseOptionalWriterLongValue(index int, option, value string, hasValue bool, spec writerOptionSpec) (int, bool, bool) {
 	allowed, optional := spec.longOptionalValues[option]
 	// Optional values are inline only; a nil allowlist accepts any non-empty value.
-	safe := !hasValue || value != "" && (len(allowed) == 0 || contains(allowed, value))
+	safe := !hasValue || value != "" && (len(allowed) == 0 || slices.Contains(allowed, value))
 	if hasValue && optional {
 		if tokens, isList := spec.longOptionalValueLists[option]; isList {
 			safe = validWriterLongValueList(value, tokens)
@@ -287,7 +288,7 @@ func validWriterLongValueList(value string, allowed []string) bool {
 		return false
 	}
 	for _, token := range strings.Split(value, ",") {
-		if !contains(allowed, token) {
+		if !slices.Contains(allowed, token) {
 			return false
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -26,7 +27,7 @@ func decideNoProjectTool(input hookInput, state projectState) decision {
 		return decideRead(input.ToolName, input, state)
 	case input.ToolName == openCodeVocabulary.skillTool:
 		name, ok := stringField(input.ToolInput, "name")
-		if state.manifestErr != nil || !ok || !contains(state.manifest.ToolkitSkills, name) {
+		if state.manifestErr != nil || !ok || !slices.Contains(state.manifest.ToolkitSkills, name) {
 			return refuse("rule 5", "only skills listed in toolkit_skills may be loaded")
 		}
 		return allow()
@@ -61,9 +62,9 @@ func decideNoProjectTool(input hookInput, state projectState) decision {
 			}
 		}
 		return refuse("rule 6", "before project initialization, only project init, ears-manager help/version, and the UTC clock are allowed")
-	case vocabularyHas(openCodeVocabulary.roleTools, input.ToolName):
+	case slices.Contains(openCodeVocabulary.roleTools, input.ToolName):
 		return allow()
-	case vocabularyHas(openCodeVocabulary.blockedTools, input.ToolName):
+	case slices.Contains(openCodeVocabulary.blockedTools, input.ToolName):
 		return refuse("rule 5", "subagents, web fetch, and web search are outside the drafting-table role")
 	default:
 		if governed, listed := governedToolDecision(input.ToolName, state.manifest); governed {

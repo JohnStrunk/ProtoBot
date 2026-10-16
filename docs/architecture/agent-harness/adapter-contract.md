@@ -46,8 +46,9 @@ binding per harness:
 - **[OpenCode Harness Binding](opencode.md) is the first binding.** It
   defines the OpenCode files that meet this contract, designed against
   OpenCode 1.18.30. Its fixture ran in #77 against the pinned binary;
-  that run predates PR #273's Rule 4/7 guard changes and does not verify
-  their new cases. H1 to H12 describe the original run, with the
+  the recorded fixture covers the baseline guard vectors. Guard unit
+  tests cover expanded Rule 4 and Rule 7 cases, but not all are
+  represented in that fixture. H1 to H12 describe the recorded run, with the
   plugin-absent fail-open path and deferred steps recorded as gaps, and
   H13 was not checked.
 - **[Claude Code Harness Binding](claude-code.md) is the second.** It
@@ -809,16 +810,17 @@ is `echo`. In stdin-append mode, only these unwrapped children are allowed:
    guard does not block every `xargs` invocation.
 
    Git config invocations that set, unset, rename, or remove
-   executable-configuration keys or sections, or use `--unset-regexp`
-   patterns that can select them, are opaque; examples include `alias.*`,
-   `pager.*`, `diff.*`, `merge.*.driver`, `gpg.*.program`, `man.*`,
-   `browser.*`, `help.browser`, `web.browser`, `instaweb.httpd`,
-   `sendemail.<identity>.smtpserver`, and `submodule.<name>.update`, as
-   well as patterns such as `^help\..*$`; this is not a complete key
-   inventory. The guard also rejects targeted execution-related
-   environment forms that can redirect Git or ripgrep. Command-scoped
-   assignments to these keys, and these keys in recognized `export`,
-   `declare`, `typeset`, or `readonly` forms, make the command opaque:
+   executable-configuration keys or sections are opaque. Every write-form
+   `--unset-regexp` is refused as opaque because regex selection is
+   ambiguous; read-only `--get-regexp` remains available. Examples include
+   `alias.*`, `pager.*`, `diff.*`, `merge.*.driver`, `gpg.*.program`,
+   `man.*`, `browser.*`, `help.browser`, `web.browser`, `instaweb.httpd`,
+   `sendemail.<identity>.smtpserver`, and `submodule.<name>.update`; this
+   is not a complete key inventory. The guard also rejects targeted
+   execution-related environment forms that can redirect Git or ripgrep.
+   Command-scoped assignments to these keys, and these keys in
+   recognized `export`, `declare`, `typeset`, or `readonly` forms, make
+   the command opaque:
    `GIT_CONFIG_*`; `GIT_PAGER`, `PAGER`, `GIT_EDITOR`, `EDITOR`, `VISUAL`,
    `GIT_SEQUENCE_EDITOR`, `GIT_EXTERNAL_DIFF`, and
    `GIT_EXTERNAL_DIFF_TRUST_EXIT_CODE`; Git command helpers
@@ -1432,7 +1434,7 @@ under [File-source arguments](#file-source-arguments).
 
 | Harness | Binding | Status |
 | --- | --- | --- |
-| OpenCode | [OpenCode Harness Binding](opencode.md) | The #77 fixture ran against OpenCode 1.18.30 with real governed tools and recording WMS/`gh` stubs. It predates PR #273's Rule 4/7 changes and does not verify their new cases; H1 to H12 describe that original run, with the plugin-absent fail-open path and deferred steps recorded as gaps; H13 not checked. No post-change full fixture result is recorded here |
+| OpenCode | [OpenCode Harness Binding](opencode.md) | The #77 fixture ran against OpenCode 1.18.30 with real governed tools and recording WMS/`gh` stubs. It covers the baseline guard vectors; guard unit tests cover expanded Rule 4 and Rule 7 cases, but not all are represented in the fixture. H1 to H12 describe the recorded run, with the plugin-absent fail-open path and deferred steps recorded as gaps; H13 not checked. No later full-fixture run is recorded here |
 | Claude Code | [Claude Code Harness Binding](claude-code.md) | Designed against Claude Code 2.1.273; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met |
 | Codex | [Codex Harness Binding](codex.md) | Designed against Codex CLI 0.154.0, with skill visibility, tools, the profile, and the hook observed against a stub model; the fixture has not run, so no H1 to H11 obligation is marked met; H12 is met. The Codex sandbox stays on, so the user runs a branch-cutting `change-set create`, which writes `.git/`, and registration, which needs the network. Git and the Git host go through the `scm` server, which runs outside the sandbox |
 
@@ -1462,10 +1464,11 @@ status names it.
 
 The table records what each harness offers for each obligation. The
 OpenCode column is bound in [OpenCode Harness Binding](opencode.md)
-and its fixture ran in #77 against the pinned binary; that run predates
-PR #273's Rule 4/7 changes and does not verify their new cases. H1 to H12
-record the original run, with the plugin-absent fail-open path and deferred
-steps recorded as gaps, and H13 was not checked. The Claude Code column is bound
+and its recorded #77 fixture ran against the pinned binary and covers
+the baseline guard vectors. Guard unit tests cover expanded Rule 4 and
+Rule 7 cases, but not all are represented in the fixture. H1 to H12
+record that run, with the plugin-absent fail-open path and deferred steps
+recorded as gaps, and H13 was not checked. The Claude Code column is bound
 in [Claude Code Harness Binding](claude-code.md) from the published
 documentation and CLI help of Claude Code 2.1.273, read on 2026-09-16,
 and not yet checked by the fixture. The Codex column is bound in

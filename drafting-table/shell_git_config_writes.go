@@ -3,6 +3,7 @@ package guard
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -17,9 +18,12 @@ func gitConfigWriteTargets(args []string, state projectState, cwd string) ([]str
 	switch {
 	case command == "apply":
 		return gitApplyWriteTargets(args[index+1:])
-	case contains(gitOutputCommands, command):
+	case slices.Contains(gitOutputCommands, command):
 		return gitOutputWriteTargets(args, index, state, cwd)
 	case command == "config":
+		if gitConfigCommandWritesExecutableConfig(args[index+1:]) {
+			return nil, false
+		}
 		return gitConfigMutationTargets(args, index, state)
 	default:
 		return nil, true
@@ -76,10 +80,28 @@ type gitConfigWriteOptions struct {
 	write       bool
 }
 
+func gitConfigActionSubcommand(positionals []string) string {
+	if len(positionals) == 0 {
+		return ""
+	}
+	switch positionals[0] {
+	case "get", "list", "set", "unset", "rename-section", "remove-section", "edit":
+		return positionals[0]
+	default:
+		return ""
+	}
+}
+
 func gitConfigMutationTargets(args []string, commandIndex int, state projectState) ([]string, bool) {
 	options, safe := parseGitConfigWriteOptions(args[commandIndex+1:])
 	if !safe {
 		return nil, false
+	}
+	switch gitConfigActionSubcommand(options.positionals) {
+	case "get", "list":
+		options.readOnly = true
+	case "set", "unset", "rename-section", "remove-section", "edit":
+		options.write = true
 	}
 	if options.readOnly || !options.write && len(options.positionals) < 2 {
 		return nil, true
@@ -202,7 +224,7 @@ func gitConfigRedirected(args []string, commandIndex int) bool {
 	for index := 1; index < commandIndex; index++ {
 		arg := args[index]
 		option, _, hasValue := strings.Cut(arg, "=")
-		if !hasValue && contains([]string{"-C", "--git-dir", "--work-tree"}, option) ||
+		if !hasValue && slices.Contains([]string{"-C", "--git-dir", "--work-tree"}, option) ||
 			strings.HasPrefix(arg, "-C") && len(arg) > 2 ||
 			strings.HasPrefix(arg, "--git-dir=") || strings.HasPrefix(arg, "--work-tree=") {
 			return true

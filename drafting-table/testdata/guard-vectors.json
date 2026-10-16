@@ -3223,6 +3223,461 @@
     "allow": true
   },
   {
+    "name": "Git alternate refs command inline config refuses upload-pack",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c core.alternateRefsCommand='ears-manager requirement add' upload-pack ."},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alternate refs command inline config-env is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git --config-env=core.alternateRefsCommand=ALT_REFS_COMMAND upload-pack ."},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer cmd inline config refuses interpret-trailers",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c trailer.x.cmd='ears-manager requirement add' interpret-trailers --trailer x=y"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer command inline config refuses interpret-trailers",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c trailer.x.command='ears-manager requirement add' interpret-trailers --trailer x=y"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty-token trailer cmd inline config refuses interpret-trailers",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c trailer..cmd=true interpret-trailers --trailer x=y"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty-token trailer command inline config refuses interpret-trailers",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c trailer..command=true interpret-trailers --trailer x=y"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer command inline config-env is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git --config-env trailer.x.command=TRAILER_COMMAND interpret-trailers --trailer x=y"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alternate refs command persistent set is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config core.alternateRefsCommand 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alternate refs command persistent global add is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --add core.alternateRefsCommand 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer cmd persistent add is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --add trailer.x.cmd 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer command persistent global set is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global trailer.x.command 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty-token trailer cmd persistent global set is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global trailer..cmd true"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty-token trailer command persistent global set is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global trailer..command true"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer command persistent system add is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system --add TRAILER.X.CMD 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git alternate refs command unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --unset core.alternateRefsCommand"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer command unset-all is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --unset-all trailer.x.command"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer command regexp unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-regexp '^trailer\\..*\\.(cmd|command)$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git obfuscated trailer regexp unset is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-regexp '^trail[e]r\\..*\\.cmd$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git trailer command section rename is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --rename-section trailer.x trailer.y"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git core section removal is opaque for alternate refs command",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --remove-section core"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git modern global trailer section rename is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config rename-section --global trailer.x trailer.y"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git modern global HTTP URL section removal is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config remove-section --global http.https://service.invalid/"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git modern global URL section removal is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config remove-section --global url"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git modern global trailer section removal is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config remove-section --global trailer"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git modern global config edit is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config edit --global"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git modern global trailer command set is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config set --global trailer.x.command 'ears-manager requirement add'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git modern global trailer command unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config unset --global trailer.x.command"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL insteadOf inline config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c 'url.https://mirror.invalid/.insteadOf=https://origin.invalid/' status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL pushInsteadOf inline config is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c 'url.https://mirror.invalid/.pushInsteadOf=https://origin.invalid/' status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL insteadOf persistent global set is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global url.https://mirror.invalid/.insteadOf https://origin.invalid/"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL pushInsteadOf persistent system add is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system --add url.https://mirror.invalid/.pushInsteadOf https://origin.invalid/"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL rewrite regexp unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system --unset-regexp '^url\\..*\\.(insteadOf|pushInsteadOf)$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git obfuscated URL rewrite regexp unset is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-regexp '^u.l\\..*\\.insteadOf$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL rewrite config-env is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git --config-env=url.https://mirror.invalid/.insteadOf=URL_REWRITE status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL insteadOf exact-key unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset url.https://mirror.invalid/.insteadOf"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL section rename is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --rename-section url.https://origin.invalid url.https://mirror.invalid"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP URL subsection legacy rename is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --rename-section http.https://service.invalid/ http.https://mirror.invalid/"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP extraHeader inline setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c 'http.extraHeader=Authorization: Bearer token' status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP proxy inline setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c http.proxy=http://proxy.invalid status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL-specific HTTP extraHeader inline setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c 'http.https://service.invalid/.extraHeader=Authorization: Bearer token' status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL-specific HTTP proxy inline setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c http.https://service.invalid/.proxy=http://proxy.invalid status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP extraHeader persistent global setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global http.extraHeader 'Authorization: Bearer token'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP extraHeader exact-key unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset http.extraHeader"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP proxy persistent system setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system http.proxy http://proxy.invalid"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL-specific HTTP extraHeader persistent setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global http.https://service.invalid/.extraHeader 'Authorization: Bearer token'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git URL-specific HTTP proxy persistent setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system http.https://service.invalid/.proxy http://proxy.invalid"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty HTTP subsection extraHeader inline setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c http..extraHeader=safe status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty HTTP subsection proxy inline setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git -c http..proxy=http://proxy.invalid status"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty HTTP subsection extraHeader persistent global setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global http..extraHeader safe"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git empty HTTP subsection proxy persistent global setting is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global http..proxy http://proxy.invalid"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP extraHeader regexp unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-regexp '^http\\.https://service\\.invalid/\\.extraHeader$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP proxy regexp unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system --unset-regexp '^http\\..*\\.proxy$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git host-specific obfuscated HTTP proxy regexp unset is refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-regexp '^http\\.https://service\\.invalid/\\.p.*$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP URL subsection removal is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --remove-section http.https://service.invalid"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git broad HTTP regexp unset is opaque",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --system --unset-regexp '^http\\..*$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git benign config regexp unset is conservatively refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-regexp '^color\\..*$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git HTTP SSL verification global setting remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global http.sslVerify true"},
+    "allow": true
+  },
+  {
+    "name": "Git HTTP SSL verification read remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --get http.sslVerify"},
+    "allow": true
+  },
+  {
+    "name": "Git HTTP SSL verification regexp unset is conservatively refused",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --unset-regexp '^http\\.sslVerify$'"},
+    "reason": "execution cannot be inspected"
+  },
+  {
+    "name": "Git global config list remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --list"},
+    "allow": true
+  },
+  {
+    "name": "Git modern config get remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config get --global color.ui"},
+    "allow": true
+  },
+  {
+    "name": "Git modern config list remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config list --global"},
+    "allow": true
+  },
+  {
+    "name": "Git config get-regexp remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config --global --get-regexp '^trailer\\.'"},
+    "allow": true
+  },
+  {
+    "name": "Git modern benign global config set remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config set --global color.ui always"},
+    "allow": true
+  },
+  {
+    "name": "Git modern benign global config unset remains available",
+    "role": "other",
+    "tool_name": "bash",
+    "tool_input": {"command": "git config unset --global color.ui"},
+    "allow": true
+  },
+  {
     "name": "sort output cannot target Git metadata",
     "role": "other",
     "tool_name": "bash",

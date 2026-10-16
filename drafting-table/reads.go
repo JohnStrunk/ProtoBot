@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -70,12 +71,12 @@ func readPathRefusal(state projectState, resolved, requested string) string {
 		if state.manifestErr != nil {
 			return "the adapter manifest could not be read; user-scope Toolkit skills are unavailable"
 		}
-		if globalSkill, name := globalToolkitSkill(resolved); !globalSkill || !contains(state.manifest.ToolkitSkills, name) {
+		if globalSkill, name := globalToolkitSkill(resolved); !globalSkill || !slices.Contains(state.manifest.ToolkitSkills, name) {
 			return "reads outside the project are unavailable except for user-scope Toolkit skills"
 		}
 	}
 	if name, ok := projectSkillName(state.root, resolved); ok {
-		if state.manifestErr != nil || !contains(state.manifest.ToolkitSkills, name) {
+		if state.manifestErr != nil || !slices.Contains(state.manifest.ToolkitSkills, name) {
 			return "only skills listed in toolkit_skills may be loaded"
 		}
 	}
@@ -173,7 +174,7 @@ func scanSearchTree(state projectState, root string) error {
 		resolved, resolveErr := resolveProjectPath(state.root, state.root, path)
 		globalSkill, globalName := globalToolkitSkill(resolved)
 		projectPath := state.root != "" && within(state.root, resolved)
-		if resolveErr != nil || (!projectPath && (state.manifestErr != nil || !globalSkill || !contains(state.manifest.ToolkitSkills, globalName))) {
+		if resolveErr != nil || (!projectPath && (state.manifestErr != nil || !globalSkill || !slices.Contains(state.manifest.ToolkitSkills, globalName))) {
 			return errors.New("search tree path cannot be resolved")
 		}
 		if credentialPath(state.root, resolved, path) || containsGitPath(state.root, resolved) {
@@ -182,7 +183,7 @@ func scanSearchTree(state projectState, root string) error {
 		if isControlPath(state.root, resolved) && filepath.Clean(resolved) != filepath.Join(state.root, ".protobot", "project.yaml") {
 			return errors.New("search tree contains .protobot")
 		}
-		if skillName, isSkill := projectSkillName(state.root, resolved); isSkill && !contains(state.manifest.ToolkitSkills, skillName) {
+		if skillName, isSkill := projectSkillName(state.root, resolved); isSkill && !slices.Contains(state.manifest.ToolkitSkills, skillName) {
 			return errors.New("search tree contains a skill outside toolkit_skills")
 		}
 		return nil

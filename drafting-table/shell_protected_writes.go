@@ -2,6 +2,7 @@ package guard
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -29,7 +30,7 @@ func shellWritesProtectedPathAfterDirectoryChange(command string, state projectS
 		if len(args) == 0 {
 			continue
 		}
-		if contains([]string{"cd", "pushd", "popd", "source", "."}, filepath.Base(args[0])) {
+		if slices.Contains([]string{"cd", "pushd", "popd", "source", "."}, filepath.Base(args[0])) {
 			changesDirectory = true
 		}
 		if shellWriterArgvProtected(args, state, cwd, depth, changesDirectory) {
