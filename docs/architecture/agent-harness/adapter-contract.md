@@ -786,10 +786,20 @@ They catch an unauthorized persistent edit to a registered artifact when its
 registry digest is stale or when its path/canonical-content delta has no
 matching operation in a proposed change set; structured-store edits are caught
 by their store digests. A coordinated manual edit to the artifact and manifest
-can pass, so these checks do not prove `ears-manager artifact put` was invoked
-([File-source arguments](#file-source-arguments)). A weaker harness binding
+can pass; an operation record does not prove the `ears-manager artifact put`
+command ran.
+A weaker harness binding
 therefore changes how early an edit is caught, but does not eliminate the
-coordinated-edit gap. Those later layers do not replace the guard's command
+coordinated-edit gap. The artifact baseline uses the existing default-branch
+resolver and working-tree `.protobot/project.yaml` settings: it checks the
+local `repository.default_branch` ref first, then a resolved remote-tracking
+ref for `repository.canonical_remote` if the local ref does not resolve.
+`ears-manager` never fetches. A hand edit to `repository.default_branch`, or
+to `repository.canonical_remote` when the remote-tracking fallback is used, can
+retarget it. That risk is outside the operation-record check. Rule 5 in
+`AGENTS.md` prohibits hand-editing `.protobot/project.yaml`; Rule 6 requires
+reviewers to inspect it and flag hand edits. Those later layers do not replace
+the guard's command
 parser, option/value checks, read restrictions, or shell-syntax restrictions.
 A call that reaches an allowed shell tool without a guard decision can
 therefore bypass any guard-only check, including variable-expansion and
@@ -867,7 +877,7 @@ enforcement:
 | --- | --- | --- | --- |
 | [OpenCode](opencode.md) | The plugin is absent or no hook is registered; native Bash permissions have no plugin-presence check | The `ears-manager *` allow rule still admits the command, including non-`-` file-source values, `--text "$GH_TOKEN"`, output redirection, input redirection, and other shell syntax that only the guard rejects; a `read` of an in-project credential file other than `.env` | Every other shell command, including `git` and `gh` (`"*": deny`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
 | [Claude Code](claude-code.md) | The hook times out, is killed, or its shim cannot run | No status 2 is returned, so an `ears-manager` call may proceed with a non-`-` value, such as a credential file, or with variable expansion such as `--text "$GH_TOKEN"`; a `Read` of a credential file outside the native denies, including one outside the project | Every shell command without an allow rule, including `git` and `gh` (`dontAsk`); reads of `.env`, `.git/`, and `.protobot/` stores; hidden file-writing, subagent, and web tools |
-| [Codex](codex.md) | The hook is untrusted outside the launcher, crashes, exits other than 2, or times out | The call may proceed with a non-`-` value or variable expansion; any shell command, including Git reads; an `apply_patch` or shell write in the working tree, including `.protobot/project.yaml` and registered paths, so a compound edit can pass the later checks (see below); the sandbox bounds writes, not reads, so a host credential file can reach the model or governed state, and the sandbox does not establish the source of bytes read into governed state | Writes outside the working tree and `$TMPDIR`, writes under `.git/`, and shell network access, so Git writes and Git host calls fail; hidden web and subagent tools |
+| [Codex](codex.md) | The hook is untrusted outside the launcher, crashes, exits other than 2, or times out | The call may proceed with a non-`-` value or variable expansion; any shell command, including Git reads; an `apply_patch` or shell write in the working tree, including `.protobot/project.yaml` and registered paths. `check` catches registered artifact path/canonical-content deltas without a matching proposed operation and unregistration of a default-branch artifact, but a hand edit to `repository.default_branch`, or to `repository.canonical_remote` when the remote-tracking fallback is used, can retarget the baseline; coordinated edits with a matching operation can pass. Rule 5 in `AGENTS.md` prohibits hand-editing `.protobot/project.yaml`; Rule 6 requires reviewers to inspect it and flag hand edits. The sandbox bounds writes, not reads, and does not establish the source of bytes read into governed state | Writes outside the working tree and `$TMPDIR`, writes under `.git/`, and shell network access, so Git writes and Git host calls fail; hidden web and subagent tools |
 
 The pre-stage comparison uses the artifact `digest` and structured-store
 `store_digests` in `.protobot/project.yaml`; that file cannot record a digest
@@ -875,13 +885,20 @@ for itself, and `ears-manager check` validates it structurally
 ([Repository fields](../git-integration.md#repository-fields)). A fail-open
 write that changes a registered artifact and rewrites its digest, but leaves
 no matching proposed `artifact_operations[]` entry, fails `check` with
-`artifact.operation_missing`. The check does not prove command provenance: a
-coordinated manual edit that also adds a matching operation can pass. Rule 5
-of `AGENTS.md` still forbids hand-editing `.protobot/project.yaml`, which
-reviewers inspect separately. The `artifact.put` source gap is distinct from
-the file-source provenance gap: neither is established by the stored
-operation, and neither integrity checks nor CI can tell whether
-`--content-file` bytes came from standard input or an external file.
+`artifact.operation_missing`. A coordinated manual edit that also adds a
+matching operation can pass; a matching operation record does not prove that
+`ears-manager artifact put` ran. The baseline uses the existing
+default-branch resolver with `repository.default_branch` and
+`repository.canonical_remote` from the working-tree project configuration; it
+checks the local default ref first, then a resolved remote-tracking ref for
+the canonical remote. `ears-manager` never fetches. A hand edit to
+`repository.default_branch`, or to `repository.canonical_remote` when the
+remote-tracking fallback is used, can retarget the comparison. This is outside
+the operation-record guarantee. Rule 5 in `AGENTS.md` prohibits hand-editing
+`.protobot/project.yaml`; Rule 6 requires reviewers to inspect it and flag
+hand edits. Separately, integrity checks and CI cannot tell whether
+`--content-file` bytes came from standard input or an external file
+([File-source arguments](#file-source-arguments)).
 
 The binding status and fixture must keep these failure modes visible. A
 call with no guard decision is not a refusal, and a fixture that exercises
@@ -1104,11 +1121,19 @@ written records.
 A harness can host the Drafting Table when its binding meets these
 obligations. **Required** obligations make the binding usable at all.
 **Enforcement** obligations form the early layer: a binding that cannot
-meet one records the gap. Later layers check unauthorized persistent
-edits to registered paths that leave the registry intact when they reach
-the SCM or CI, but cannot
-establish file-source provenance when a hook fails open, as described
-under [File-source arguments](#file-source-arguments).
+meet one records the gap. At SCM/CI, digest mismatches, registered artifact
+path/canonical-content deltas without a matching proposed operation, and
+unregistration are checked. The check uses the existing default-branch
+resolver with working-tree project settings: it checks the local
+`repository.default_branch` ref first, then a resolved remote-tracking ref for
+`repository.canonical_remote` if the local ref does not resolve;
+`ears-manager` never fetches. Coordinated edits with a matching operation, or
+a hand edit to `repository.default_branch`, or to `repository.canonical_remote`
+when the remote-tracking fallback is used, remain outside that guarantee.
+Rule 5 in `AGENTS.md` prohibits hand-editing `.protobot/project.yaml`; Rule 6
+requires reviewers to inspect it and flag hand edits. These checks also cannot
+establish file-source provenance when a hook fails open, as described under
+[File-source arguments](#file-source-arguments).
 
 | # | Obligation | Kind | Shared by the core | Added by the binding | Fixture |
 | --- | --- | --- | --- | --- | --- |

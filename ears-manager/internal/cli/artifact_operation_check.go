@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"sort"
 
@@ -19,23 +18,9 @@ func checkArtifactOperationDeltas(root string, snapshot specvalidation.Snapshot,
 	if failure != nil {
 		return failure
 	}
-	configData, present, regular, failure := gitTreeFile(root, defaultHead, snapshot.ConfigPath)
+	baseArtifacts, failure := defaultBranchArtifacts(root, defaultHead, snapshot.ConfigPath)
 	if failure != nil {
 		return failure
-	}
-
-	baseArtifacts := make(map[string]records.ArtifactEntry)
-	if present {
-		if !regular {
-			return projectFailure("project.default_configuration_invalid", "The default-branch project configuration is not a regular file.")
-		}
-		var baseConfig records.ProjectConfig
-		if err := storage.Decode(configData, &baseConfig); err != nil {
-			return projectFailure("project.default_configuration_invalid", "The default-branch project configuration could not be decoded.")
-		}
-		for _, artifact := range baseConfig.Artifacts {
-			baseArtifacts[artifact.ID] = artifact
-		}
 	}
 	currentArtifacts := make(map[string]records.ArtifactEntry, len(snapshot.Config.Artifacts))
 	for _, artifact := range snapshot.Config.Artifacts {
@@ -43,27 +28,68 @@ func checkArtifactOperationDeltas(root string, snapshot specvalidation.Snapshot,
 	}
 	operations := proposedArtifactOperations(snapshot, proposed)
 
+	diagnostics, failure := existingArtifactOperationDiagnostics(root, defaultHead, snapshot.ConfigPath, baseArtifacts, currentArtifacts, operations)
+	if failure != nil {
+		return failure
+	}
+	newDiagnostics, failure := newArtifactRegistrationDiagnostics(root, defaultHead, snapshot.ConfigPath, baseArtifacts, currentArtifacts, operations)
+	if failure != nil {
+		return failure
+	}
+	diagnostics = append(diagnostics, newDiagnostics...)
+	sortArtifactOperationDiagnostics(diagnostics)
+	return failureFromDiagnostics(diagnostics)
+}
+
+func defaultBranchArtifacts(root, defaultHead, configPath string) (map[string]records.ArtifactEntry, *commandFailure) {
+	configData, present, regular, failure := gitTreeFile(root, defaultHead, configPath)
+	if failure != nil {
+		return nil, failure
+	}
+	artifacts := make(map[string]records.ArtifactEntry)
+	if !present {
+		return artifacts, nil
+	}
+	if !regular {
+		return nil, projectFailure("project.default_configuration_invalid", "The default-branch project configuration is not a regular file.")
+	}
+	var config records.ProjectConfig
+	if err := storage.Decode(configData, &config); err != nil {
+		return nil, projectFailure("project.default_configuration_invalid", "The default-branch project configuration could not be decoded.")
+	}
+	for _, artifact := range config.Artifacts {
+		artifacts[artifact.ID] = artifact
+	}
+	return artifacts, nil
+}
+
+func existingArtifactOperationDiagnostics(root, defaultHead, configPath string, baseArtifacts, currentArtifacts map[string]records.ArtifactEntry, operations map[string]bool) ([]specvalidation.Diagnostic, *commandFailure) {
 	diagnostics := make([]specvalidation.Diagnostic, 0)
 	baseIDs := sortedArtifactIDs(baseArtifacts)
 	for _, id := range baseIDs {
 		baseArtifact := baseArtifacts[id]
 		currentArtifact, registered := currentArtifacts[id]
 		if !registered {
-			diagnostics = append(diagnostics, unregisteredArtifactDiagnostic(snapshot.ConfigPath, id))
+			diagnostics = append(diagnostics, unregisteredArtifactDiagnostic(configPath, id))
 			continue
 		}
 		changed := baseArtifact.Path != currentArtifact.Path
 		if !changed {
+			var failure *commandFailure
 			changed, failure = artifactContentDiffersFromDefault(root, defaultHead, currentArtifact)
 			if failure != nil {
-				return failure
+				return nil, failure
 			}
 		}
 		if changed && !operations[id] {
-			diagnostics = append(diagnostics, missingArtifactOperationDiagnostic(snapshot.ConfigPath, id))
+			diagnostics = append(diagnostics, missingArtifactOperationDiagnostic(configPath, id))
 		}
 	}
+	return diagnostics, nil
+}
 
+func newArtifactRegistrationDiagnostics(root, defaultHead, configPath string, baseArtifacts, currentArtifacts map[string]records.ArtifactEntry, operations map[string]bool) ([]specvalidation.Diagnostic, *commandFailure) {
+	diagnostics := make([]specvalidation.Diagnostic, 0)
 	currentIDs := sortedArtifactIDs(currentArtifacts)
 	for _, id := range currentIDs {
 		if _, existed := baseArtifacts[id]; existed {
@@ -72,18 +98,22 @@ func checkArtifactOperationDeltas(root string, snapshot specvalidation.Snapshot,
 		// A new registry ID is not a delta if this path and content already exist unchanged.
 		changed, failure := artifactContentDiffersFromDefault(root, defaultHead, currentArtifacts[id])
 		if failure != nil {
-			return failure
+			return nil, failure
 		}
 		if changed && !operations[id] {
-			diagnostics = append(diagnostics, missingArtifactOperationDiagnostic(snapshot.ConfigPath, id))
+			diagnostics = append(diagnostics, missingArtifactOperationDiagnostic(configPath, id))
 		}
 	}
+	return diagnostics, nil
+}
 
-	sort.Slice(diagnostics, func(i, j int) bool {
+func sortArtifactOperationDiagnostics(diagnostics []specvalidation.Diagnostic) {
+	sort.SliceStable(diagnostics, func(i, j int) bool {
 		left, right := diagnostics[i], diagnostics[j]
 		for _, pair := range [][2]string{
 			{left.Path, right.Path}, {left.Code, right.Code}, {left.RecordID, right.RecordID},
-			{left.Field, right.Field}, {left.Message, right.Message}, {left.Hint, right.Hint},
+			{left.Field, right.Field}, {left.Severity, right.Severity},
+			{left.Message, right.Message}, {left.Hint, right.Hint},
 		} {
 			if pair[0] != pair[1] {
 				return pair[0] < pair[1]
@@ -91,7 +121,6 @@ func checkArtifactOperationDeltas(root string, snapshot specvalidation.Snapshot,
 		}
 		return false
 	})
-	return failureFromDiagnostics(diagnostics)
 }
 
 func proposedArtifactOperations(snapshot specvalidation.Snapshot, proposed map[string]bool) map[string]bool {
@@ -108,21 +137,6 @@ func proposedArtifactOperations(snapshot specvalidation.Snapshot, proposed map[s
 }
 
 func artifactContentDiffersFromDefault(root, defaultHead string, artifact records.ArtifactEntry) (bool, *commandFailure) {
-	currentContent, failure := readRegularFile(root, artifact.Path)
-	if failure != nil {
-		return false, failure
-	}
-	currentCanonical, err := specvalidation.CanonicalText(currentContent)
-	if err != nil {
-		return false, validationFailure("validation.failed", "The specification is not valid.", []specvalidation.Diagnostic{{
-			Code:     "artifact.invalid_content",
-			Severity: "error",
-			Path:     ".protobot/project.yaml",
-			RecordID: artifact.ID,
-			Field:    fmt.Sprintf("artifacts[id=%s].path", artifact.ID),
-			Message:  err.Error(),
-		}})
-	}
 	baseContent, present, regular, failure := gitTreeFile(root, defaultHead, artifact.Path)
 	if failure != nil {
 		return false, failure
@@ -130,11 +144,12 @@ func artifactContentDiffersFromDefault(root, defaultHead string, artifact record
 	if !present || !regular {
 		return true, nil
 	}
-	baseCanonical, err := specvalidation.CanonicalText(baseContent)
+	baseDigest, err := specvalidation.CanonicalTextDigest(baseContent)
 	if err != nil {
 		return true, nil
 	}
-	return !bytes.Equal(currentCanonical, baseCanonical), nil
+	// The current artifact digest was validated against working-tree content before this comparison.
+	return artifact.Digest != baseDigest, nil
 }
 
 func gitTreeFile(root, commit, relative string) ([]byte, bool, bool, *commandFailure) {
@@ -181,7 +196,7 @@ func missingArtifactOperationDiagnostic(path, id string) specvalidation.Diagnost
 		RecordID: id,
 		Field:    fmt.Sprintf("artifacts[id=%s].operation", id),
 		Message:  fmt.Sprintf("Registered artifact %q differs from the default branch but has no operation in a proposed change set.", id),
-		Hint:     fmt.Sprintf("Add an artifact operation for %q to a proposed change set.", id),
+		Hint:     fmt.Sprintf("Add an artifact operation for %q to a proposed change set. If the operation is already approved on the canonical remote, reconcile the local default branch with the Source Control Manager's repo_state, then rerun check.", id),
 	}
 }
 

@@ -957,14 +957,16 @@ same result as a working tree without the manifest.
 ### `check`
 
 ```text
-ears-manager check [--at FULL-SHA] [--change-set CS-ID]
+ears-manager check [--change-set CS-ID]
 ```
 
-`check` is read-only. Without `--change-set`, it validates the complete
-project store, registry, projection classification, all records, and all
-referential, relationship, EARS, artifact-digest, structured-store-integrity,
-and change-set rules, including artifact-operation consistency, impact
-completeness, and default-branch freshness for every proposed change set. For
+`check` is read-only and validates the working-tree project; immutable `--at`
+reads are not supported for this command. Without `--change-set`, it validates
+the complete project store, registry, projection classification, all records,
+and all referential, relationship, and EARS rules, plus artifact-digest,
+structured-store-integrity, and change-set rules. This includes
+artifact-operation consistency, impact completeness, and default-branch
+freshness for every proposed change set. For
 each artifact registered on the default-branch project configuration, `check`
 requires the artifact to remain registered. A registered artifact whose path
 or canonical text differs from the default-branch tree requires an
@@ -979,6 +981,10 @@ that the delta is represented in a proposed manifest; it does not prove that
 `ears-manager artifact put` was invoked or prevent coordinated manual edits.
 `artifact.digest_mismatch` remains a separate diagnostic for content that does
 not match its registered digest.
+
+Every full or scoped `check` requires a resolvable default-branch head for the
+artifact comparison, even when the project has no change sets. Change-set
+status and freshness checks also consume that head when change sets exist.
 
 During project initialization, the default-branch tree may have no
 `.protobot/project.yaml`. In that case its base artifact registry is empty,
@@ -1085,7 +1091,7 @@ carries no diagnostics. A diagnostic arrives in `error.diagnostics`.
 | `project.not_initialized` | `error.code` | The Git working tree has no `.protobot/project.yaml` | `3` |
 | `project.configuration_unreadable` | `error.code` | `.protobot/project.yaml` cannot be inspected for a reason other than its absence, for example because `.protobot` is a regular file | `6` |
 | `project.load_failed` | `error.code` | With `--change-set` only: the project does not load, and validation names no diagnostic | `3` |
-| `project.default_branch_unresolved` | `error.code` | A change set exists, and the default branch does not resolve to a commit | `3` |
+| `project.default_branch_unresolved` | `error.code` | The default branch does not resolve to a commit; every `check` needs it for artifact comparison, including with zero change sets, and change-set status/freshness checks need it when change sets exist | `3` |
 | `project.default_configuration_invalid` | `error.code` | The default-branch project configuration exists but is not a regular, decodable file | `3` |
 | `project.invalid_configuration` | Both | The review mode, default branch, or branch prefix is invalid, or the canonical remote is not a supported form. It is also the `error.code` of every status `3` result that carries diagnostics | `3` |
 | `schema.unsupported_version` | Diagnostic | A schema version is missing or is not the supported version | `3` |

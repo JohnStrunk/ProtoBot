@@ -26,6 +26,11 @@ func TestCheckRequiresProposedArtifactOperationForDigestUpdatedHandEdit(t *testi
 	if strings.Contains(stdout, `"code":"artifact.digest_mismatch"`) {
 		t.Fatalf("test did not update the artifact digest: %s", stdout)
 	}
+	for _, guidance := range []string{"proposed change set", "canonical remote", "repo_state", "rerun check"} {
+		if !strings.Contains(stdout, guidance) {
+			t.Fatalf("operation diagnostic omitted %q guidance: %s", guidance, stdout)
+		}
+	}
 	if after := gitOutput(t, root, "status", "--porcelain", "--untracked-files=all"); after != before {
 		t.Fatalf("check changed git status\nbefore:\n%s\nafter:\n%s", before, after)
 	}
@@ -85,6 +90,9 @@ func TestCheckDoesNotCountApprovedArtifactOperation(t *testing.T) {
 	}
 
 	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	assertValidationFailure(t, code, stdout, stderr)
+	assertArtifactDiagnostic(t, stdout, "artifact.operation_missing", artifact.ID)
+	code, stdout, stderr = runCLI(nil, "--output", "json", "check", "--change-set", approvedID)
 	assertValidationFailure(t, code, stdout, stderr)
 	assertArtifactDiagnostic(t, stdout, "artifact.operation_missing", artifact.ID)
 }
@@ -197,6 +205,33 @@ func TestScopedCheckRequiresProposedArtifactOperation(t *testing.T) {
 	assertArtifactDiagnostic(t, stdout, "artifact.operation_missing", artifact.ID)
 }
 
+func TestScopedCheckReportsStaleTargetBeforeArtifactOperationMissing(t *testing.T) {
+	root, artifact, proposedID := newArtifactOperationFixture(t)
+	branch := gitOutput(t, root, "symbolic-ref", "--short", "HEAD")
+	git(t, root, "add", ".protobot")
+	git(t, root, "commit", "-m", "record proposed change set")
+
+	writeArtifactContent(t, root, artifact.ID, []byte("# Proposed artifact revision\n"))
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-m", "revise artifact in proposal")
+
+	git(t, root, "checkout", "main")
+	writeArtifactContent(t, root, artifact.ID, []byte("# Default artifact revision\n"))
+	git(t, root, "add", "-A")
+	git(t, root, "commit", "-m", "advance default artifact")
+	git(t, root, "checkout", branch)
+	t.Chdir(root)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check", "--change-set", proposedID)
+	assertFailureCode(t, code, stdout, stderr, 5, "DEFAULT_MOVED")
+	if !hasDiagnostic(t, stdout, "DEFAULT_MOVED", "base_commit") {
+		t.Fatalf("scoped check omitted the stale target freshness diagnostic: %s", stdout)
+	}
+	if hasDiagnostic(t, stdout, "artifact.operation_missing", fmt.Sprintf("artifacts[id=%s].operation", artifact.ID)) {
+		t.Fatalf("scoped check reported operation mismatch before target freshness: %s", stdout)
+	}
+}
+
 func TestCheckIgnoresMetadataOnlyArtifactChanges(t *testing.T) {
 	root, artifact, _ := newArtifactOperationFixture(t)
 	rewriteProjectConfig(t, root, func(config *records.ProjectConfig) {
@@ -211,6 +246,22 @@ func TestCheckIgnoresMetadataOnlyArtifactChanges(t *testing.T) {
 
 	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
 	assertSuccess(t, code, stdout, stderr)
+}
+
+func TestCheckRequiresResolvableDefaultBranchWithoutChangeSets(t *testing.T) {
+	root := newFixtureProject(t)
+	t.Chdir(root)
+	snapshot, err := specvalidation.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snapshot.Config.Artifacts) == 0 || len(snapshot.ChangeSets) != 0 {
+		t.Fatalf("fixture has %d artifact(s) and %d change set(s), want registered artifacts and no change sets", len(snapshot.Config.Artifacts), len(snapshot.ChangeSets))
+	}
+
+	git(t, root, "branch", "-m", "main", "trunk")
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	assertFailureCode(t, code, stdout, stderr, 3, "project.default_branch_unresolved")
 }
 
 func TestProjectInitBranchRequiresOperationForNewArtifactPathWithoutBaseConfig(t *testing.T) {
@@ -295,6 +346,77 @@ func TestGitTreeFileDistinguishesAbsenceFromReadFailure(t *testing.T) {
 	if failure == nil || failure.Code != "revision.read_failed" || present || regular {
 		t.Fatalf("invalid revision = present %t, regular %t, failure %#v", present, regular, failure)
 	}
+	git(t, root, "update-index", "--chmod=+x", "docs/vision.md")
+	git(t, root, "commit", "-m", "mark artifact executable")
+	head = gitOutput(t, root, "rev-parse", "main")
+	_, present, regular, failure = gitTreeFile(root, head, "docs/vision.md")
+	if failure != nil || !present || !regular {
+		t.Fatalf("executable tree path = present %t, regular %t, failure %#v", present, regular, failure)
+	}
+}
+
+func TestScopedCheckAcceptsOperationInAnotherProposedChangeSet(t *testing.T) {
+	source, _, _, _, _ := selfHostingSourceWithApprovedAndProposedChangeSets(t)
+	root := newSelfHostingCheckoutFrom(t, source)
+	t.Chdir(root)
+	snapshot, err := specvalidation.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proposed, failure := proposedChangeSetIDs(root, snapshot)
+	if failure != nil {
+		t.Fatalf("resolve proposed change sets: %v", failure)
+	}
+	var proposedIDs []string
+	for _, document := range snapshot.ChangeSets {
+		if proposed[document.Value.ID] {
+			proposedIDs = append(proposedIDs, document.Value.ID)
+		}
+	}
+	if len(proposedIDs) < 2 {
+		t.Fatalf("fixture has %d proposed change set(s), want at least two", len(proposedIDs))
+	}
+	artifact := snapshot.Config.Artifacts[0]
+	for _, id := range proposedIDs {
+		removeArtifactOperation(t, root, id, artifact.ID)
+	}
+	writeArtifactContent(t, root, artifact.ID, []byte("# Revised artifact\n"))
+	writeArtifactOperation(t, root, proposedIDs[1], artifact.ID)
+
+	updated, err := specvalidation.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetHasOperation, otherHasOperation := false, false
+	for _, document := range updated.ChangeSets {
+		for _, operation := range document.Value.ArtifactOperations {
+			if operation.ArtifactID != artifact.ID {
+				continue
+			}
+			targetHasOperation = targetHasOperation || document.Value.ID == proposedIDs[0]
+			otherHasOperation = otherHasOperation || document.Value.ID == proposedIDs[1]
+		}
+	}
+	if targetHasOperation || !otherHasOperation {
+		t.Fatalf("fixture operation placement: target=%t, other proposed=%t", targetHasOperation, otherHasOperation)
+	}
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check", "--change-set", proposedIDs[0])
+	assertSuccess(t, code, stdout, stderr)
+}
+
+func TestCheckRejectsUndecodableDefaultBranchProjectConfig(t *testing.T) {
+	root := newFixtureProject(t)
+	git(t, root, "checkout", "-b", "feature")
+	git(t, root, "checkout", "main")
+	writeTestFile(t, root, ".protobot/project.yaml", "project: [\n")
+	git(t, root, "add", ".protobot/project.yaml")
+	git(t, root, "commit", "-m", "write undecodable default config")
+	git(t, root, "checkout", "feature")
+	t.Chdir(root)
+
+	code, stdout, stderr := runCLI(nil, "--output", "json", "check")
+	assertFailureCode(t, code, stdout, stderr, 3, "project.default_configuration_invalid")
 }
 
 func newArtifactOperationFixture(t *testing.T) (string, records.ArtifactEntry, string) {
@@ -367,6 +489,33 @@ func writeArtifactOperation(t *testing.T, root, changeSetID, artifactID string) 
 		t.Fatal(err)
 	}
 	changeSet.ArtifactOperations = []records.ArtifactOperation{{Action: "revise", ArtifactID: artifactID}}
+	data, err := storage.Encode(changeSet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	refreshProjectDigests(t, root)
+}
+
+func removeArtifactOperation(t *testing.T, root, changeSetID, artifactID string) {
+	t.Helper()
+	path := changeSetPath(t, root, changeSetID)
+	var changeSet records.ChangeSet
+	if err := storage.ReadFile(path, &changeSet); err != nil {
+		t.Fatal(err)
+	}
+	operations := changeSet.ArtifactOperations[:0]
+	for _, operation := range changeSet.ArtifactOperations {
+		if operation.ArtifactID != artifactID {
+			operations = append(operations, operation)
+		}
+	}
+	if len(operations) == len(changeSet.ArtifactOperations) {
+		return
+	}
+	changeSet.ArtifactOperations = operations
 	data, err := storage.Encode(changeSet)
 	if err != nil {
 		t.Fatal(err)

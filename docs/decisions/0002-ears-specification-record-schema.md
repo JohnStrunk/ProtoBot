@@ -448,8 +448,17 @@ is reported as `artifact.operation_missing`.
 This check establishes that an artifact delta is represented in a proposed
 manifest. It does not prove that `ears-manager artifact put` was invoked or
 prevent coordinated manual edits to the artifact and manifest. `artifact put`
-remains the governed write path. The `owner` field remains the responsible
-authority across ordinary revisions; it is not a last-mutator or audit field.
+remains the governed write path. The baseline uses the existing default-branch
+resolver, whose repository settings come from the working-tree
+`.protobot/project.yaml`: it uses the local `repository.default_branch` ref
+when it resolves, otherwise a resolved remote-tracking ref for
+`repository.canonical_remote`; `ears-manager` never fetches. A hand edit to
+`repository.default_branch`, or to `repository.canonical_remote` when the
+remote-tracking fallback is used, can retarget the baseline. This is outside
+the operation-record check. Rule 5 in `AGENTS.md` prohibits hand-editing
+`.protobot/project.yaml`; Rule 6 requires reviewers to inspect it and flag
+hand edits. The `owner` field remains the responsible authority across
+ordinary revisions; it is not a last-mutator or audit field.
 
 Structured requirement, interface, and change-set stores are configured in
 the `stores` block of `.protobot/project.yaml` and are not artifact-registry

@@ -805,8 +805,25 @@ in any proposed change set; it also rejects unregistration of a default-branch
 artifact. Four layers detect these cases, in order of how early they fire.
 This check verifies that the delta is represented in a proposed manifest; it
 does not prove that `ears-manager artifact put` was invoked or prevent
-coordinated manual edits to the artifact and manifest. File-source provenance
+coordinated manual edits to artifact content, its registry digest, and the
+manifest. Manual edits to `repository.default_branch`, or to
+`repository.canonical_remote` when the remote-tracking fallback is used, can
+also retarget the baseline. Both escape paths are outside the operation-record
+guarantee. Rule 5 in `AGENTS.md` prohibits hand-editing registered
+specification artifacts and `.protobot/project.yaml`; Rule 6 in `AGENTS.md`
+requires reviewers to inspect them and flag hand edits. File-source provenance
 remains a separate fail-open gap ([File-source arguments][fail-open]).
+
+The comparison uses the existing default-branch resolver and repository
+settings in the working-tree `.protobot/project.yaml`: it uses the local
+`repository.default_branch` ref when that resolves, otherwise a resolved
+remote-tracking ref for `repository.canonical_remote`; `ears-manager` never
+fetches. Because these settings select the baseline and are not independently
+anchored by this operation check, a hand edit to `repository.default_branch`,
+or to `repository.canonical_remote` when the remote-tracking fallback is used,
+can retarget it. This is outside the operation-record guarantee. Rule 5 in
+`AGENTS.md` prohibits hand-editing `.protobot/project.yaml`; Rule 6 requires
+reviewers to inspect it and flag hand edits.
 
 | Layer | Where | Catches |
 | --- | --- | --- |
@@ -856,10 +873,16 @@ CI runs the same digest and operation checks inside `ears-manager check`.
 Therefore, a digest-rewritten artifact edit without a matching proposed
 operation is caught before merge, as is unregistration of a default-branch
 artifact. A matching operation proves only that the delta is represented in
-the manifest; coordinated manual edits to the artifact and manifest can still
-pass, so this is not proof of `artifact put` provenance. Path ownership in CI
-remains a separate layer. File-source provenance is still not established by
-these checks ([File-source arguments][fail-open]).
+the manifest; it does not prove `ears-manager artifact put` ran or prevent
+coordinated manual edits to artifact content, its registry digest, and the
+manifest. Nor does it prevent hand edits to `repository.default_branch`, or to
+`repository.canonical_remote` when the remote-tracking fallback is used, that
+retarget the baseline. These two escape paths are outside the operation-record
+guarantee. Rule 5 prohibits hand-editing registered specification artifacts
+and `.protobot/project.yaml`; Rule 6 requires reviewers to inspect them and
+flag hand edits. Path ownership in CI remains a separate layer. File-source
+provenance is still not established by these checks
+([File-source arguments][fail-open]).
 
 ---
 
@@ -988,7 +1011,7 @@ detects with a stable code
 | `project.yaml` is not at the working-tree root | Project resolution | Names both the file location and the working-tree root | Move the session to the correct checkout; the Drafting Table never relocates the file |
 | Store schema version newer than the tool | `ears-manager` reads `schema_versions` | Names the store, the file version, and the supported version | Use the supported version; after v1 adoption, perform any upgrade through a reviewed migration change set |
 | Registered artifact or structured-store digest mismatch | Pre-stage comparison | Names the safe configuration field and mismatch class | Discard the direct edit, or re-apply it through `ears-manager` |
-| Registered artifact path or canonical content differs from the default-branch artifact without a matching proposed operation | `ears-manager check` | `artifact.operation_missing`, naming the artifact-registry entry | Record the artifact delta in a proposed change set through the governed `ears-manager` interface; the check does not prove command provenance |
+| Registered artifact path or canonical content differs from the default-branch artifact without a matching proposed operation | `ears-manager check` | `artifact.operation_missing`, naming the artifact-registry entry | Rule 5 prohibits hand-editing `.protobot/project.yaml`; Rule 6 requires reviewers to inspect it and flag hand edits because its settings select the baseline. If the delta is already approved on the canonical remote but the local default branch is behind, reconcile it through SCM `repo_state` and rerun `check`; otherwise record the matching operation in a proposed change set. The check does not prove command provenance |
 | Default-branch registered artifact is absent from the current registry | `ears-manager check` | `artifact.unregistered`, naming the artifact-registry entry | Restore the registration through the governed `ears-manager` interface; registered artifacts cannot be unregistered |
 | Registered path or store directory not classified `shared` in the projection manifest | `ears-manager check`, and every `ears-manager` write that validates the full project, including `change-set create` | Names the path, the required class `shared`, and the current class when an entry covers the path | Through a reviewed policy edit of `projection.yaml`, restore the missing `shared` entry, or change the covering entry to `shared`. The Source Control Manager keeps that edit out of any change-set commit, so the person commits it apart and merges it through its own review; `ears-manager` commands then succeed. `ears-manager` does not restore or change another path's entry, because that entry would read as a policy edit mixed into the change set |
 | Branch `cs/<nnnnn>-<slug>` already exists | Branch creation | Names the branch and whether it is local, remote, or both | Resume that change set, or create the change set under a new ID |
@@ -1055,8 +1078,6 @@ protection rule.
 | Amend a pushed commit | Refused; the pushed commit is unchanged |
 | Stage an unregistered file | Refused; the file stays untracked or unstaged |
 | Edit, add, delete, or rename a structured record outside `ears-manager` | Refused by the store digest comparison; no commit is created |
-| Edit a registered artifact and update its registry digest by hand without adding a matching proposed `artifact_operations[]` entry | `ears-manager check` fails with `artifact.operation_missing`; the digest is valid, but no commit is created |
-| Remove a default-branch registered artifact from the current registry | `ears-manager check` fails with `artifact.unregistered`; no commit is created |
 | Create or write a `wi/` branch | Refused; no such ref exists in the fixture |
 | Write under `.protobot/attestations/` | Refused; the path stays absent |
 | Push to the default branch, in either `review_mode` | Refused before the push runs |
