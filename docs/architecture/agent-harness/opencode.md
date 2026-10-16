@@ -408,11 +408,14 @@ row that depends on the guard:
 | Tool of another MCP server | Not offered | The user's own configuration |
 | Subagent | `task` not offered | Not applicable |
 
-Later integrity and CI layers catch unauthorized persistent edits to
-registered paths; they do not enforce shell grammar, argument values,
-variable expansion, or file-source provenance. In particular, they do
-not make an allowed shell command safe when the plugin is unavailable;
-see [What the harness layer stops][layer-stops].
+Later integrity and CI layers catch registered-artifact digest mismatches
+and path/canonical-content deltas without a matching proposed operation;
+they do not enforce shell grammar, argument values, variable expansion,
+or file-source provenance. A coordinated manual edit to an artifact and
+its matching operation can pass, so these checks do not prove that
+`ears-manager artifact put` was invoked. In particular, they do not make
+an allowed shell command safe when the plugin is unavailable; see
+[What the harness layer stops][layer-stops].
 
 ---
 

@@ -147,6 +147,9 @@ func checkState() (projectState, *commandFailure) {
 	if failure := checkProposedBaseFreshness(root, snapshot, proposed, head); failure != nil {
 		return projectState{root: root}, failure
 	}
+	if failure := checkArtifactOperationDeltas(root, snapshot, proposed); failure != nil {
+		return projectState{root: root}, failure
+	}
 	return projectState{root: root, snapshot: snapshot, observed: observeSnapshot(root, snapshot), head: head, diagnostics: result.Diagnostics}, nil
 }
 
@@ -368,6 +371,9 @@ func validateScopedCheck(root string, snapshot specvalidation.Snapshot, targetIn
 		unique = append(unique, diagnostic)
 	}
 	if failure := failureFromDiagnostics(unique); failure != nil {
+		return failure
+	}
+	if failure := checkArtifactOperationDeltas(root, snapshot, proposedIDs); failure != nil {
 		return failure
 	}
 	if !proposed[targetID] {
